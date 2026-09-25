@@ -4,7 +4,6 @@ import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.execution.Field
 import caliban.gateway.PhaseHooks
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.execution.SubgraphExecutor.ErrorPolicy
 import caliban.parsing.adt.OperationType
 import caliban._
@@ -27,8 +26,7 @@ private[gateway] trait SubgraphExecutor[-R] {
 
   def subscribe(request: GraphQLRequest)(implicit
     trace: Trace
-  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
-    ZIO.fail(SubscriptionTermination.Source)
+  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]]
 
 }
 
@@ -55,14 +53,14 @@ private[gateway] object SubgraphExecutor {
 
   def failureOutcome(failure: Failure): Outcome =
     failure match {
-      case TransportFailure(_)                                                                     => Outcome.TransportError
-      case TimeoutFailure                                                                          => Outcome.Timeout
-      case HeaderFailure(_) | InvalidRequest                                                       => Outcome.RequestError
-      case RequestTooLarge | ResponseTooLarge | ResponseNestingTooDeep | ResponseStructureTooLarge =>
+      case TransportFailure(_)                                         => Outcome.TransportError
+      case TimeoutFailure                                              => Outcome.Timeout
+      case HeaderFailure(_) | InvalidRequest                           => Outcome.RequestError
+      case RequestTooLarge | ResponseTooLarge | ResponseNestingTooDeep =>
         Outcome.LimitExceeded
-      case HttpFailure(status) if status >= 400 && status < 500                                    => Outcome.RequestError
-      case HttpFailure(_)                                                                          => Outcome.TransportError
-      case RedirectResponse | UnsupportedMediaType | InvalidResponse                               => Outcome.InvalidResponse
+      case HttpFailure(status) if status >= 400 && status < 500        => Outcome.RequestError
+      case HttpFailure(_)                                              => Outcome.TransportError
+      case RedirectResponse | UnsupportedMediaType | InvalidResponse   => Outcome.InvalidResponse
     }
 
   sealed trait ErrorPolicy {
@@ -91,23 +89,19 @@ private[gateway] object SubgraphExecutor {
       def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = forFetch(fields, errors)
 
       def forFetch(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = {
-        val (clientErrors, needsFallback) = errors.foldLeft((List.empty[CalibanError], false)) {
-          case ((accepted, fallback), error: CalibanError.ExecutionError)
-              if RemoteError.hasClientPath(fields, error.path) =>
-            (error.copy(locationInfo = None) :: accepted, fallback)
-          case ((accepted, fallback), error: CalibanError.ExecutionError) =>
+        val placed = errors.map {
+          case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
+            Some(error.copy(locationInfo = None))
+          case error: CalibanError.ExecutionError                                                  =>
             error.path match {
               case PathValue.Key(name) :: _ if fields.exists(_.aliasedName == name) =>
-                (RemoteError.at(List(PathValue.Key(name))) :: accepted, fallback)
-              case _                                                                =>
-                (accepted, true)
+                Some(RemoteError.at(List(PathValue.Key(name))))
+              case _                                                                => None
             }
-          case ((accepted, fallback), error)                              =>
-            (error :: accepted, fallback)
+          case error                                                                               => Some(error)
         }
 
-        clientErrors.reverse :::
-          (if (needsFallback) RemoteError.forFields(fields) else Nil)
+        placed.flatten ::: (if (placed.exists(_.isEmpty)) RemoteError.forFields(fields) else Nil)
       }
 
       def entityFallback(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError =
@@ -130,7 +124,6 @@ private[gateway] object SubgraphExecutor {
   case object UnsupportedMediaType                    extends Failure
   case object ResponseTooLarge                        extends Failure
   case object ResponseNestingTooDeep                  extends Failure
-  case object ResponseStructureTooLarge               extends Failure
   case object InvalidResponse                         extends Failure
 }
 

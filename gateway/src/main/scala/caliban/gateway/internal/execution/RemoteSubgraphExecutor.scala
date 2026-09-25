@@ -3,7 +3,7 @@ package caliban.gateway.internal.execution
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.internal.{ GatewayHttpClient, SubscriptionTermination }
+import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport, SubscriptionTermination }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
 import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
@@ -21,14 +21,13 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   endpoint: URL,
   http: GatewayHttpClient,
   config: RemoteGraphQLConfig[R],
-  responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits,
+  maxResponseDepth: Int,
   deduplicator: Option[RemoteSubgraphExecutor.QueryDeduplicator],
   hooks: PhaseHooks[R],
-  remoteErrorMessages: Boolean = false,
+  remoteErrorMessages: Boolean,
   fixedHeaders: Option[List[Header]] = None
 ) extends SubgraphExecutor[R] {
   import RemoteSubgraphExecutor._
-  import RemoteTransport._
 
   val errorPolicy: SubgraphExecutor.ErrorPolicy = SubgraphExecutor.ErrorPolicy.Remote
 
@@ -76,24 +75,21 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source).flatMap { body =>
           if (!hooks.attempt.enabled) sourceScope.extend(subscription.open(headers, request, body))
           else {
-            val target = config.subscription.endpoint.getOrElse(endpoint)
-            val method = config.subscription.transport match {
-              case RemoteSubscriptionConfig.Sse(false) => "POST"
-              case _                                   => "GET"
+            val post = config.subscription.transport match {
+              case RemoteSubscriptionConfig.Sse(useGet) => !useGet
+              case RemoteSubscriptionConfig.WebSocket   => false
             }
             hooks.attempt.runWith(
               Event.Attempt(
                 name,
                 0,
-                if (method == "POST") body.length.toLong else 0L,
-                target.host,
-                target.port,
+                if (post) body.length.toLong else 0L,
+                subscription.target.host,
+                subscription.target.port,
                 headers,
-                method
+                if (post) "POST" else "GET"
               )
-            )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(
-              Result.fromExit(_)(_ => Result(Outcome.Success), _ => Result(Outcome.TransportError))
-            )
+            )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(subscriptionResult)
           }
         }
 
@@ -102,9 +98,12 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         else
           hooks.subgraphCall.runWith(Event.SubgraphCall(name, OperationType.Subscription, headers))(event =>
             open(event.headers)
-          )(Result.fromExit(_)(_ => Result(Outcome.Success), _ => Result(Outcome.TransportError)))
+          )(subscriptionResult)
       }
     }
+
+  private val subscriptionResult: Exit[Throwable, Any] => Result =
+    Result.fromExit(_)(_ => Result(Outcome.Success), _ => Result(Outcome.TransportError))
 
   private val execution        = config.execution
   private val staticHeaders    = sanitizeHeaders(execution.headers)
@@ -139,7 +138,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       endpoint,
       http,
       config,
-      responseStructureLimits,
+      maxResponseDepth,
       deduplicator,
       hooks,
       remoteErrorMessages,
@@ -250,19 +249,13 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   ): Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     if (response.body.limitExceeded) Left(SubgraphExecutor.ResponseTooLarge)
     else if (response.status.isRedirection) Left(SubgraphExecutor.RedirectResponse)
-    else {
-      RemoteTransport.mediaType(response.contentType) match {
-        case Some("application/graphql-response+json") =>
-          decodeBody(response.body.bytes) match {
-            case result @ Right(_)                     => result
-            case Left(_) if !response.status.isSuccess => Left(SubgraphExecutor.HttpFailure(response.status.code))
-            case failure                               => failure
-          }
-        case _ if !response.status.isSuccess           => Left(SubgraphExecutor.HttpFailure(response.status.code))
-        case Some("application/json")                  => decodeBody(response.body.bytes)
-        case _                                         => Left(SubgraphExecutor.UnsupportedMediaType)
+    else if (RemoteTransport.isJsonResponse(response.status, response.contentType))
+      decodeBody(response.body.bytes) match {
+        case Left(_) if !response.status.isSuccess => Left(SubgraphExecutor.HttpFailure(response.status.code))
+        case result                                => result
       }
-    }
+    else if (!response.status.isSuccess) Left(SubgraphExecutor.HttpFailure(response.status.code))
+    else Left(SubgraphExecutor.UnsupportedMediaType)
 
   private def decodeBody(bytes: Array[Byte]): Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     for {
@@ -282,14 +275,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       .flatMap(validateResponse)
 
   private def validateStructure(bytes: Array[Byte]): Either[SubgraphExecutor.Failure, Unit] =
-    validateJsonStructure(
-      bytes,
-      responseStructureLimits.maxResponseDepth,
-      responseStructureLimits.maxResponseTokens
-    ).left.map {
-      case RemoteTransport.JsonDepthExceeded  => SubgraphExecutor.ResponseNestingTooDeep
-      case RemoteTransport.JsonTokensExceeded => SubgraphExecutor.ResponseStructureTooLarge
-    }
+    Either.cond(RemoteTransport.withinJsonDepth(bytes, maxResponseDepth), (), SubgraphExecutor.ResponseNestingTooDeep)
 
   private def validateResponse(
     response: GraphQLResponse[CalibanError]
@@ -329,7 +315,7 @@ private[gateway] object RemoteSubgraphExecutor {
             endpoint,
             http,
             config,
-            ResponseStructureLimits.default,
+            DefaultMaxResponseDepth,
             deduplicator,
             hooks,
             remoteErrorMessages
@@ -337,11 +323,7 @@ private[gateway] object RemoteSubgraphExecutor {
         }
     }
 
-  final case class ResponseStructureLimits(maxResponseDepth: Int, maxResponseTokens: Int)
-
-  object ResponseStructureLimits {
-    val default: ResponseStructureLimits = ResponseStructureLimits(maxResponseDepth = 128, maxResponseTokens = 250000)
-  }
+  final val DefaultMaxResponseDepth = 128
 
   private final case class AttemptResponse(
     response: GraphQLResponse[CalibanError],

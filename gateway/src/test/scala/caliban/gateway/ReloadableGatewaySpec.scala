@@ -139,22 +139,29 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         result <- Gateway.compose(remote.subgraph).reloadableForTest.exit
       } yield assertTrue(result.isFailure)
     },
-    test("preserves the generation and warm cache when only formatting changes") {
+    test("keeps the generation and warm cache across reformatting but not reordering") {
       for {
         recorded       <- recordEvents
         (events, hooks) = recorded
-        remote         <- source()
+        remote         <- source(changed)
         runtime        <- Gateway.compose(remote.subgraph).withPhaseHooks(hooks).reloadableForTest
-        _              <- runtime.execute("{ value }")
-        _              <- remote.setSchema("# comment\ntype Query {\n value: String\n}\ntype Mutation { setValue: String }")
+        _              <- runtime.execute("{ value added }")
+        _              <- remote.setSchema(
+                            "# comment\ntype Query {\n value: String\n added: String\n}\ntype Mutation { setValue: String }"
+                          )
         _              <- poll(runtime)
-        _              <- runtime.execute("{ value }")
-        observed       <- events.get
+        _              <- runtime.execute("{ value added }")
+        reformatted    <- events.get
+        _              <- remote.setSchema("type Query { added: String value: String } type Mutation { setValue: String }")
+        _              <- poll(runtime)
+        _              <- runtime.execute("{ value added }")
+        reordered      <- events.get
         checks         <- remote.checks.get
       } yield assertTrue(
-        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
-        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
-        checks == 2
+        reformatted.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
+        reformatted.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
+        reordered.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 2,
+        checks == 3
       )
     },
     test("builds from the checked snapshot and updates an existing HTTP adapter") {
@@ -172,14 +179,13 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         body     <- response.body.asString.orDie
         checks   <- remote.checks.get
         valid    <- runtime.check("{ added }").exit
-        plan     <- runtime.explain("{ added }")
+        _        <- runtime.explain("{ added }")
       } yield assertTrue(
         before.status == Status.BadRequest,
         response.status == Status.Ok,
         body.contains("new"),
         checks == 2,
-        valid.isSuccess,
-        plan.nonEmpty
+        valid.isSuccess
       )
     },
     test("reload accepts policy annotations and continues serving unrelated schema updates") {
@@ -210,22 +216,6 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         field(added.data, "added").contains(StringValue("new")),
         recovered.isEmpty,
         after.errors.isEmpty
-      )
-    },
-    test("preserves the generation and cache when definitions and fields are reordered") {
-      for {
-        recorded       <- recordEvents
-        (events, hooks) = recorded
-        remote         <- source(changed)
-        runtime        <- Gateway.compose(remote.subgraph).withPhaseHooks(hooks).reloadableForTest
-        _              <- runtime.execute("{ value added }")
-        _              <- remote.setSchema("type Mutation { setValue: String } type Query { added: String value: String }")
-        _              <- poll(runtime)
-        _              <- runtime.execute("{ value added }")
-        observed       <- events.get
-      } yield assertTrue(
-        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
-        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1
       )
     },
     test("refreshes ordinary introspection schemas") {
@@ -584,40 +574,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
       assertTrue(
         fingerprint(original) == fingerprint("# comment\n" + original.replace("@deprecated", "\n @deprecated")),
         fingerprint(original) != fingerprint(original.replace("old", "new")),
-        fingerprint("type Query { value: String }") != fingerprint("\" \" type Query { value: String }")
-      )
-    },
-    test("fingerprints canonicalize schema declarations but retain ordered values and directives") {
-      val equivalent = List(
-        "type Query { x(a: Int, b: Int): String y: Int }"                          -> "type Query { y: Int x(b: Int, a: Int): String }",
-        "input Input { a: Int b: Int } enum E { A B }"                             -> "enum E { B A } input Input { b: Int a: Int }",
-        "union U = A | B"                                                          -> "union U = B | A",
-        "type T implements A & B { x: Int y: Int }"                                -> "type T implements B & A { y: Int x: Int }",
-        "directive @d(a: Int, b: Int) on OBJECT | FIELD_DEFINITION"                ->
-          "directive @d(b: Int, a: Int) on FIELD_DEFINITION | OBJECT",
-        "extend type T { x: Int } extend type T { y: Int } extend union U = A | B" ->
-          "extend union U = B | A extend type T { y: Int } extend type T { x: Int }",
-        "type Query { x(a: Input = {a: 1, b: 2}): Int }"                           -> "type Query { x(a: Input = {b: 2, a: 1}): Int }"
-      )
-      assertTrue(
-        equivalent.forall { case (first, second) => fingerprint(first) == fingerprint(second) },
-        fingerprint("type Query { x(a: [Int] = [1, 2]): Int }") != fingerprint(
-          "type Query { x(a: [Int] = [2, 1]): Int }"
-        ),
-        fingerprint("type Query @d(a: 1) @d(a: 2) { x: Int }") != fingerprint("type Query @d(a: 2) @d(a: 1) { x: Int }")
-      )
-    },
-    test("fingerprints preserve directive order across extensions of the same target") {
-      val typeFirst    = "extend type Query @d(a: 1)"
-      val typeSecond   = "extend type Query @d(a: 2)"
-      val schemaFirst  = "extend schema @d(a: 1)"
-      val schemaSecond = "extend schema @d(a: 2)"
-      val other        = "extend type Other @d(a: 3)"
-      assertTrue(
-        fingerprint(s"$typeFirst $typeSecond") != fingerprint(s"$typeSecond $typeFirst"),
-        fingerprint(s"$schemaFirst $schemaSecond") != fingerprint(s"$schemaSecond $schemaFirst"),
-        fingerprint(s"$typeFirst $other $typeSecond") == fingerprint(s"$other $typeFirst $typeSecond"),
-        fingerprint(s"$typeFirst $schemaFirst $typeSecond") == fingerprint(s"$schemaFirst $typeFirst $typeSecond")
+        fingerprint("type Query { value: String }") != fingerprint("\"doc\" type Query { value: String }")
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)

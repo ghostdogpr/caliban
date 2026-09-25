@@ -1,20 +1,20 @@
 package caliban.gateway.internal.acquisition
 
-import caliban.{ InputValue, ResponseValue }
-import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SubgraphAcquisitionError }
-import caliban.gateway.SubgraphAcquisitionError._
+import caliban.{ GraphQLRequest, InputValue, ResponseValue }
+import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SchemaAcquisitionError, SubgraphAcquisitionError }
+import caliban.gateway.SchemaAcquisitionError.InvalidResponse
+import caliban.gateway.SubgraphAcquisitionError.IntrospectionErrors
 import caliban.gateway.internal.GatewayHttpClient
+import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition._
 import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.parsers.Parsers
 import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
-
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
 
@@ -25,31 +25,17 @@ private[gateway] object IntrospectionClient {
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
-    for {
-      bytes    <- RemoteSchemaAcquisition.fetchBytes(endpoint, Query, OperationName, config, http)
-      response <- ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(IntrospectionResponseDecodingFailed(_))
-      _        <- ZIO
-                    .fail(ParsingDepthExceeded(config.maxParsingDepth))
-                    .unless(defaultValuesWithinDepth(response, config.maxParsingDepth))
-      envelope <- ZIO.fromEither(asObject(response, "response")).mapError(IntrospectionResponseDecodingFailed(_))
-      errors   <- ZIO
-                    .fromOption(RemoteSchemaAcquisition.responseErrors(envelope))
-                    .orElseFail(IntrospectionResponseDecodingFailed(InvalidResponse("errors")))
-      _        <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
-      document <- ZIO.fromEither(decode(envelope.getOrNull("data"))).mapError(IntrospectionResponseDecodingFailed(_))
-    } yield document
+    fetchData[SubgraphAcquisitionError](endpoint, Request, config, http)(isGraphQLResponse, IntrospectionErrors(_))
+      .flatMap(data => ZIO.fromEither(decode(data, config.maxParsingDepth)))
 
-  private final case class InvalidResponse(path: String)
-      extends Exception(s"Unexpected introspection response shape at '$path'.")
-
-  private def decode(data: ResponseValue): Either[InvalidResponse, Document] =
+  private def decode(data: ObjectValue, maxDepth: Int): Either[SchemaAcquisitionError, Document] =
     for {
-      schema           <- objectField(data, "__schema", "__schema")
+      schema           <- objectField(data, "__schema", "$.data")
       queryType        <- rootTypeName(schema, "queryType")
       mutationType     <- rootTypeName(schema, "mutationType")
       subscriptionType <- rootTypeName(schema, "subscriptionType")
-      types            <- list(schema, "types", "__schema.types")(typeDefinition)
-      directives       <- list(schema, "directives", "__schema.directives")(directive)
+      types            <- list(schema, "types", "$.data.__schema.types")(typeDefinition(maxDepth))
+      directives       <- list(schema, "directives", "$.data.__schema.directives")(directive(maxDepth))
     } yield {
       val definition = SchemaDefinition(Nil, queryType, mutationType, subscriptionType, None)
       val userTypes  = types.flatten.filterNot(_.name.startsWith("__"))
@@ -59,18 +45,21 @@ private[gateway] object IntrospectionClient {
   private def rootTypeName(schema: ObjectValue, field: String): Either[InvalidResponse, Option[String]] =
     schema.getOrNull(field) match {
       case null | NullValue   => Right(None)
-      case value: ObjectValue => optionalString(value, "name", s"__schema.$field.name")
-      case _                  => Left(InvalidResponse(s"__schema.$field"))
+      case value: ObjectValue => optionalString(value, "name", s"$$.data.__schema.$field")
+      case _                  => Left(InvalidResponse(s"$$.data.__schema.$field"))
     }
 
-  private def typeDefinition(value: ResponseValue, path: String): Either[InvalidResponse, Option[TypeDefinition]] =
+  private def typeDefinition(
+    maxDepth: Int
+  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, Option[TypeDefinition]] =
     for {
       obj           <- asObject(value, path)
       kind          <- string(obj, "kind", path)
       name          <- optionalString(obj, "name", path).map(_.getOrElse(""))
       description   <- optionalString(obj, "description", path)
-      fields        <- optionalList(obj, "fields", s"$path.fields")(field).map(_.getOrElse(Nil))
-      inputFields   <- optionalList(obj, "inputFields", s"$path.inputFields")(inputValue).map(_.getOrElse(Nil))
+      fields        <- optionalList(obj, "fields", s"$path.fields")(field(maxDepth)).map(_.getOrElse(Nil))
+      inputFields   <-
+        optionalList(obj, "inputFields", s"$path.inputFields")(inputValue(maxDepth)).map(_.getOrElse(Nil))
       interfaces    <- optionalList(obj, "interfaces", s"$path.interfaces")(typeRef).map(_.getOrElse(Nil))
       enumValues    <- optionalList(obj, "enumValues", s"$path.enumValues")(enumValue).map(_.getOrElse(Nil))
       possibleTypes <- optionalList(obj, "possibleTypes", s"$path.possibleTypes")(typeRef).map(_.getOrElse(Nil))
@@ -94,31 +83,32 @@ private[gateway] object IntrospectionClient {
 
   private def namedTypes(types: List[Type]): List[NamedType] = types.collect { case named: NamedType => named }
 
-  private def field(value: ResponseValue, path: String): Either[InvalidResponse, FieldDefinition] =
+  private def field(
+    maxDepth: Int
+  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, FieldDefinition] =
     for {
       obj         <- asObject(value, path)
       name        <- string(obj, "name", path)
       description <- optionalString(obj, "description", path)
-      args        <- optionalList(obj, "args", s"$path.args")(inputValue).map(_.getOrElse(Nil))
+      args        <- optionalList(obj, "args", s"$path.args")(inputValue(maxDepth)).map(_.getOrElse(Nil))
       tpe         <- typeRef(obj.getOrNull("type"), s"$path.type")
       deprecation <- deprecationDirectives(obj, path)
     } yield FieldDefinition(description, name, args, tpe, deprecation)
 
-  private def inputValue(value: ResponseValue, path: String): Either[InvalidResponse, InputValueDefinition] =
+  private def inputValue(
+    maxDepth: Int
+  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, InputValueDefinition] =
     for {
-      obj         <- asObject(value, path)
-      name        <- string(obj, "name", path)
-      description <- optionalString(obj, "description", path)
-      tpe         <- typeRef(obj.getOrNull("type"), s"$path.type")
-      default     <- optionalString(obj, "defaultValue", path)
-      deprecation <- deprecationDirectives(obj, path)
-    } yield InputValueDefinition(
-      description,
-      name,
-      tpe,
-      default.flatMap(raw => Parser.parseInputValue(raw).toOption),
-      deprecation
-    )
+      obj          <- asObject(value, path)
+      name         <- string(obj, "name", path)
+      description  <- optionalString(obj, "description", path)
+      tpe          <- typeRef(obj.getOrNull("type"), s"$path.type")
+      default      <- optionalString(obj, "defaultValue", path)
+      defaultValue <- default.fold[Either[SchemaAcquisitionError, Option[InputValue]]](Right(None))(raw =>
+                        parseWithinDepth(raw, maxDepth)(value => Right(Parser.parseInputValue(value).toOption))
+                      )
+      deprecation  <- deprecationDirectives(obj, path)
+    } yield InputValueDefinition(description, name, tpe, defaultValue, deprecation)
 
   private def enumValue(value: ResponseValue, path: String): Either[InvalidResponse, EnumValueDefinition] =
     for {
@@ -128,7 +118,9 @@ private[gateway] object IntrospectionClient {
       deprecation <- deprecationDirectives(obj, path)
     } yield EnumValueDefinition(description, name, deprecation)
 
-  private def directive(value: ResponseValue, path: String): Either[InvalidResponse, DirectiveDefinition] =
+  private def directive(
+    maxDepth: Int
+  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, DirectiveDefinition] =
     for {
       obj         <- asObject(value, path)
       name        <- string(obj, "name", path)
@@ -139,7 +131,7 @@ private[gateway] object IntrospectionClient {
                          case _                 => Left(InvalidResponse(locationPath))
                        }
                      )
-      args        <- optionalList(obj, "args", s"$path.args")(inputValue).map(_.getOrElse(Nil))
+      args        <- optionalList(obj, "args", s"$path.args")(inputValue(maxDepth)).map(_.getOrElse(Nil))
       repeatable  <- booleanOrFalse(obj, "isRepeatable", path)
     } yield DirectiveDefinition(description, name, args, repeatable, locations.toSet)
 
@@ -180,42 +172,9 @@ private[gateway] object IntrospectionClient {
         )
 
   private def directiveLocation(name: String): Option[DirectiveLocation] =
-    name match {
-      case "QUERY"                  => Some(ExecutableDirectiveLocation.QUERY)
-      case "MUTATION"               => Some(ExecutableDirectiveLocation.MUTATION)
-      case "SUBSCRIPTION"           => Some(ExecutableDirectiveLocation.SUBSCRIPTION)
-      case "FIELD"                  => Some(ExecutableDirectiveLocation.FIELD)
-      case "FRAGMENT_DEFINITION"    => Some(ExecutableDirectiveLocation.FRAGMENT_DEFINITION)
-      case "FRAGMENT_SPREAD"        => Some(ExecutableDirectiveLocation.FRAGMENT_SPREAD)
-      case "INLINE_FRAGMENT"        => Some(ExecutableDirectiveLocation.INLINE_FRAGMENT)
-      case "SCHEMA"                 => Some(TypeSystemDirectiveLocation.SCHEMA)
-      case "SCALAR"                 => Some(TypeSystemDirectiveLocation.SCALAR)
-      case "OBJECT"                 => Some(TypeSystemDirectiveLocation.OBJECT)
-      case "FIELD_DEFINITION"       => Some(TypeSystemDirectiveLocation.FIELD_DEFINITION)
-      case "ARGUMENT_DEFINITION"    => Some(TypeSystemDirectiveLocation.ARGUMENT_DEFINITION)
-      case "INTERFACE"              => Some(TypeSystemDirectiveLocation.INTERFACE)
-      case "UNION"                  => Some(TypeSystemDirectiveLocation.UNION)
-      case "ENUM"                   => Some(TypeSystemDirectiveLocation.ENUM)
-      case "ENUM_VALUE"             => Some(TypeSystemDirectiveLocation.ENUM_VALUE)
-      case "INPUT_OBJECT"           => Some(TypeSystemDirectiveLocation.INPUT_OBJECT)
-      case "INPUT_FIELD_DEFINITION" => Some(TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION)
-      case "VARIABLE_DEFINITION"    => Some(TypeSystemDirectiveLocation.VARIABLE_DEFINITION)
-      case _                        => None
-    }
-
-  private def asObject(value: ResponseValue, path: String): Either[InvalidResponse, ObjectValue] =
-    value match {
-      case obj: ObjectValue => Right(obj)
-      case _                => Left(InvalidResponse(path))
-    }
-
-  private def objectField(value: ResponseValue, field: String, path: String): Either[InvalidResponse, ObjectValue] =
-    asObject(value, path).flatMap(obj => asObject(obj.getOrNull(field), path))
-
-  private def string(obj: ObjectValue, field: String, path: String): Either[InvalidResponse, String] =
-    obj.getOrNull(field) match {
-      case StringValue(value) => Right(value)
-      case _                  => Left(InvalidResponse(s"$path.$field"))
+    fastparse.parse(name, Parsers.directiveLocation(_)) match {
+      case fastparse.Parsed.Success(location, index) if index == name.length => Some(location)
+      case _                                                                 => None
     }
 
   private def optionalString(obj: ObjectValue, field: String, path: String): Either[InvalidResponse, Option[String]] =
@@ -233,30 +192,18 @@ private[gateway] object IntrospectionClient {
     }
 
   private def list[A](obj: ObjectValue, field: String, path: String)(
-    read: (ResponseValue, String) => Either[InvalidResponse, A]
-  ): Either[InvalidResponse, List[A]] =
+    read: (ResponseValue, String) => Either[SchemaAcquisitionError, A]
+  ): Either[SchemaAcquisitionError, List[A]] =
     optionalList(obj, field, path)(read).flatMap(_.toRight(InvalidResponse(path)))
 
   private def optionalList[A](obj: ObjectValue, field: String, path: String)(
-    read: (ResponseValue, String) => Either[InvalidResponse, A]
-  ): Either[InvalidResponse, Option[List[A]]] =
+    read: (ResponseValue, String) => Either[SchemaAcquisitionError, A]
+  ): Either[SchemaAcquisitionError, Option[List[A]]] =
     obj.getOrNull(field) match {
       case null | NullValue => Right(None)
       case ListValue(items) =>
         traverseEither(items.zipWithIndex) { case (item, index) => read(item, s"$path[$index]") }.map(Some(_))
       case _                => Left(InvalidResponse(path))
-    }
-
-  private def defaultValuesWithinDepth(value: ResponseValue, maxDepth: Int): Boolean =
-    value match {
-      case ObjectValue(fields) =>
-        fields.forall {
-          case ("defaultValue", StringValue(defaultValue)) =>
-            RemoteSchemaAcquisition.withinGraphQLDepth(defaultValue, maxDepth)
-          case (_, nested)                                 => defaultValuesWithinDepth(nested, maxDepth)
-        }
-      case ListValue(values)   => values.forall(defaultValuesWithinDepth(_, maxDepth))
-      case _                   => true
     }
 
   private final val OperationName = "__CalibanGatewayIntrospection"
@@ -344,4 +291,6 @@ private[gateway] object IntrospectionClient {
        |    }
        |  }
        |}""".stripMargin
+
+  private val Request = GraphQLRequest(query = Some(Query), operationName = Some(OperationName))
 }

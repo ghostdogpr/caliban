@@ -23,36 +23,14 @@ private[gateway] object ResponseMerge {
         root.patch(value)
     }
 
-  def fillMissing(value: ResponseValue, patches: List[Patch]): ResponseValue = {
-    var filled    = value
-    var remaining = patches
-    while (remaining ne Nil) {
-      val patch = remaining.head
-      filled = mergeAt(filled, patch._1, patch._2, onlyMissing = true)
-      remaining = remaining.tail
-    }
-    filled
-  }
+  def fillMissing(value: ResponseValue, patches: List[Patch]): ResponseValue =
+    patches.foldLeft(value) { case (filled, (path, patch)) => mergeAt(filled, path, patch, onlyMissing = true) }
 
   def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right) {
-      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
-        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
-          mergeObject(leftValue, rightValue)
-        })
-      case (_, value)                                                                             => value
-    }
+    merge(left, right, retainNonNull = false)
 
   def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right) {
-      case (NullValue, value)                                                                     => value
-      case (value, NullValue)                                                                     => value
-      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
-        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
-          mergeRootValue(leftValue, rightValue)
-        })
-      case (_, value)                                                                             => value
-    }
+    merge(left, right, retainNonNull = true)
 
   private sealed trait PatchEntry
 
@@ -145,20 +123,10 @@ private[gateway] object ResponseMerge {
     path: List[PathValue],
     patch: ResponseValue,
     onlyMissing: Boolean
-  ): List[(String, ResponseValue)] = {
-    val updated   = new mutable.ListBuffer[(String, ResponseValue)]
-    var found     = false
-    var remaining = fields
-    while (remaining ne Nil) {
-      val field = remaining.head
-      if (field._1.equals(key)) {
-        found = true
-        updated += ((key, mergeAt(field._2, path, patch, onlyMissing)))
-      } else updated += field
-      remaining = remaining.tail
-    }
-    if (found) updated.toList else fields
-  }
+  ): List[(String, ResponseValue)] =
+    if (fields.exists(_._1 == key))
+      fields.map(field => if (field._1 == key) (key, mergeAt(field._2, path, patch, onlyMissing)) else field)
+    else fields
 
   private def updateValueAt(
     values: List[ResponseValue],
@@ -166,32 +134,29 @@ private[gateway] object ResponseMerge {
     path: List[PathValue],
     patch: ResponseValue,
     onlyMissing: Boolean
-  ): List[ResponseValue] = {
-    var reversedPrefix: List[ResponseValue] = Nil
-    var remaining                           = values
-    var position                            = 0
-    while (position < index && (remaining ne Nil)) {
-      reversedPrefix = remaining.head :: reversedPrefix
-      remaining = remaining.tail
-      position += 1
+  ): List[ResponseValue] =
+    values.splitAt(index) match {
+      case (prefix, nested :: tail) => prefix ::: (mergeAt(nested, path, patch, onlyMissing) :: tail)
+      case _                        => values
     }
-    remaining match {
-      case nested :: tail => reversedPrefix reverse_::: (mergeAt(nested, path, patch, onlyMissing) :: tail)
-      case Nil            => values
-    }
-  }
 
-  private def mergeValues(left: ResponseValue, right: ResponseValue)(
-    mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue
-  ): ResponseValue =
+  private def merge(left: ResponseValue, right: ResponseValue, retainNonNull: Boolean): ResponseValue =
     (left, right) match {
-      case (leftObject: ObjectValue, rightObject: ObjectValue) =>
-        ObjectValue(mergeFields(leftObject.fields, rightObject.fields)(mergeLeaf))
-      case _                                                   => mergeLeaf(left, right)
+      case (leftObject: ObjectValue, rightObject: ObjectValue)                                    =>
+        ObjectValue(mergeFields(leftObject.fields, rightObject.fields, retainNonNull))
+      case (NullValue, value) if retainNonNull                                                    => value
+      case (value, NullValue) if retainNonNull                                                    => value
+      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
+        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
+          merge(leftValue, rightValue, retainNonNull)
+        })
+      case (_, value)                                                                             => value
     }
 
-  private def mergeFields(left: List[(String, ResponseValue)], right: List[(String, ResponseValue)])(
-    mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue
+  private def mergeFields(
+    left: List[(String, ResponseValue)],
+    right: List[(String, ResponseValue)],
+    retainNonNull: Boolean
   ): List[(String, ResponseValue)] = {
     val leftSize                                            = left.size
     val positions                                           = indexPositions(left, leftSize)
@@ -215,7 +180,7 @@ private[gateway] object ResponseMerge {
     while (remaining ne Nil) {
       val field   = remaining.head
       val matched = matches(position)
-      merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
+      merged += (if (matched eq null) field else (field._1, merge(field._2, matched, retainNonNull)))
       position += 1
       remaining = remaining.tail
     }

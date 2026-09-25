@@ -15,14 +15,6 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   import OperationCache._
 
   def getOrCompute[R0 <: R](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R0, E, V] =
-    state.get.flatMap { current =>
-      current.entries.get(key) match {
-        case Some(entry) => hit(entry.value)
-        case None        => miss(key)(compute)
-      }
-    }
-
-  private def miss[R0 <: R](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R0, E, V] =
     Promise.make[Nothing, Exit[E, V]].flatMap { fresh =>
       ZIO.uninterruptibleMask { restore =>
         state
@@ -37,7 +29,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
             }
           }
           .flatMap {
-            case Decision.Hit(value)       => restore(hit(value))
+            case Decision.Hit(value)       => restore(observe(CacheResult.Hit)(ZIO.succeed(value)))
             case Decision.Await(promise)   =>
               restore(
                 observe(CacheResult.Wait)(
@@ -73,9 +65,6 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
         } *> promise.succeed(result).unit *> (result: ZIO[Any, E, V])
       }
     }
-
-  private def hit(value: V)(implicit trace: Trace): ZIO[R, Nothing, V] =
-    observe(CacheResult.Hit)(ZIO.succeed(value))
 
   private def observe[R0 <: R, E0, A](
     result: CacheResult
@@ -121,23 +110,17 @@ private[gateway] object OperationCache {
     @tailrec
     private def evict(current: State[K, E, V], maxWeight: Long): State[K, E, V] =
       if (current.totalWeight <= maxWeight) current
-      else
-        current.insertionOrder.dequeueOption match {
-          case Some((key, remaining)) =>
-            current.entries.get(key) match {
-              case Some(entry) =>
-                evict(
-                  current.copy(
-                    entries = current.entries - key,
-                    insertionOrder = remaining,
-                    totalWeight = current.totalWeight - entry.weight
-                  ),
-                  maxWeight
-                )
-              case None        => evict(current.copy(insertionOrder = remaining), maxWeight)
-            }
-          case None                   => current.copy(totalWeight = 0L)
-        }
+      else {
+        val (key, remaining) = current.insertionOrder.dequeue
+        evict(
+          current.copy(
+            entries = current.entries - key,
+            insertionOrder = remaining,
+            totalWeight = current.totalWeight - current.entries(key).weight
+          ),
+          maxWeight
+        )
+      }
   }
 
   private object State {

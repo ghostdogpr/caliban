@@ -10,7 +10,6 @@ import caliban.rendering.DocumentRenderer
 import caliban.Scala3Annotations.threadUnsafe
 import caliban.Value.NullValue
 
-import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 
 /**
@@ -71,7 +70,9 @@ private[gateway] object OperationPlan {
     sourcePath: Vector[String],
     sourceType: String,
     projection: ContextProjection
-  )
+  ) {
+    def fieldArgument: ComposedGraph.FieldArgument = ComposedGraph.FieldArgument(parentType, field, argument)
+  }
 
   sealed trait ContextProjection {
     def paths: List[List[String]]
@@ -122,40 +123,6 @@ private[gateway] object OperationPlan {
   ) {
     @transient @threadUnsafe
     final override lazy val hashCode: Int = Hash.caseClassHash(this)
-  }
-
-  def privateAlias(base: String, used: Set[String]): String = {
-    @tailrec
-    def find(candidate: String, suffix: Int): String =
-      if (used.contains(candidate)) find(s"${base}_$suffix", suffix + 1)
-      else candidate
-
-    find(base, 2)
-  }
-
-  /**
-   * Counts compatible entity batches by dependency wave. Dependencies outside this list are already satisfied.
-   */
-  def logicalCallCount(fetches: List[EntityFetch]): Int = {
-    val fetchIds = fetches.iterator.map(_.id).toSet
-
-    def count(pending: List[EntityFetch], completed: Set[FetchId], calls: Int): Int =
-      if (pending.isEmpty) calls
-      else {
-        val (ready, waiting) =
-          pending.partition(fetch => fetch.dependencies.forall(id => completed.contains(id) || !fetchIds(id)))
-        if (ready.isEmpty) calls
-        else {
-          val readyIds = ready.iterator.map(_.id).toSet
-          count(
-            waiting,
-            completed ++ readyIds,
-            calls + ready.iterator.map(entityGroupKey).toSet.size
-          )
-        }
-      }
-
-    count(fetches, Set.empty, 0)
   }
 
   private[internal] def entityGroupKey(fetch: EntityFetch): EntityGroupKey =

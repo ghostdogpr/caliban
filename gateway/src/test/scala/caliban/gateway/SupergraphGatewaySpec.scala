@@ -267,18 +267,13 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
       for {
         sdl     <- supergraphSchema
         remote  <- source(sdl)
-        path    <- ZIO.acquireRelease(ZIO.attemptBlocking(Files.createTempFile("supergraph", ".graphql")).orDie)(path =>
-                     ZIO.attemptBlocking(Files.deleteIfExists(path)).ignore
-                   )
-        write    =
-          (text: String) => ZIO.attemptBlocking(Files.write(path, text.getBytes(StandardCharsets.UTF_8))).unit.orDie
-        _       <- write(sdl)
+        path    <- temporaryFile(sdl)
         runtime <-
           Gateway
             .fromSupergraph(Supergraph.file(path).withSubgraphEndpoint(remote.subgraphs.endpoints))
             .reloadableForTest
         before  <- runtime.check("{ crew { name } }").exit
-        _       <- write(withCrew(sdl))
+        _       <- ZIO.attemptBlocking(Files.write(path, withCrew(sdl).getBytes(StandardCharsets.UTF_8))).orDie
         failed  <- poll(runtime)
         after   <- runtime.execute("{ crew { name } }")
         fetches <- remote.fetches.get
@@ -298,9 +293,6 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
   // The same reload machinery, driven by the Apollo uplink protocol instead of a plain http GET.
   // ===============================================================================================
 
-  private val graphRef = "caliban-gateway@production"
-  private val apiKey   = Secret("service:caliban-gateway:s3cr3t-uplink-key")
-
   /**
    * Uplink's published floor is ten seconds, so this is the fastest poll `reloadable` accepts, and
    * jitter has to be zero: `GatewayConfig.minimumReloadPollInterval` is what the floor is checked
@@ -312,10 +304,12 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
    * Generous relative to the poll interval, so advancing the test clock by a whole interval can
    * never be mistaken for an acquisition that ran out of time.
    */
-  private val uplinkAcquisition = RemoteGraphQLConfig.Acquisition.default.withTimeout(5.minutes)
+  private val uplinkAcquisitionTimeout = 5.minutes
 
   private def uplinkSource(endpoint: URL) =
-    SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoint).withAcquisition(uplinkAcquisition)
+    SupergraphUplinkConfig(graphRef, apiKey)
+      .withEndpoints(endpoint)
+      .withAcquisition(_.withTimeout(uplinkAcquisitionTimeout))
 
   private final case class Uplink(uplink: Stub, answer: Ref[String], subgraphs: Subgraphs) {
     def supergraph: Supergraph[Any] =
@@ -326,11 +320,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
 
     def polls: UIO[Int] = uplink.requests.get.map(_.size)
 
-    /** The `ifAfterId` variable of the nth poll, or `None` when it was absent or JSON null. */
-    def cursorOf(index: Int): UIO[Option[String]] =
-      uplink.requests.get.map(
-        _.lift(index).flatMap(_.variables).flatMap(_.get("ifAfterId")).collect { case StringValue(value) => value }
-      )
+    def cursorOf(index: Int): UIO[Option[String]] = uplinkCursor(uplink.requests, index)
   }
 
   private def uplinkOf(sdl: String): ZIO[Server with Ref[Int], Nothing, Uplink] =
@@ -445,20 +435,17 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
         GatewayConfig.default.minimumReloadPollInterval >= 10.seconds
       )
     },
-    test("rejects an unusable uplink configuration before any poll is made") {
+    test("rejects an unusable supergraph source configuration before any poll is made") {
       // Without this the description builds and every poll fails at load time instead.
-      val blank = SupergraphUplinkConfig(graphRef, Secret(""))
-      for {
-        rejected <- Gateway.fromSupergraph(Supergraph.uplink(blank)).reloadableEvery(uplinkPollInterval).exit
-      } yield assertTrue(buildDiagnostics(rejected) == List("Supergraph uplink apikey must not be empty."))
-    },
-    test("validates supergraph source configuration when building a fixed interpreter") {
+      val blank       = SupergraphUplinkConfig(graphRef, Secret(""))
       val noEndpoints = SupergraphUplinkConfig(graphRef, Secret("key")).withEndpoints()
       val unbounded   = RemoteGraphQLConfig.Acquisition.default.withTimeout(Duration.Infinity)
       for {
-        uplink <- Gateway.fromSupergraph(Supergraph.uplink(noEndpoints)).interpreter.exit
-        http   <- Gateway.fromSupergraph(Supergraph.http(url"http://localhost/supergraph", unbounded)).interpreter.exit
+        rejected <- Gateway.fromSupergraph(Supergraph.uplink(blank)).reloadableEvery(uplinkPollInterval).exit
+        uplink   <- Gateway.fromSupergraph(Supergraph.uplink(noEndpoints)).interpreter.exit
+        http     <- Gateway.fromSupergraph(Supergraph.http(url"http://localhost/supergraph", unbounded)).interpreter.exit
       } yield assertTrue(
+        buildDiagnostics(rejected) == List("Supergraph uplink apikey must not be empty."),
         buildDiagnostics(uplink) == List("Supergraph uplink must have at least one endpoint."),
         buildDiagnostics(http) == List("Schema acquisition timeout must be finite and positive.")
       )

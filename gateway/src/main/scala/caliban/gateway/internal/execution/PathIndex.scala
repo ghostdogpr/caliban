@@ -12,27 +12,14 @@ private[execution] final class PathIndex private (root: PathIndex.Node, linear: 
   /**
    * Whether an indexed path is an ancestor of, or equal to, the given path.
    */
-  def containsPrefixOf(path: List[PathValue]): Boolean = {
-    var paths = linear
-    while (paths ne Nil) {
-      if (path.startsWith(paths.head)) return true
-      paths = paths.tail
-    }
-    find(path, overlap = false)
-  }
+  def containsPrefixOf(path: List[PathValue]): Boolean =
+    linear.exists(path.startsWith(_)) || find(path, overlap = false)
 
   /**
    * Whether either path is an ancestor of, or equal to, the other.
    */
-  def overlaps(path: List[PathValue]): Boolean = {
-    var paths = linear
-    while (paths ne Nil) {
-      val indexed = paths.head
-      if (indexed.startsWith(path) || path.startsWith(indexed)) return true
-      paths = paths.tail
-    }
-    find(path, overlap = true)
-  }
+  def overlaps(path: List[PathValue]): Boolean =
+    linear.exists(indexed => indexed.startsWith(path) || path.startsWith(indexed)) || find(path, overlap = true)
 
   private def find(path: List[PathValue], overlap: Boolean): Boolean = {
     var current   = root
@@ -52,7 +39,7 @@ private[execution] object PathIndex {
     val initial = new mutable.ListBuffer[List[PathValue]]
     while (initial.size <= LinearLimit && paths.hasNext) initial += paths.next()
     if (initial.size <= LinearLimit)
-      if (initial.isEmpty) Empty else new PathIndex(null, initial.toList)
+      if (initial.isEmpty) empty else new PathIndex(null, initial.toList)
     else {
       val root     = new Node
       var buffered = initial.toList
@@ -65,8 +52,9 @@ private[execution] object PathIndex {
     }
   }
 
+  val empty: PathIndex = new PathIndex(null, Nil)
+
   private final val LinearLimit = 4
-  private val Empty             = new PathIndex(null, Nil)
 
   private final class Node {
     val children = new java.util.HashMap[PathValue, Node]

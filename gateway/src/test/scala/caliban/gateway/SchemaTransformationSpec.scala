@@ -5,7 +5,6 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.SchemaMapping
-import caliban.parsing.Parser
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
@@ -62,14 +61,11 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     SchemaTransformation.hideInputField("Filter", "hidden")
   )
 
-  private val contextPreamble =
-    s"""${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
-       |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
-       |directive @fromContext(field: String!) on ARGUMENT_DEFINITION""".stripMargin
+  private val contextPreamble = contextSchemaPreamble("v2.9", "@key", "@context", "@fromContext")
 
   private def transformedContextSelectors(schema: String, transformations: List[SchemaTransformation]) =
     for {
-      document   <- ZIO.fromEither(Parser.parseQuery(schema))
+      document   <- parseSdl(schema)
       normalized <- ZIO.fromEither(RemoteSchema.normalize(document, extensionsCanDefineTypes = true))
       mapping    <- ZIO.fromEither(
                       SchemaMapping.compile(
@@ -115,9 +111,9 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                            .transform(transformations: _*)
                        )
                        .interpreter
-        plan      <- runtime.explain("{ user { amount } }")
+        _         <- runtime.explain("{ user { amount } }")
         selectors <- transformedContextSelectors(schema, transformations)
-      } yield assertTrue(plan.nonEmpty, selectors == List("$userContext{...onMember{money}}"))
+      } yield assertTrue(selectors == List("$userContext{...onMember{money}}"))
     },
     test("rewrites shared context fields using concrete interface implementations") {
       val schema          =
@@ -209,7 +205,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("rewrites list-size slicing arguments and nested sized fields through renames") {
       val schema =
         s"""
-           |${federationSchemaPreamble("@listSize").replace("federation/v2.3", "federation/v2.9")}
+           |${federationSchemaPreambleAt("v2.9", "@listSize")}
            |directive @listSize(slicingArguments: [String!], sizedFields: [String!]) on FIELD_DEFINITION
            |type Query { books(first: Int): Connection @listSize(slicingArguments: ["first"], sizedFields: ["edges { node }"]) }
            |type Connection { edges: Edge }
@@ -373,7 +369,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
 
       for {
-        document   <- ZIO.fromEither(Parser.parseQuery(schema))
+        document   <- parseSdl(schema)
         rootType   <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         mapping    <- ZIO.fromEither(
                         SchemaMapping.compile(
@@ -452,20 +448,34 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
            |type Details { price: Int! }
            |""".stripMargin
 
-      Gateway
-        .compose(
-          Subgraph
-            .federation("catalog", unreachableEndpoint, catalogSchema)
-            .transform(
-              SchemaTransformation.renameField("Product", "price", "productCost"),
-              SchemaTransformation.renameField("Details", "price", "detailCost")
-            ),
-          Subgraph
-            .federation("details", unreachableEndpoint, detailsSchema)
-            .transform(SchemaTransformation.renameField("Details", "price", "detailCost"))
-        )
-        .interpreter
-        .as(assertTrue(true))
+      for {
+        catalog     <- stub("""{"data":{"product":{"productCost":1,"details":{"detailCost":2}}}}""")
+        details     <- stub("""{"data":{"status":"ok"}}""")
+        runtime     <- Gateway
+                         .compose(
+                           Subgraph
+                             .federation("catalog", catalog.endpoint, catalogSchema)
+                             .transform(
+                               SchemaTransformation.renameField("Product", "price", "productCost"),
+                               SchemaTransformation.renameField("Details", "price", "detailCost")
+                             ),
+                           Subgraph
+                             .federation("details", details.endpoint, detailsSchema)
+                             .transform(SchemaTransformation.renameField("Details", "price", "detailCost"))
+                         )
+                         .interpreter
+        response    <- runtime.execute("{ product { productCost details { detailCost } } }")
+        catalogSent <- catalog.requests.get
+        detailsSent <- details.requests.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        field(response.data, "product")
+          .flatMap(field(_, "details"))
+          .flatMap(field(_, "detailCost"))
+          .contains(IntValue(2)),
+        catalogSent.headOption.flatMap(_.query).exists(_.contains("detailCost:price")),
+        detailsSent.isEmpty
+      )
     },
     test("keeps Federation keys and requirements aligned with transformed coordinates") {
       val productsSchema  =
@@ -552,7 +562,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "scalar JSON type Query { product: Product } type Product { details: Details json: JSON } type Details { code: String }"
       val json   = InputObjectValue(Map("__typename" -> StringValue("Item"), "key" -> StringValue("unchanged")))
       for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        document <- parseSdl(schema)
         rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         mapping  <- ZIO.fromEither(
                       SchemaMapping.compile(

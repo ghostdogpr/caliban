@@ -39,8 +39,7 @@ final class Subgraph[-R] private[gateway] (
     source match {
       case remote @ Source.Remote(endpoint, _, _, config) =>
         for {
-          _        <- remote.validateConfig
-          document <- RemoteSchemaAcquisition.load(remote, http)
+          document <- remote.loadSchema(http)
           executor <- RemoteSubgraphExecutor.make(name, endpoint, http, config, hooks, remoteErrorMessages)
         } yield Executable(this, document, executor)
       case Source.Local(graph, _)                         =>
@@ -162,9 +161,10 @@ object Subgraph {
   private[gateway] object Source {
     final case class Remote[R](endpoint: URL, schema: SchemaInput, federation: Boolean, config: RemoteGraphQLConfig[R])
         extends Source[R] {
-      def validateConfig(implicit trace: Trace): IO[SubgraphBuildError, Unit] = {
+      def loadSchema(http: GatewayHttpClient)(implicit trace: Trace): IO[SubgraphBuildError, Document] = {
         val diagnostics = config.diagnostics(includeAcquisition = schema == SchemaInput.Acquired)
-        ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty).unit
+        ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+          RemoteSchemaAcquisition.load(this, http)
       }
     }
     final case class Local[R](graph: GraphQL[R], federation: Boolean) extends Source[R]

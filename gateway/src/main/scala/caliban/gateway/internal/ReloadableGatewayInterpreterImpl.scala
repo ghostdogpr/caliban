@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import caliban.gateway._
-import caliban.gateway.internal.GatewayInterpreterImpl.requestShutdownError
+import caliban.gateway.internal.GatewayInterpreterImpl.{ requestShutdownError, shutdownResponse }
 import zio._
 
 private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
@@ -29,12 +29,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   private def use[R0, E, A](f: GatewayInterpreterImpl[R] => ZIO[R0, E, A])(
     rejected: => ZIO[R0, E, A]
   )(implicit trace: Trace): ZIO[R0, E, A] =
-    ZIO.uninterruptibleMask { restore =>
-      reserve.flatMap {
-        case Some(reserved) => restore(ZIO.suspendSucceed(f(reserved))).ensuring(reserved.release)
-        case None           => restore(rejected)
-      }
-    }
+    ZIO.acquireReleaseWith(reserve)(ZIO.foreachDiscard(_)(_.release))(_.fold(rejected)(f))
 
   private def reserve(implicit trace: Trace): UIO[Option[GatewayInterpreterImpl[R]]] =
     state.get.flatMap { current =>
@@ -56,29 +51,19 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
     }
 
   private def pollDelay(implicit trace: Trace): UIO[Duration] =
-    if (jitter == 0.0) ZIO.succeed(pollInterval)
-    else
-      Random.nextDouble.map { random =>
-        val factor = 1.0 + (2.0 * random - 1.0) * jitter
-        Duration.fromNanos(math.max(1L, (pollInterval.toNanos.toDouble * factor).toLong))
-      }
+    Random.nextDouble.map { random =>
+      val factor = 1.0 + (2.0 * random - 1.0) * jitter
+      Duration.fromNanos(math.max(1L, (pollInterval.toNanos.toDouble * factor).toLong))
+    }
 
   private def refresh(implicit trace: Trace): UIO[Unit] =
-    (for {
-      idle <- state.get.map(current => !current.closing && !current.retiring && current.candidate.isEmpty)
-      _    <- ZIO.when(idle) {
-                acquire.flatMap { snapshot =>
-                  state.get.flatMap { current =>
-                    if (current.closing) ZIO.unit
-                    else if (snapshot.fingerprints == current.active.fingerprints) clearFailure
-                    else replace(snapshot)
-                  }
-                }
-              }
-    } yield ()).catchAll(error => recordFailure(Some(error))).catchAllCause { cause =>
-      if (cause.isInterrupted) ZIO.refailCause(cause)
-      else recordFailure(None)
-    }
+    acquire.flatMap { snapshot =>
+      state.get.flatMap { current =>
+        if (current.closing) ZIO.unit
+        else if (snapshot.fingerprints == current.active.fingerprints) clearFailure
+        else replace(snapshot)
+      }
+    }.catchAll(error => recordFailure(Some(error))).catchAllDefect(_ => recordFailure(None))
 
   private def clearFailure(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
@@ -88,18 +73,11 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 
   private def replace(snapshot: Gateway.Snapshot[R])(implicit trace: Trace): IO[GatewayBuildError, Unit] =
     ZIO.uninterruptibleMask { restore =>
-      for {
-        candidate <- Scope.make
-        accepted  <- state.modify { current =>
-                       if (current.closing) false -> current
-                       else true                  -> current.copy(candidate = Some(candidate))
-                     }
-        _         <- if (!accepted) candidate.close(Exit.unit)
-                     else
-                       restore(candidate.extend(snapshot.gateway.buildInterpreter(http)))
-                         .onError(cause => candidate.close(Exit.failCause(cause)) *> clearCandidate(candidate))
-                         .flatMap(activate(snapshot, candidate, _))
-      } yield ()
+      Scope.make.flatMap { candidate =>
+        Gateway
+          .buildIn(candidate, restore)(snapshot.gateway.buildInterpreter(http))
+          .flatMap(activate(snapshot, candidate, _))
+      }
     }
 
   private def activate(
@@ -113,18 +91,14 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
         Some((current.active, current.lastFailure.nonEmpty))      -> current.copy(
           active = Generation(current.active.id + 1L, snapshot.fingerprints, interpreter, candidate),
           retiring = true,
-          candidate = None,
           lastFailure = None
         )
     }.flatMap {
-      case None                   => candidate.close(Exit.unit) *> clearCandidate(candidate)
+      case None                   => candidate.close(Exit.unit)
       case Some((old, recovered)) =>
         (ZIO.logInfo(RecoveredMessage).when(recovered) *>
           ZIO.logInfo(s"Gateway activated generation ${old.id + 1L}.")).ensuring(retire(old))
     }
-
-  private def clearCandidate(candidate: Scope.Closeable)(implicit trace: Trace): UIO[Unit] =
-    state.update(current => if (current.candidate.contains(candidate)) current.copy(candidate = None) else current)
 
   private def retire(old: Generation[R])(implicit trace: Trace): UIO[Unit] =
     for {
@@ -152,17 +126,13 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 
   private def close(worker: Fiber.Runtime[Nothing, Unit])(implicit trace: Trace): UIO[Unit] =
     (for {
-      closing           <- state.modify { current =>
-                             val scopes = current.active.scope :: current.candidate.toList
-                             (scopes, current.retiring) -> current.copy(closing = true)
-                           }
-      (scopes, retiring) = closing
+      closing          <- state.modify { current =>
+                            (current.active.scope, current.retiring) -> current.copy(closing = true)
+                          }
+      (scope, retiring) = closing
       // Retirement owns the old drain timer: interrupting it could abandon the drain.
       // The active generation closes concurrently with that existing retirement.
-      _                 <- ZIO
-                             .foreachParDiscard(scopes)(_.close(Exit.unit))
-                             .zipPar(if (retiring) worker.await else worker.interrupt)
-      _                 <- state.update(_.copy(candidate = None))
+      _                <- scope.close(Exit.unit).zipPar(if (retiring) worker.await else worker.interrupt)
     } yield ()).uninterruptible
 }
 
@@ -177,26 +147,23 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
     http: GatewayHttpClient
   )(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
     ZIO.uninterruptibleMask { restore =>
-      restore(acquire).flatMap { snapshot =>
-        Scope.make.flatMap { initialScope =>
-          (for {
-            interpreter <- restore(initialScope.extend(snapshot.gateway.buildInterpreter(http)))
-            state       <- Ref.make(
-                             State(
-                               Generation(1L, snapshot.fingerprints, interpreter, initialScope),
-                               retiring = false,
-                               candidate = None,
-                               closing = false,
-                               lastFailure = None
-                             )
-                           )
-            runtime      =
-              new ReloadableGatewayInterpreterImpl(acquire, pollInterval, jitter, drainTimeout, state, http)
-            worker      <- runtime.refreshLoop.interruptible.forkDaemon
-            _           <- ZIO.addFinalizer(runtime.close(worker))
-          } yield runtime).onError(cause => initialScope.close(Exit.failCause(cause)))
-        }
-      }
+      for {
+        snapshot     <- restore(acquire)
+        initialScope <- Scope.make
+        interpreter  <- Gateway.buildIn(initialScope, restore)(snapshot.gateway.buildInterpreter(http))
+        state        <- Ref.make(
+                          State(
+                            Generation(1L, snapshot.fingerprints, interpreter, initialScope),
+                            retiring = false,
+                            closing = false,
+                            lastFailure = None
+                          )
+                        )
+        runtime       =
+          new ReloadableGatewayInterpreterImpl(acquire, pollInterval, jitter, drainTimeout, state, http)
+        worker       <- runtime.refreshLoop.interruptible.forkDaemon
+        _            <- ZIO.addFinalizer(runtime.close(worker))
+      } yield runtime
     }
 
   private final case class Generation[-R](
@@ -209,7 +176,6 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
   private final case class State[-R](
     active: Generation[R],
     retiring: Boolean,
-    candidate: Option[Scope.Closeable],
     closing: Boolean,
     lastFailure: Option[String]
   )

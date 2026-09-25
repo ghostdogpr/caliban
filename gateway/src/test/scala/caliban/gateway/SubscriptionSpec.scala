@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban._
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.{ GatewayExecutionControl, SubscriptionTermination }
-import caliban.gateway.internal.execution.SubgraphExecutor
+import caliban.gateway.internal.execution.{ RemoteSubscription, SubgraphExecutor }
 import caliban.schema.Schema.auto._
 import caliban.ws.{ Protocol, WebSocketHooks }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
@@ -18,15 +18,6 @@ import java.nio.charset.StandardCharsets.UTF_8
 object SubscriptionSpec extends ZIOSpecDefault {
   final case class Query(value: String)
   private val request = GraphQLRequest(query = Some("subscription { event }"))
-
-  private def subscriptionGateway(events: ZStream[Any, Throwable, Int]): Gateway[Any] =
-    Gateway.compose(Subgraph.graphql("local", subscriptionGraph(events)))
-
-  private def remoteGateway(endpoint: URL, schema: String, config: RemoteGraphQLConfig[Any]): Gateway[Any] =
-    Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config))
-
-  private def sseResponse(body: String): Response =
-    Response(headers = Headers(Header.Custom("Content-Type", "text/event-stream")), body = Body.fromString(body))
 
   private def socketEndpoint(prefix: String)(
     handle: WebSocketChannel => Task[Unit]
@@ -150,7 +141,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
           postEndpoint("subscription-directive")(req =>
             req.body.asString.orDie
               .flatMap(body => sent.set(Some(readFromString[GraphQLRequest](body))))
-              .as(sseResponse(sseBody(1)))
+              .as(graphQLResponse(sseBody(1), mediaType = "text/event-stream"))
           )
         runtime  <- remoteGateway(endpoint, schema, sseConfig)
                       .withPhaseHooks(PhaseHooks.resolution(_ => ZIO.succeed(query)))
@@ -267,7 +258,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           ZIO.scoped {
                             channel.awaitShutdown.ensuring(closed.succeed(())).forkScoped *>
                               acknowledgeThen(channel) { case "subscribe" =>
-                                ZIO.foreachDiscard(1 to 2)(value =>
+                                ZIO.foreachDiscard(1 to 2 * RemoteSubscription.BufferSize)(value =>
                                   channel.send(
                                     ChannelEvent.Read(
                                       WebSocketFrame.Text(
@@ -279,8 +270,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                               }
                           }
                         )
-        config        = RemoteGraphQLConfig.default.withSubscription(_.withBufferSize(1))
-        runtime      <- remoteGateway(endpoint, subscriptionSchema, config)
+        runtime      <- remoteGateway(endpoint, subscriptionSchema)
                           .withPhaseHooks(
                             hooks ++ PhaseHooks.subscriptionSetup(PhaseHandler.outgoing((_, _) => release.await))
                           )
@@ -333,7 +323,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         exit.flatMap(_.causeOption).flatMap(_.failureOption).contains(SubscriptionTermination.Source)
       )
     },
-    test("resolved subscriptions use executeRequest without entering finite-request metrics") {
+    test("resolved subscriptions use executeRequest without an execution event") {
       for {
         recorded     <- recordEvents
         (seen, hooks) = recorded
@@ -385,7 +375,9 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         sent     <- Ref.make(Option.empty[String])
         endpoint <- getEndpoint("subscription-get")(req =>
-                      sent.set(req.url.queryParams.getAll("query").headOption).as(sseResponse(body))
+                      sent
+                        .set(req.url.queryParams.getAll("query").headOption)
+                        .as(graphQLResponse(body, mediaType = "text/event-stream"))
                     )
         config    = RemoteGraphQLConfig.default.withSubscription(
                       _.withTransport(RemoteSubscriptionConfig.Sse(useGet = true))
@@ -451,7 +443,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                          headers
                            .update(_ ++ req.headers.get("X-Identity").toList)
                            .zipRight(multi.set(renderedHeaderValues(req.headers, "X-Multi")))
-                           .as(sseResponse(sseBody(1, 2)))
+                           .as(graphQLResponse(sseBody(1, 2), mediaType = "text/event-stream"))
                        )
         config       =
           sseConfig
@@ -523,6 +515,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.errors.isEmpty,
         response.data.isInstanceOf[ResponseValue.StreamValue],
+        response.hasNext.isEmpty,
         response.extensions.nonEmpty,
         count == 0
       )
@@ -555,21 +548,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
           "SUBSCRIPTION_OVERFLOW"
         ),
         !events.exists(_.isInstanceOf[PhaseHooks.Event.Execution])
-      )
-    },
-    test("local events are ordered, planned once, and executeRequest returns an ordinary StreamValue") {
-      for {
-        runtime <- subscriptionGateway(ZStream(1, 2, 3)).interpreter
-        plan    <- runtime.explain(request)
-        events  <- runtime.executeStream(request).runCollect
-        finite  <- runtime.executeRequest(request)
-      } yield assertTrue(
-        plan.nonEmpty,
-        events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}", "{\"event\":3}"),
-        events.forall(_.errors.isEmpty),
-        finite.errors.isEmpty,
-        finite.data.isInstanceOf[ResponseValue.StreamValue],
-        finite.hasNext.isEmpty
       )
     },
     test("local sources retain native field-stream error behavior") {
@@ -664,7 +642,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         events.head.extensions.isEmpty
       )
     },
-    test("plans once and hydrates every source event with fresh entity results") {
+    test("hydrates every source event with fresh entity results") {
       val products =
         productsFederationSchema.replace("{ query: Query }", "{ query: Query subscription: Subscription }") +
           " type Subscription { changed: Product }"
@@ -677,8 +655,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
         endpoint <- sseEndpoint(body)
         reviews  <-
           stub(
-            """{"data":{"_entities":[{"reviews":[{"body":"one"}],"_caliban_gateway_entity_key":"1","_caliban_gateway_entity_typename":"Product"}]}}""",
-            """{"data":{"_entities":[{"reviews":[{"body":"two"}],"_caliban_gateway_entity_key":"1","_caliban_gateway_entity_typename":"Product"}]}}"""
+            """{"data":{"_entities":[{"reviews":[{"body":"one"}]}]}}""",
+            """{"data":{"_entities":[{"reviews":[{"body":"two"}]}]}}"""
           )
         runtime  <- Gateway
                       .compose(

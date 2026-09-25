@@ -2,7 +2,6 @@ package caliban.gateway
 
 import caliban.gateway.GatewayBuildError.{ SupergraphAcquisitionFailed, SupergraphDecompositionFailed }
 import caliban.gateway.internal.SchemaFingerprint
-import caliban.gateway.internal.acquisition.SupergraphAcquisition
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.parsing.adt.Document
 import zio.{ IO, Trace, ZIO }
@@ -11,6 +10,10 @@ import zio.Config.Secret
 
 import java.nio.file.Path
 
+/**
+ * An Apollo Federation supergraph and where to load it from. Pass it to [[Gateway.fromSupergraph]], which decomposes
+ * it into the subgraphs it was composed from.
+ */
 final class Supergraph[-R] private[gateway] (
   private[gateway] val source: Supergraph.Source,
   private[gateway] val config: String => RemoteGraphQLConfig[R],
@@ -32,10 +35,10 @@ final class Supergraph[-R] private[gateway] (
   def withSubgraphEndpoint(value: String => Option[URL]): Supergraph[R] = new Supergraph(source, config, value)
 
   private[gateway] def load(
-    loader: SupergraphAcquisition.Loader
+    acquire: IO[SupergraphAcquisitionError, Document]
   )(implicit trace: Trace): IO[GatewayBuildError, (List[Subgraph[R]], List[String])] =
     for {
-      document    <- loader.load.mapError(SupergraphAcquisitionFailed(_))
+      document    <- acquire.mapError(SupergraphAcquisitionFailed(_))
       projections <- ZIO
                        .fromEither(SupergraphDecomposition.decompose(document))
                        .mapError(SupergraphDecompositionFailed(_))

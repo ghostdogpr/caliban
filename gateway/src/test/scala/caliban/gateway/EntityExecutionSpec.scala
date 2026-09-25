@@ -1,14 +1,13 @@
 package caliban.gateway
 
-import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
-import caliban.ResponseValue.{ ObjectValue => ResponseObjectValue }
+import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.federation.EntityResolver
 import caliban.federation.v2_6.{ federated, GQLKey }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
-import caliban.{ graphQL, CalibanError, GraphQLRequest, PathValue, RootResolver }
+import caliban.{ graphQL, CalibanError, GraphQLRequest, GraphQLResponse, PathValue, RootResolver }
 import zio._
 import zio.query.ZQuery
 import zio.test._
@@ -31,7 +30,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
     """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
 
   private val solidReviewsResponse =
-    """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+    """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}"""
 
   private val nullableReviewsSchema = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
 
@@ -144,6 +143,45 @@ object EntityExecutionSpec extends ZIOSpecDefault {
        |type Product @key(fields: "id") { $product }
        |""".stripMargin
 
+  private def progressiveThingSchema(query: String, name: String): String =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.7", import: ["@key", "@override", "@shareable"]) { query: Query }
+       |$federationDirectives
+       |directive @override(from: String!, label: String) on FIELD_DEFINITION
+       |union _Entity = Product
+       |type Query {
+       |  $query
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |interface Thing { id: ID! name: String }
+       |type Product implements Thing @key(fields: "id") { id: ID! name: String $name }
+       |""".stripMargin
+
+  private def thingStub(name: String) =
+    stubByRequest { request =>
+      val query = request.query.getOrElse("")
+      if (query.contains(EntitiesField)) s"""{"data":{"_entities":[{"name":"$name"}]}}"""
+      else if (query.contains("_caliban_gateway_key"))
+        """{"data":{"things":[{"_caliban_gateway_typename":"Product","_caliban_gateway_runtime_typename":"Product","_caliban_gateway_key":"p1"}]}}"""
+      else s"""{"data":{"things":[{"_caliban_gateway_runtime_typename":"Product","name":"$name"}]}}"""
+    }
+
+  private def thingNames(label: String, originalRoot: String, replacementRoot: String) = {
+    val originalSchema    = progressiveThingSchema(originalRoot, "")
+    val replacementSchema =
+      progressiveThingSchema(replacementRoot, s"""@override(from: "original", label: "$label")""")
+    for {
+      original    <- thingStub("original")
+      replacement <- thingStub("replacement")
+      runtime     <- progressiveGateway(original, originalSchema, replacement, replacementSchema).interpreter
+      response    <- runtime.execute("{ things { name } }")
+    } yield response
+  }
+
+  private def thingName(response: GraphQLResponse[CalibanError]) =
+    field(response.data, "things").collect { case ResponseListValue(things) => things.flatMap(field(_, "name")) }
+
   def spec = suite("EntityExecutionSpec")(
     suite("entity execution")(
       test("routes a progressive entity field override to the selected subgraph") {
@@ -158,14 +196,9 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             )
           replacement <-
             stub(
-              """{"data":{"_entities":[{"name":"replacement","_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+              """{"data":{"_entities":[{"name":"replacement"}]}}"""
             )
-          runtime     <- Gateway
-                           .compose(
-                             Subgraph.federation("original", original.endpoint, originalSchema),
-                             Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
-                           )
-                           .interpreter
+          runtime     <- progressiveGateway(original, originalSchema, replacement, replacementSchema).interpreter
           response    <- runtime.execute("{ product(id: \"p1\") { name } }")
           sent        <- replacement.requests.get
         } yield assertTrue(
@@ -182,12 +215,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           original    <- stub("""{"data":{"product":{"name":null,"sku":"sku-1"}}}""")
           replacement <- stub("""{"data":{"_entities":[{"name":"replacement"}]}}""")
-          runtime     <- Gateway
-                           .compose(
-                             Subgraph.federation("original", original.endpoint, originalSchema),
-                             Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
-                           )
-                           .interpreter
+          runtime     <- progressiveGateway(original, originalSchema, replacement, replacementSchema).interpreter
           response    <- runtime.execute("{ product(id: \"p1\") { name sku } }")
           sent        <- replacement.requests.get
           product      = field(response.data, "product")
@@ -196,6 +224,29 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           product.flatMap(field(_, "name")).contains(NullValue),
           product.flatMap(field(_, "sku")).contains(StringValue("sku-1")),
           sent.isEmpty
+        )
+      },
+      test("routes an interface field to the progressive override of its implementation") {
+        for {
+          active   <- thingNames("percent(100)", "things: [Thing]", "")
+          inactive <- thingNames("percent(0)", "things: [Thing]", "")
+        } yield assertTrue(
+          active.errors.isEmpty,
+          thingName(active).contains(List(StringValue("replacement"))),
+          inactive.errors.isEmpty,
+          thingName(inactive).contains(List(StringValue("original")))
+        )
+      },
+      test("routes an interface field under a shareable root to the progressive override of its implementation") {
+        val root = "things: [Thing] @shareable"
+        for {
+          active   <- thingNames("percent(100)", root, root)
+          inactive <- thingNames("percent(0)", root, root)
+        } yield assertTrue(
+          active.errors.isEmpty,
+          thingName(active).contains(List(StringValue("replacement"))),
+          inactive.errors.isEmpty,
+          thingName(inactive).contains(List(StringValue("original")))
         )
       },
       test("executes remote Products, local Pricing, and remote Reviews in one operation") {
@@ -287,7 +338,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           errors.forall(!_.msg.startsWith("Entity lookup response"))
         )
       },
-      test("executes one Federation entity join through the executable plan") {
+      test("executes an entity join, keeps private aliases apart and hides transport types from introspection") {
         val aliasedProductResponse   =
           """{"data":{"product":{"productId":"p1","__typename":"Product","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
         val collidingProductResponse =
@@ -382,17 +433,9 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           ),
           reviewsSent.head.query.exists(rendered =>
             rendered.contains("_entities") && rendered.contains("...on Product") &&
-              rendered.contains("reviews{body}") &&
-              rendered.contains("_caliban_gateway_entity_key:id") &&
-              rendered.contains("_caliban_gateway_entity_typename:__typename")
+              rendered.contains("reviews{body}")
           ),
-          reviewsSent.head.variables.contains(
-            Map(
-              "representations" -> ListValue(
-                List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
-              )
-            )
-          ),
+          representations(reviewsSent.head) == List(representation("Product", "id" -> StringValue("p1"))),
           explanation ==
             """query
               |fetch products at $.product fields [name, id (key)]
@@ -450,7 +493,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
       },
       test("propagates a nested entity null to the nearest nullable boundary") {
         val reviewResponse =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":null}]}]},"errors":[{"message":"review body unavailable","path":["_entities",0,"reviews",0,"body"],"locations":[{"line":1,"column":2}],"extensions":{"code":"REVIEW_DOWN"}}]}"""
+          """{"data":{"_entities":[{"reviews":[{"body":null}]}]},"errors":[{"message":"review body unavailable","path":["_entities",0,"reviews",0,"body"],"locations":[{"line":1,"column":2}],"extensions":{"code":"REVIEW_DOWN"}}]}"""
 
         for {
           products <- stub(statusProductResponse)
@@ -478,7 +521,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
       },
       test("creates a non-null violation when a source returns null without an error") {
         val reviewResponse =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":null}]}]}}"""
+          """{"data":{"_entities":[{"reviews":[{"body":null}]}]}}"""
 
         for {
           products <- stub(tableProductResponse)
@@ -519,11 +562,11 @@ object EntityExecutionSpec extends ZIOSpecDefault {
       },
       test("attaches unusable entity error paths safely at the merge location") {
         val reviewResponse   =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Solid"}]}]},"errors":[{"message":"internal source detail","path":["_entities","unknown"]}]}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]},"errors":[{"message":"internal source detail","path":["_entities","unknown"]}]}"""
         val indexedResponse  =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Solid"}]}]},"errors":[{"message":"misdirected source detail","path":["_entities",999,"reviews",0,"body"]}]}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]},"errors":[{"message":"misdirected source detail","path":["_entities",999,"reviews",0,"body"]}]}"""
         val negativeResponse =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Solid"}]}]},"errors":[{"message":"negative source detail","path":["_entities",0,"reviews",-1,"body"]}]}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]},"errors":[{"message":"negative source detail","path":["_entities",0,"reviews",-1,"body"]}]}"""
 
         for {
           products      <- stub(tableProductResponse)
@@ -553,7 +596,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"},{"name":"First again","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]}]}}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"First review"}]},{"reviews":[{"body":"Second review"}]}]}}"""
 
         for {
           products      <- stub(productResponse)
@@ -587,48 +630,17 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           reviewsSent.size == 1,
           productsValid.forall(_.isSuccess),
           reviewsValid.forall(_.isSuccess),
-          reviewsSent.head.variables.contains(
-            Map(
-              "representations" -> ListValue(
-                List(
-                  InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))),
-                  InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p2")))
-                )
-              )
-            )
-          ),
-          reviewsSent.head.query.exists(rendered =>
-            rendered.contains("_caliban_gateway_entity_key:id") &&
-              rendered.contains("_caliban_gateway_entity_typename:__typename")
+          representations(reviewsSent.head) == List(
+            representation("Product", "id" -> StringValue("p1")),
+            representation("Product", "id" -> StringValue("p2"))
           )
         )
       },
-      test("does not correlate a null federation result or its error by position") {
+      test("reports surplus federation results") {
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
-          """{"data":{"_entities":[null,{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]}]},"errors":[{"message":"unresolved entity","path":["_entities",0]}]}"""
-
-        for {
-          products <- stub(productResponse)
-          reviews  <- stub(reviewResponse)
-          runtime  <-
-            productsAndReviews(products, reviews, listProductsFederationSchema, nullableReviewsSchema).interpreter
-          response <- runtime.execute("{ products { name reviews { body } } }")
-          values    = listValues(field(response.data, "products"))
-          errors    = executionErrors(response.errors)
-        } yield assertTrue(
-          onlyNested(values.headOption, "reviews").exists(_.contains("body" -> StringValue("First review"))),
-          values.lift(1).flatMap(field(_, "reviews")).contains(NullValue),
-          errors.map(_.msg) == List("Remote GraphQL request failed."),
-          errors.map(_.path) == List(List(PathValue.Key("products")))
-        )
-      },
-      test("reports surplus null federation results") {
-        val productResponse =
-          """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
-        val reviewResponse  =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]},null]}}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"First review"}]},{"reviews":[{"body":"Second review"}]},null]}}"""
 
         for {
           products <- stub(productResponse)
@@ -647,7 +659,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           "type Review { body: String! rating: Int! }"
         )
         val reviewResponse =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shared","rating":5}]}]}}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"Shared","rating":5}]}]}}"""
 
         for {
           products <- stub(repeatedProductsResponse)
@@ -662,22 +674,16 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           firstNestedObject(response.data, "first", "reviews").exists(_.contains("body" -> StringValue("Shared"))),
           firstNestedObject(response.data, "second", "reviews").exists(_.contains("body" -> StringValue("Shared"))),
           sent.size == 1,
-          sent.head.variables.contains(
-            Map(
-              "representations" -> ListValue(
-                List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
-              )
-            )
-          )
+          representations(sent.head) == List(representation("Product", "id" -> StringValue("p1")))
         )
       },
       test("attributes combined entity call errors to their own group") {
         val argumentReviews = limitedReviewsSchema
           .replace("type Review { body: String! }", "type Review { body: String }")
         val entity          =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}"""
+          """{"reviews":[{"body":"First"}]}"""
         val failedEntity    =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":null}]}"""
+          """{"reviews":[{"body":null}]}"""
         val failedResponse  =
           s"""{"data":{"_entities":[$failedEntity]},"errors":[{"message":"Boom","path":["_entities",0,"reviews",0,"body"]}]}"""
 
@@ -713,7 +719,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
       },
       test("sends separate entity calls when the combined request exceeds the size limit") {
         val entity =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Body"}]}"""
+          """{"reviews":[{"body":"Body"}]}"""
         val config = RemoteGraphQLConfig.default.withExecution(_.withMaxRequestBytes(512))
 
         for {
@@ -748,13 +754,13 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         val productResponse                      =
           """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"third":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"fourth":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
         val firstEntity                          =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}"""
+          """{"reviews":[{"body":"First"}]}"""
         val secondEntity                         =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second"}]}"""
+          """{"reviews":[{"body":"Second"}]}"""
         val aliasedEntity                        =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","feedback":[{"body":"Aliased"}]}"""
+          """{"feedback":[{"body":"Aliased"}]}"""
         val shapedEntity                         =
-          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shaped","rating":5}]}"""
+          """{"reviews":[{"body":"Shaped","rating":5}]}"""
         def entityFor(selection: String): String =
           if (selection.contains("reviews(limit:2)")) secondEntity
           else if (selection.contains("feedback:reviews")) aliasedEntity
@@ -803,7 +809,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         val productResponse =
           """{"data":{"products":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"_caliban_gateway_entity_key":null}]}]},"errors":[{"message":"review unavailable","path":["_entities",0,"reviews",0,"_caliban_gateway_entity_key"]}]}"""
+          """{"data":{"_entities":[{"reviews":[{"_caliban_gateway_entity_key":null}]}]},"errors":[{"message":"review unavailable","path":["_entities",0,"reviews",0,"_caliban_gateway_entity_key"]}]}"""
 
         for {
           products <- stub(productResponse)
@@ -833,15 +839,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             )
           ),
           sent.size == 1,
-          sent.head.variables.exists { case variables =>
-            variables
-              .get("representations")
-              .contains(
-                ListValue(
-                  List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
-                )
-              )
-          }
+          representations(sent.head) == List(representation("Product", "id" -> StringValue("p1")))
         )
       },
       test("does not duplicate an unindexed lookup failure with missing-result errors") {
@@ -861,11 +859,11 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("products")))
         )
       },
-      test("handles null, missing, extra, and duplicate entity results deterministically") {
+      test("handles null and missing entity results by position") {
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"},{"name":"Third","_caliban_gateway_key":"p3","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
-          """{"data":{"_entities":[null,{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Duplicate"}]},{"_caliban_gateway_entity_key":"extra","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Extra"}]}]}}"""
+          """{"data":{"_entities":[null,{"reviews":[{"body":"Second review"}]}]}}"""
 
         for {
           products <- stub(productResponse)
@@ -881,17 +879,33 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           values.headOption.flatMap(field(_, "reviews")).contains(NullValue),
           onlyNested(values.lift(1), "reviews").exists(_.contains("body" -> StringValue("Second review"))),
           values.lift(2).flatMap(field(_, "reviews")).contains(NullValue),
-          errors.map(_.msg) == List(
-            "Entity lookup response contained a duplicate result for 'Product(id)'.",
-            "Entity lookup response contained an unexpected result for 'Product(id)'.",
-            "Entity lookup response omitted a result for 'Product(id)'."
-          ),
-          errors.map(_.path) == List(
-            List(PathValue.Key("products")),
-            List(PathValue.Key("products")),
-            List(PathValue.Key("products"))
-          ),
+          errors.map(_.msg) == List("Entity lookup response omitted a result for 'Product(id)'."),
+          errors.map(_.path) == List(List(PathValue.Key("products"), PathValue.Index(2))),
           sent.size == 1
+        )
+      },
+      test("relocates an error on a null entity to the client entity path") {
+        val productResponse =
+          """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
+        val reviewResponse  =
+          """{"data":{"_entities":[null,{"reviews":[{"body":"Second review"}]}]},"errors":[{"message":"first unavailable","path":["_entities",0]}]}"""
+
+        for {
+          products <- stub(productResponse)
+          reviews  <- stub(reviewResponse)
+          runtime  <-
+            productsAndReviews(products, reviews, listProductsFederationSchema, nullableReviewsSchema)
+              .withConfig(_.withRemoteErrorMessages(true))
+              .interpreter
+          response <- runtime.execute("{ products { name reviews { body } } }")
+          values    = listValues(field(response.data, "products"))
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          values.flatMap(field(_, "name")) == List(StringValue("First"), StringValue("Second")),
+          values.headOption.flatMap(field(_, "reviews")).contains(NullValue),
+          onlyNested(values.lift(1), "reviews").exists(_.contains("body" -> StringValue("Second review"))),
+          errors.map(_.msg) == List("first unavailable"),
+          errors.map(_.path) == List(List(PathValue.Key("products"), PathValue.Index(0)))
         )
       },
       test("correlates duplicate entity keys with distinct requirement values by position") {
@@ -939,29 +953,12 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           ),
           values.flatMap(field(_, "shippingEstimate")) == List(IntNumber(100), IntNumber(200)),
           sent.size == 1,
-          sent.headOption.flatMap(_.query).forall(!_.contains("_caliban_gateway_entity_key")),
           sent.headOption
-            .flatMap(_.variables)
+            .map(representations)
             .contains(
-              Map(
-                "representations" -> ListValue(
-                  List(
-                    InputObjectValue(
-                      Map(
-                        "__typename" -> StringValue("Product"),
-                        "id"         -> StringValue("p1"),
-                        "price"      -> IntNumber(10)
-                      )
-                    ),
-                    InputObjectValue(
-                      Map(
-                        "__typename" -> StringValue("Product"),
-                        "id"         -> StringValue("p1"),
-                        "price"      -> IntNumber(20)
-                      )
-                    )
-                  )
-                )
+              List(
+                representation("Product", "id" -> StringValue("p1"), "price" -> IntNumber(10)),
+                representation("Product", "id" -> StringValue("p1"), "price" -> IntNumber(20))
               )
             )
         )

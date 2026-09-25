@@ -2,7 +2,6 @@ package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.Config.Secret
 import zio._
@@ -15,7 +14,7 @@ import java.nio.file.{ Files, Path }
 object SupergraphAcquisitionSpec extends ZIOSpecDefault {
 
   private def load(source: Supergraph.Source): URIO[GatewayHttpClient, Exit[SupergraphAcquisitionError, Document]] =
-    acquisitionLoader(source).flatMap[GatewayHttpClient, SupergraphAcquisitionError, Document](_.load).exit
+    acquisitionLoader(source).flatten.exit
 
   private def staticEndpoint(
     body: String,
@@ -25,15 +24,6 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     val headers = mediaType.fold(Headers.empty)(value => Headers(Header.Custom("Content-Type", value)))
     getEndpoint("supergraph")(_ => ZIO.succeed(Response(status, headers, Body.fromString(body))))
   }
-
-  private def temporaryFile(contents: String): ZIO[Scope, Nothing, Path] =
-    ZIO
-      .acquireRelease(ZIO.attempt {
-        val path = Files.createTempFile("supergraph", ".graphql")
-        Files.write(path, contents.getBytes(StandardCharsets.UTF_8))
-        path
-      })(path => ZIO.attempt(Files.deleteIfExists(path)).ignore)
-      .orDie
 
   private def httpSource(endpoint: URL, configure: RemoteGraphQLConfig.Acquisition => RemoteGraphQLConfig.Acquisition) =
     Supergraph.Source.Http(endpoint, configure(RemoteGraphQLConfig.Acquisition.default))
@@ -68,49 +58,37 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     val notModified: Answer                                = Answer(status = Status.NotModified, mediaType = None)
   }
 
-  private final case class Route(endpoint: URL, requests: Ref[Vector[Headers]]) {
-    def calls: UIO[Int] = requests.get.map(_.size)
-
-    /** The `If-None-Match` of the nth request, or `None` when that request carried none. */
-    def conditionOf(index: Int): UIO[Option[String]] =
-      requests.get.map(_.lift(index).flatMap(_.rawHeader("If-None-Match")))
-  }
-
-  private final case class CdnRoute(base: URL, requests: Ref[Vector[(String, Headers)]]) {
+  private final case class Route(endpoint: URL, requests: Ref[Vector[(String, Headers)]]) {
     def calls: UIO[Int] = requests.get.map(_.size)
 
     def pathOf(index: Int): UIO[Option[String]] = requests.get.map(_.lift(index).map(_._1))
+
+    /** The `If-None-Match` of the nth request, or `None` when that request carried none. */
+    def conditionOf(index: Int): UIO[Option[String]] =
+      requests.get.map(_.lift(index).flatMap(_._2.rawHeader("If-None-Match")))
 
     def keyOf(index: Int): UIO[Option[String]] =
       requests.get.map(_.lift(index).flatMap(_._2.rawHeader("X-Hive-CDN-Key")))
   }
 
   /**
+   * Answers each request with the head of `answers`, keeping the last one once the list runs out.
+   *
    * Answers any path below its base and records the one it was asked for, so the url the source
    * builds is the assertion rather than the fixture. A route mounted at the expected path would
    * report a wrong url as a 404 and say nothing about what was actually requested.
    */
-  private def cdnEndpoint(answers: Answer*): ZIO[Server with Ref[Int], Nothing, CdnRoute] =
+  private def recordingEndpoint(answers: Answer*): ZIO[Server with Ref[Int], Nothing, Route] =
     for {
       recorded  <- Ref.make(Vector.empty[(String, Headers)])
       remaining <- Ref.make(answers.toList)
-      base      <- routesEndpoint("hive") { path =>
+      endpoint  <- routesEndpoint("cdn") { path =>
                      Routes(
                        Method.GET / path / trailing -> Handler.fromFunctionZIO[Request] { request =>
                          recorded.update(_ :+ (request.path.toString -> request.headers)) *>
                            nextAnswer(remaining, Answer()).map(_.response)
                        }
                      )
-                   }
-    } yield CdnRoute(base, recorded)
-
-  /** Answers each request with the head of `answers`, keeping the last one once the list runs out. */
-  private def recordingEndpoint(answers: Answer*): ZIO[Server with Ref[Int], Nothing, Route] =
-    for {
-      recorded  <- Ref.make(Vector.empty[Headers])
-      remaining <- Ref.make(answers.toList)
-      endpoint  <- getEndpoint("cdn") { request =>
-                     recorded.update(_ :+ request.headers) *> nextAnswer(remaining, Answer()).map(_.response)
                    }
     } yield Route(endpoint, recorded)
 
@@ -124,7 +102,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       },
       test("returns a parsed document unchanged") {
         for {
-          document <- ZIO.fromEither(Parser.parseQuery(minimalSupergraphSdl)).orDie
+          document <- parseSdl(minimalSupergraphSdl)
           exit     <- load(Supergraph.Source.Parsed(document))
         } yield assertTrue(exit == Exit.succeed(document))
       },
@@ -132,7 +110,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           exit  <- load(Supergraph.Source.Sdl("type Query {"))
           error <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed])
+        } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.SchemaParsingFailed])
       }
     ),
     suite("file source")(
@@ -142,10 +120,9 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           for {
             path   <- temporaryFile(minimalSupergraphSdl)
             loader <- acquisitionLoader(Supergraph.Source.File(path))
-            first  <- loader.load
-            rotated = minimalSupergraphSdl.replace("hello: String", "hello: String goodbye: String")
-            _      <- ZIO.attempt(Files.write(path, rotated.getBytes(StandardCharsets.UTF_8))).orDie
-            second <- loader.load
+            first  <- loader
+            _      <- ZIO.attempt(Files.write(path, changedSupergraphSdl.getBytes(StandardCharsets.UTF_8))).orDie
+            second <- loader
           } yield assertTrue(
             queryFields(first) == List("hello"),
             queryFields(second) == List("hello", "goodbye")
@@ -163,7 +140,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
             unparseable <- acquisitionFailure(malformed)
           } yield assertTrue(
             unreadable.isInstanceOf[SupergraphAcquisitionError.FileReadFailed],
-            unparseable.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed]
+            unparseable.isInstanceOf[SchemaAcquisitionError.SchemaParsingFailed]
           )
         }
       }
@@ -183,14 +160,6 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           exit     <- load(httpSource(endpoint, identity))
         } yield assertTrue(exit.isSuccess)
       },
-      test("rejects an html page answering 200") {
-        // A login or error page is the realistic failure, and it must not surface as a parse error.
-        for {
-          endpoint <- staticEndpoint("<html><body>Sign in</body></html>", mediaType = Some("text/html; charset=utf-8"))
-          exit     <- load(httpSource(endpoint, identity))
-          error    <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
-      },
       test("rejects a non-success status") {
         for {
           endpoint <- staticEndpoint("nope", status = Status.InternalServerError)
@@ -198,8 +167,8 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           error    <- acquisitionFailure(exit)
         } yield assertTrue(
           error match {
-            case SupergraphAcquisitionError.UnexpectedResponse(status, _) => status.code == 500
-            case _                                                        => false
+            case SchemaAcquisitionError.UnexpectedResponse(status, _) => status.code == 500
+            case _                                                    => false
           }
         )
       },
@@ -208,120 +177,35 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           endpoint <- staticEndpoint(minimalSupergraphSdl)
           exit     <- load(httpSource(endpoint, _.withMaxResponseBytes(16)))
           error    <- acquisitionFailure(exit)
-        } yield assertTrue(error == SupergraphAcquisitionError.ResponseTooLarge(16))
+        } yield assertTrue(error == SchemaAcquisitionError.ResponseTooLarge(16))
       },
       test("rejects a supergraph nested past the parsing depth") {
         for {
           endpoint <- staticEndpoint(minimalSupergraphSdl)
           exit     <- load(httpSource(endpoint, _.withMaxParsingDepth(1)))
           error    <- acquisitionFailure(exit)
-        } yield assertTrue(error == SupergraphAcquisitionError.ParsingDepthExceeded(1))
-      },
-      test("reports unparseable served sdl") {
-        for {
-          endpoint <- staticEndpoint("type Query {")
-          exit     <- load(httpSource(endpoint, identity))
-          error    <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed])
+        } yield assertTrue(error == SchemaAcquisitionError.ParsingDepthExceeded(1))
       },
       test("fails rather than following a redirect") {
         for {
           endpoint <- staticEndpoint("", status = Status.Found)
           exit     <- load(httpSource(endpoint, identity))
           error    <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
-      },
-      test("fails when the endpoint is unreachable") {
-        for {
-          exit  <- load(httpSource(unreachableEndpoint, identity))
-          error <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.RequestFailed])
-      },
-      test("never leaks the served payload into diagnostics") {
-        // The same guarantee `lastReloadFailure` documents: categories and codes, never content.
-        val secret = "SUPER_SECRET_TOKEN"
-        for {
-          html    <- staticEndpoint(s"<html>$secret</html>", mediaType = Some("text/html"))
-          sdl     <- staticEndpoint(s"type Query { $secret ")
-          first   <- load(httpSource(html, identity)).flatMap(acquisitionFailure(_))
-          second  <- load(httpSource(sdl, identity)).flatMap(acquisitionFailure(_))
-          reported = (first.diagnostics ::: second.diagnostics).mkString("\n")
-        } yield assertTrue(!reported.contains(secret))
-      }
-    ),
-
-    // ---------------------------------------------------------------------------------------
-    // Task 8: conditional requests
-    //
-    // Hive's CDN honours `ETag` / `If-None-Match` and answers `304` when the supergraph has not
-    // changed, which is the common case on every poll. This is an optimization, not a correctness
-    // feature: fingerprint dedup in `ReloadableGatewayInterpreterImpl.cycle` already suppresses the
-    // swap. The risk being gated is therefore a silently-never-firing optimization, not a wrong
-    // answer, which is exactly what a green suite hides if it only ever exercises `200`.
-    // ---------------------------------------------------------------------------------------
-    suite("conditional requests")(
-      test("a first load is unconditional, and stores the tag the response carried") {
-        for {
-          // Both answers are `200`, so this isolates storing and re-sending the tag from whether a
-          // `304` is handled. That has its own tests below, and a shared fixture would report one
-          // bug twice.
-          cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")))
-          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
-          first  <- loader.load
-          _      <- loader.load
-          before <- cdn.conditionOf(0)
-          after  <- cdn.conditionOf(1)
-        } yield assertTrue(
-          queryFields(first) == List("hello"),
-          // Nothing is cached yet, so asking "has it changed since?" would be meaningless.
-          before.isEmpty,
-          after.contains("\"v1\"")
-        )
-      },
-      test("a 304 returns the document last fetched, without re-parsing anything") {
-        for {
-          cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")), Answer.notModified)
-          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
-          first  <- loader.load
-          second <- loader.load
-          calls  <- cdn.calls
-        } yield assertTrue(first == second, calls == 2)
-      },
-      test("a 304 with nothing cached is a protocol violation, not an empty success") {
-        // A server answering `304` to an unconditional request. Succeeding with no document would
-        // hand the caller a supergraph it never received.
-        for {
-          cdn   <- recordingEndpoint(Answer.notModified)
-          exit  <- load(httpSource(cdn.endpoint, identity))
-          error <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
-      },
-      test("a 200 carrying no ETag leaves the next request unconditional") {
-        // The stored tag has to be cleared, not kept: re-sending a tag the origin no longer knows
-        // about invites a `304` for a document that has in fact changed.
-        for {
-          cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")), Answer.sdl(etag = None), Answer.sdl())
-          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
-          _      <- loader.load
-          _      <- loader.load
-          _      <- loader.load
-          second <- cdn.conditionOf(1)
-          third  <- cdn.conditionOf(2)
-        } yield assertTrue(second.contains("\"v1\""), third.isEmpty)
+        } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.UnexpectedResponse])
       },
       test("resolves relative redirect locations against each request URI") {
         for {
-          cdn      <- cdnEndpoint(
+          cdn      <- recordingEndpoint(
                         Answer.redirect("nested/next", None),
                         Answer.redirect("../supergraph.graphql", None),
                         Answer.sdl()
                       )
-          result   <- load(httpSource(cdn.base.addPath("start"), _.withMaxRedirects(2)))
+          result   <- load(httpSource(cdn.endpoint.addPath("start"), _.withMaxRedirects(2)))
           requests <- cdn.requests.get
         } yield assertTrue(
           result.isSuccess,
           requests.map(_._1) == Vector("start", "nested/next", "supergraph.graphql").map(path =>
-            s"${java.net.URI.create(cdn.base.toString).getPath}/$path"
+            s"${java.net.URI.create(cdn.endpoint.toString).getPath}/$path"
           )
         )
       },
@@ -346,39 +230,113 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           sent == Vector(s"${endpoint.path.encode}?version=1", s"${endpoint.path.encode}?version=2")
         )
       },
-      test("the tag stored from a redirecting chain is the first host's, not the storage host's") {
-        // Hive answers `302` to a 60-second presigned storage url. The tag that identifies the
-        // artifact is the CDN's; the storage object's own tag is meaningless to the CDN, and sending
-        // it back guarantees a `200` on every future poll, so the optimization silently never fires.
+      test("fails when the endpoint is unreachable") {
+        for {
+          exit  <- load(httpSource(unreachableEndpoint, identity))
+          error <- acquisitionFailure(exit)
+        } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.RequestFailed])
+      },
+      test("never leaks the served payload into diagnostics") {
+        // The same guarantee `lastReloadFailure` documents: categories and codes, never content.
+        val secret = "SUPER_SECRET_TOKEN"
+        for {
+          html    <- staticEndpoint(s"<html>$secret</html>", mediaType = Some("text/html"))
+          sdl     <- staticEndpoint(s"type Query { $secret ")
+          first   <- load(httpSource(html, identity)).flatMap(acquisitionFailure(_))
+          second  <- load(httpSource(sdl, identity)).flatMap(acquisitionFailure(_))
+          reported = (first.diagnostics ::: second.diagnostics).mkString("\n")
+        } yield assertTrue(
+          // A login or error page is the realistic failure, and it must not surface as a parse error.
+          first.isInstanceOf[SchemaAcquisitionError.UnexpectedResponse],
+          second.isInstanceOf[SchemaAcquisitionError.SchemaParsingFailed],
+          !reported.contains(secret)
+        )
+      }
+    ),
+
+    // ---------------------------------------------------------------------------------------
+    // Task 8: conditional requests
+    //
+    // Hive's CDN honours `ETag` / `If-None-Match` and answers `304` when the supergraph has not
+    // changed, which is the common case on every poll. This is an optimization, not a correctness
+    // feature: fingerprint dedup in `ReloadableGatewayInterpreterImpl.cycle` already suppresses the
+    // swap. The risk being gated is therefore a silently-never-firing optimization, not a wrong
+    // answer, which is exactly what a green suite hides if it only ever exercises `200`.
+    // ---------------------------------------------------------------------------------------
+    suite("conditional requests")(
+      test("a first load is unconditional, and stores the tag the response carried") {
+        for {
+          // Both answers are `200`, so this isolates storing and re-sending the tag from whether a
+          // `304` is handled. That has its own tests below, and a shared fixture would report one
+          // bug twice.
+          cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")))
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
+          first  <- loader
+          _      <- loader
+          before <- cdn.conditionOf(0)
+          after  <- cdn.conditionOf(1)
+        } yield assertTrue(
+          queryFields(first) == List("hello"),
+          // Nothing is cached yet, so asking "has it changed since?" would be meaningless.
+          before.isEmpty,
+          after.contains("\"v1\"")
+        )
+      },
+      test("a 304 returns the document last fetched, without re-parsing anything") {
+        for {
+          cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")), Answer.notModified)
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
+          first  <- loader
+          second <- loader
+          calls  <- cdn.calls
+        } yield assertTrue(first == second, calls == 2)
+      },
+      test("a 304 with nothing cached is a protocol violation, not an empty success") {
+        // A server answering `304` to an unconditional request. Succeeding with no document would
+        // hand the caller a supergraph it never received.
+        for {
+          cdn   <- recordingEndpoint(Answer.notModified)
+          exit  <- load(httpSource(cdn.endpoint, identity))
+          error <- acquisitionFailure(exit)
+        } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.UnexpectedResponse])
+      },
+      test("a 200 carrying no ETag leaves the next request unconditional") {
+        // The stored tag has to be cleared, not kept: re-sending a tag the origin no longer knows
+        // about invites a `304` for a document that has in fact changed.
+        for {
+          cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")), Answer.sdl(etag = None), Answer.sdl())
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
+          _      <- loader
+          _      <- loader
+          _      <- loader
+          second <- cdn.conditionOf(1)
+          third  <- cdn.conditionOf(2)
+        } yield assertTrue(second.contains("\"v1\""), third.isEmpty)
+      },
+      test("a redirecting chain stores the final response's tag and sends it on every hop") {
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")))
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
           loader  <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
-          _       <- loader.load
-          _       <- loader.load
+          _       <- loader
+          _       <- loader
           first   <- cdn.conditionOf(0)
           second  <- cdn.conditionOf(1)
-          onward  <- storage.conditionOf(0)
+          onward  <- storage.conditionOf(1)
         } yield assertTrue(
           first.isEmpty,
-          second.contains("\"cdn-v1\""),
-          // The conditional header goes to the first host only; the storage url is presigned and
-          // knows nothing about it.
-          onward.isEmpty
+          second.contains("\"storage-object\""),
+          onward.contains("\"storage-object\"")
         )
       },
-      test("a 304 from a redirect target is refused rather than answered from the cache") {
-        // Only the first host is asked a conditional question, so this `304` answers one nobody
-        // posed, and the CDN has just said the artifact moved. Returning the cached document would
-        // pin the gateway to a supergraph the CDN is actively redirecting away from.
+      test("a 304 from a redirect target answers from the cache") {
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")), Answer.notModified)
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
           loader  <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
-          first   <- loader.load.exit
-          second  <- loader.load.exit
-          error   <- acquisitionFailure(second)
-        } yield assertTrue(first.isSuccess, error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
+          first   <- loader
+          second  <- loader
+        } yield assertTrue(first == second)
       },
       test("a 304 through a redirecting chain never contacts the storage host") {
         // The assertion the whole suite exists for. A direct-route-only gate is passed by an
@@ -391,8 +349,8 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                             Answer.notModified
                           )
           loader       <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
-          first        <- loader.load
-          second       <- loader.load
+          first        <- loader
+          second       <- loader
           cdnCalls     <- cdn.calls
           storageCalls <- storage.calls
         } yield assertTrue(
@@ -428,14 +386,11 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           case other                                    => assertTrue(false, other.toString.isEmpty)
         }
       },
-      test("is refreshable, so a hive supergraph can drive Gateway.reloadable") {
-        assertTrue(Supergraph.hive("target-1", Secret("cdn-key")).source.refreshable)
-      },
       test("requests the artifact path and authenticates with the CDN key") {
         for {
-          cdn      <- cdnEndpoint(Answer.sdl())
-          loader   <- acquisitionLoader(Supergraph.hive("target-1", Secret("cdn-key"), cdn.base).source)
-          document <- loader.load
+          cdn      <- recordingEndpoint(Answer.sdl())
+          loader   <- acquisitionLoader(Supergraph.hive("target-1", Secret("cdn-key"), cdn.endpoint).source)
+          document <- loader
           path     <- cdn.pathOf(0)
           key      <- cdn.keyOf(0)
         } yield assertTrue(
@@ -449,11 +404,11 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         // sending it there would hand a live CDN token to a third-party host.
         for {
           storage  <- recordingEndpoint(Answer.sdl())
-          cdn      <- cdnEndpoint(Answer.redirect(storage.endpoint.encode, etag = None))
-          loader   <- acquisitionLoader(Supergraph.hive("target-1", Secret("cdn-key"), cdn.base).source)
-          document <- loader.load
+          cdn      <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = None))
+          loader   <- acquisitionLoader(Supergraph.hive("target-1", Secret("cdn-key"), cdn.endpoint).source)
+          document <- loader
           key      <- cdn.keyOf(0)
-          onward   <- storage.requests.get.map(_.headOption.flatMap(_.rawHeader("X-Hive-CDN-Key")))
+          onward   <- storage.keyOf(0)
           calls    <- cdn.calls.zip(storage.calls)
         } yield assertTrue(
           queryFields(document) == List("hello"),

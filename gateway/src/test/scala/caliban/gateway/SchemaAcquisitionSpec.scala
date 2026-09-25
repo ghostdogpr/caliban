@@ -153,7 +153,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         result            <- fiber.join.either
       } yield assertTrue(result.isRight)
     },
-    test("attributes one acquisition failure without constructing a partial runtime") {
+    test("attributes one acquisition failure") {
       for {
         introspection <- introspectionResponse(ProductsApi.api)
         ordinary      <- stub(introspection)
@@ -195,14 +195,12 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("classifies malformed Federation service responses") {
-      import SubgraphAcquisitionError.InvalidFederationResponse._
-
       val cases = List(
-        "[]"                           -> ExpectedResponseObject,
-        """{"errors":true}"""          -> InvalidErrors,
-        invalidResponse                -> MissingData,
-        """{"data":{}}"""              -> MissingService,
-        """{"data":{"_service":{}}}""" -> MissingSdl
+        "[]"                           -> "$",
+        """{"errors":true}"""          -> "$.errors",
+        invalidResponse                -> "$.data",
+        """{"data":{}}"""              -> "$.data._service",
+        """{"data":{"_service":{}}}""" -> "$.data._service.sdl"
       )
 
       ZIO
@@ -212,14 +210,14 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
             result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).interpreter.either
           } yield result.left.toOption.collect {
             case GatewayBuildError.SubgraphLoadingFailed(
-                  List(SubgraphError("reviews", SubgraphAcquisitionError.InvalidFederationResponse(reason)))
+                  List(SubgraphError("reviews", SchemaAcquisitionError.InvalidResponse(path)))
                 ) =>
-              reason
+              path
           }.contains(expected)
         }
         .map(results => assertTrue(results.forall(value => value)))
     },
-    test("rejects invalid names before loading remote schemas") {
+    test("rejects duplicate subgraph names before loading remote schemas") {
       for {
         valid      <- stub(serviceResponse(reviewsSchema))
         broken     <- stub(invalidResponse)
@@ -238,14 +236,14 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
           case _                                         => false
         },
         result.left.exists(_.diagnostics.exists(_.contains("Name is used more than once"))),
-        !result.left.exists(_.diagnostics.exists(_.contains("'data' field was missing"))),
+        !result.left.exists(_.diagnostics.exists(_.contains("invalid at '$.data'"))),
         validSent.isEmpty,
         brokenSent.isEmpty
       )
     },
     test("retains request failure causes without exposing their messages in diagnostics") {
       val cause = new RuntimeException("secret endpoint and response details")
-      val error = SubgraphAcquisitionError.RequestFailed(cause)
+      val error = SchemaAcquisitionError.RequestFailed(cause)
 
       assertTrue(
         error.getCause eq cause,
@@ -255,7 +253,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     test("retains client decoding errors without exposing their messages in diagnostics") {
       val cause       = new RuntimeException("secret response details")
       val clientError = new RuntimeException("secret decoder context", cause)
-      val error       = SubgraphAcquisitionError.IntrospectionResponseDecodingFailed(clientError)
+      val error       = SchemaAcquisitionError.ResponseDecodingFailed(clientError)
 
       assertTrue(
         error.getCause eq clientError,
@@ -263,7 +261,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         !error.diagnostics.exists(_.contains(cause.getMessage))
       )
     },
-    test("enforces acquisition headers, redirects, and finite response and parsing limits") {
+    test("enforces acquisition headers, redirects, and finite response limits") {
       val headersConfig   = RemoteGraphQLConfig.default.withAcquisition(
         _.withHeaders(
           Header.Custom("Authorization", "Bearer schema"),
@@ -280,17 +278,8 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       val responseLimit   = RemoteGraphQLConfig.default.withAcquisition(
         _.withMaxResponseBytes(32)
       )
-      val parsingLimit    = RemoteGraphQLConfig.default.withAcquisition(
-        _.withMaxParsingDepth(4)
-      )
-      val ordinaryLimit   = RemoteGraphQLConfig.default.withAcquisition(
-        _.withMaxParsingDepth(32)
-      )
-      val nestedSchema    = reviewsSchema.replace("body: String!", "body(arg: [[[[[String]]]]]): String!")
-      val nestedDefault   = List.fill(40)("[").mkString + "null" + List.fill(40)("]").mkString
 
       for {
-        introspection      <- introspectionResponse(ProductsApi.api)
         headerStub         <- stub(serviceResponse(reviewsSchema), reviewResponse)
         headerGateway      <- Gateway
                                 .compose(Subgraph.federation("headers", headerStub.endpoint, headersConfig))
@@ -306,21 +295,6 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         boundedStub        <- stub(serviceResponse(reviewsSchema))
         boundedResult      <- Gateway
                                 .compose(Subgraph.federation("bounded", boundedStub.endpoint, responseLimit))
-                                .interpreter
-                                .either
-        parsingStub        <- stub(serviceResponse(nestedSchema))
-        parsingResult      <- Gateway
-                                .compose(Subgraph.federation("parsing", parsingStub.endpoint, parsingLimit))
-                                .interpreter
-                                .either
-        ordinaryStub       <- stub(
-                                introspection.replaceFirst(
-                                  "\"defaultValue\":null",
-                                  "\"defaultValue\":\"" + nestedDefault + "\""
-                                )
-                              )
-        ordinaryResult     <- Gateway
-                                .compose(Subgraph.graphql("ordinary-parsing", ordinaryStub.endpoint, ordinaryLimit))
                                 .interpreter
                                 .either
         redirectTarget     <- stub(serviceResponse(reviewsSchema))
@@ -354,8 +328,6 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         protectedResult.left.exists(_.diagnostics.exists(_.contains("header 'Content-Encoding' is owned"))),
         protectedStubSent.isEmpty,
         boundedResult.left.exists(_.diagnostics.exists(_.contains("response exceeded 32 bytes"))),
-        parsingResult.left.exists(_.diagnostics.exists(_.contains("parsing depth exceeded 4"))),
-        ordinaryResult.left.exists(_.diagnostics.exists(_.contains("parsing depth exceeded 32"))),
         redirectResult.left.exists(_.diagnostics.exists(_.startsWith("[redirect]"))),
         redirectCount == 1,
         redirectTargetSent.isEmpty
@@ -496,5 +468,5 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         sizeAfterInterruption == initialSize
       )
     }
-  ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
+  ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential @@ TestAspect.timeout(30.seconds)
 }

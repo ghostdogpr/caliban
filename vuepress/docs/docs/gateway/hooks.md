@@ -134,7 +134,7 @@ val secured = Gateway
 
 If any selected field fails authorization, the gateway rejects the whole operation before contacting subgraphs. Checks include protected fields on possible interface implementations. Denials and claim failures return generic messages.
 
-`@policy` always denies operations that select or depend on the annotated type or field. Custom authorization cannot override it. The gateway does not evaluate external policy rules.
+`@policy` always denies operations that select the annotated type or field. Custom authorization cannot override it. The gateway does not evaluate external policy rules. Composition rejects a field that depends on a `@policy` field through `@requires` or `@fromContext` unless it declares policies that satisfy them.
 
 Schemas with `@authenticated` or `@requiresScopes` require an incoming `authorization` handler at startup. An outgoing-only observer does not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
 

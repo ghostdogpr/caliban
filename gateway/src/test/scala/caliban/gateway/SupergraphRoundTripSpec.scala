@@ -1,9 +1,9 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer, SupergraphDecomposition }
+import caliban.gateway.internal.composition.{ ComposedGraph, SupergraphDecomposition }
 import caliban.gateway.internal.composition.ComposedGraph.{ RootField, TypeField }
-import caliban.parsing.{ Parser, SourceMapper }
+import caliban.parsing.SourceMapper
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
 import scala.collection.compat._
@@ -25,24 +25,13 @@ import zio.test._
  */
 object SupergraphRoundTripSpec extends ZIOSpecDefault {
 
-  private def parse(sdl: String): UIO[Document] =
-    ZIO.fromEither(Parser.parseQuery(sdl)).orDie
-
-  private def composeAll(documents: List[(String, Document)]): Either[List[String], ComposedGraph] =
-    SchemaComposer
-      .compose(documents.map { case (name, document) =>
-        Subgraph.federation(name, unreachableEndpoint, document) -> document
-      })
-      .left
-      .map(_.diagnostics)
-
   /** The checked-in subgraphs, composed exactly as a hand-listed gateway would compose them. */
   private def fromOriginals(names: (String, String)*): UIO[ComposedGraph] =
     for {
       documents <- ZIO.foreach(names.toList) { case (name, file) =>
-                     supergraphResource(file).flatMap(parse).map(name -> _)
+                     supergraphResource(file).flatMap(parseSdl).map(name -> _)
                    }
-      composed  <- orDie(composeAll(documents))
+      composed  <- orDie(composeDocuments(documents))
     } yield composed
 
   /** The same graph reached by decomposing the supergraph and composing the projections. */
@@ -87,9 +76,9 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
 
   private def composeProjections(sdl: String): UIO[ComposedGraph] =
     for {
-      document  <- parse(sdl)
+      document  <- parseSdl(sdl)
       projected <- orDie(SupergraphDecomposition.decompose(document))
-      composed  <- orDie(composeAll(projected.map(entry => entry.graph.name -> entry.document)))
+      composed  <- orDie(composeDocuments(projected.map(entry => entry.graph.name -> entry.document)))
     } yield composed
 
   private def orDie[A](result: Either[List[String], A]): UIO[A] =

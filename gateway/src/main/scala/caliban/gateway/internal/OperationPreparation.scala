@@ -2,12 +2,12 @@ package caliban.gateway.internal
 
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
-import caliban.gateway.PhaseHooks.{ Event, SecurityDirective, SecurityRequirement }
+import caliban.gateway.PhaseHooks.{ Event, SecurityDirective }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
-import caliban.gateway.internal.planning.{ OperationPlan, OperationPlanner }
-import caliban.gateway.{ errorCode, isInclusionDirective, GatewayConfig, PhaseHooks }
+import caliban.gateway.internal.planning.{ OperationCost, OperationPlan, OperationPlanner, OperationSecurity }
+import caliban.gateway.{ errorCode, isInclusionDirective, PhaseHooks }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
@@ -19,11 +19,11 @@ import scala.util.control.NoStackTrace
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
-  securityRequirements: OperationPlan => List[SecurityRequirement],
+  security: OperationSecurity,
+  cost: OperationCost,
   cache: OperationCache[CacheKey, CalibanError, CachedOperation, R],
   maxOperationCost: Option[Long],
-  hooks: PhaseHooks[R],
-  estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
+  hooks: PhaseHooks[R]
 ) {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
@@ -58,7 +58,7 @@ private[gateway] final class OperationPreparation[-R] private (
   }
 
   private def authorize(operation: ExecutableOperation)(implicit trace: Trace): ZIO[R, CalibanError, Unit] = {
-    val requirements = securityRequirements(operation.plan)
+    val requirements = security.requirements(operation.plan)
     if (requirements.exists(_.directives.contains(SecurityDirective.UnsupportedPolicy)))
       ZIO.fail(CalibanError.ValidationError("Operation selects fields guarded by unsupported @policy directives.", ""))
     else if (!hooks.authorization.enabled) ZIO.unit
@@ -97,7 +97,7 @@ private[gateway] final class OperationPreparation[-R] private (
       cache
         .getOrCompute(
           CacheKey(query, request.operationName, request.isHttpGetRequest, preparation, activeOverrides)
-        )(parse.flatMap(buildCacheEntry(request, _, preparation, activeOverrides)))
+        )(parse.flatMap(buildCacheEntry(request, query, _, preparation, activeOverrides)))
         .flatMap(bindCachedOperation(request, _, activeOverrides))
 
     if (planner.hasProgressiveOverrides)
@@ -112,6 +112,7 @@ private[gateway] final class OperationPreparation[-R] private (
 
   private def buildCacheEntry(
     request: GraphQLRequest,
+    query: String,
     document: Document,
     preparation: PreparationConfig,
     activeOverrides: Set[OverrideLabel]
@@ -123,7 +124,7 @@ private[gateway] final class OperationPreparation[-R] private (
                   ZIO.succeed(
                     Weighted(
                       CachedOperation.DocumentOnly(document),
-                      cacheWeight(request.query.getOrElse(""), None, request.operationName)
+                      cacheWeight(query, None, request.operationName)
                     )
                   )
                 else {
@@ -137,7 +138,7 @@ private[gateway] final class OperationPreparation[-R] private (
                       if (variables.isEmpty && !plan.hasVariableReferences)
                         CachedOperation.Ready(document, execution, plan)
                       else CachedOperation.Planned(document, plan)
-                    Weighted(cached, cacheWeight(request.query.getOrElse(""), Some(plan), request.operationName))
+                    Weighted(cached, cacheWeight(query, Some(plan), request.operationName))
                   }
                 }
     } yield cached
@@ -203,18 +204,16 @@ private[gateway] final class OperationPreparation[-R] private (
     document: Document
   )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] = {
     val overrides = planner.progressiveOverrides(document, request.operationName).toList.sortBy(_._1.value)
+    val sampled   = overrides.collect { case (label, Some(percentage)) => label -> percentage }
     val custom    = overrides.collect { case (label, None) => label }.toSet
     for {
-      sampled  <- ZIO.foreach(overrides) {
-                    case (label, Some(percentage)) =>
-                      if (percentage <= 0) ZIO.none
-                      else if (percentage >= 100) ZIO.some(label)
-                      else
-                        Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
-                    case (_, None)                 => ZIO.none
+      active   <- ZIO.filter(sampled) { case (_, percentage) =>
+                    if (percentage <= 0) ZIO.succeed(false)
+                    else if (percentage >= 100) ZIO.succeed(true)
+                    else Random.nextDouble.map(_ * 100d < percentage.toDouble)
                   }
       selected <- selectCustomOverrides(request, custom)
-    } yield sampled.flatten.toSet ++ selected
+    } yield active.map(_._1).toSet ++ selected
   }
 
   private def enforceCost(operation: ExecutableOperation): IO[CalibanError.ValidationError, Unit] =
@@ -223,7 +222,7 @@ private[gateway] final class OperationPreparation[-R] private (
         def reject(message: String, code: String) =
           ZIO.fail(CalibanError.ValidationError(message, "", extensions = errorCode(code)))
 
-        estimateCost(operation.executionRequest, operation.plan) match {
+        cost.estimate(operation.executionRequest, operation.plan) match {
           case Left(error)                             => reject(error, "COST_QUERY_PARSE_FAILURE")
           case Right(estimated) if estimated > maximum =>
             reject(
@@ -291,24 +290,15 @@ private[gateway] object OperationPreparation {
   def make[R](
     rootType: RootType,
     planner: OperationPlanner,
-    securityRequirements: OperationPlan => List[SecurityRequirement],
-    config: GatewayConfig,
-    phaseHooks: PhaseHooks[R],
-    estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
+    security: OperationSecurity,
+    cost: OperationCost,
+    maxOperationCacheWeight: Long,
+    maxOperationCost: Option[Long],
+    hooks: PhaseHooks[R]
   )(implicit trace: Trace): UIO[OperationPreparation[R]] =
     OperationCache
-      .make[CacheKey, CalibanError, CachedOperation, R](config.maxOperationCacheWeight, phaseHooks)
-      .map(cache =>
-        new OperationPreparation(
-          rootType,
-          planner,
-          securityRequirements,
-          cache,
-          config.maxOperationCost,
-          phaseHooks,
-          estimateCost
-        )
-      )
+      .make[CacheKey, CalibanError, CachedOperation, R](maxOperationCacheWeight, hooks)
+      .map(new OperationPreparation(rootType, planner, security, cost, _, maxOperationCost, hooks))
 
   def isInternalFailure(error: CalibanError): Boolean =
     error match {

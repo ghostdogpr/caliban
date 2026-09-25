@@ -21,16 +21,16 @@ import scala.collection.immutable.ListMap
  */
 private[composition] object DirectiveComposition {
 
-  def compile(sources: List[Source]): ComposedDirectives = {
-    val sourceDirectives             = sources.sortBy(_.subgraph.name).map(SourceDirectives(_))
+  def compile(subgraphs: List[PreparedSubgraph]): ComposedDirectives = {
+    val sourceDirectives             = subgraphs.sortBy(_.name).map(SourceDirectives(_))
     val definitions                  = sourceDirectives.flatMap(_.definitions)
     val declarations                 = sourceDirectives.flatMap(_.composeDeclarations)
     val selectedBySource             = sourceDirectives.map { info =>
       val selected = info.defaultSelections ++
-        (if (info.source.subgraph.federation)
+        (if (info.subgraph.federation)
            Set(DirectiveKey(FederationIdentity, "tag"))
          else Set.empty) ++ info.composeDeclarations.collect { case Right(value) => value }
-      info.source.subgraph.name -> selected
+      info.subgraph.name -> selected
     }.toMap
     val selected                     = definitions.filter(definition => selectedBySource(definition.source)(definition.key))
     val composedNames                = selected
@@ -61,28 +61,26 @@ private[composition] object DirectiveComposition {
         s"[directive @$name] Definitions are incompatible between subgraphs: ${formatSources(values.map(_.source))}."
     }.toList
     val rawApplications              =
-      sourceDirectives.flatMap(info => info.applications(selectedBySource(info.source.subgraph.name), composedNames))
+      sourceDirectives.flatMap(info => info.applications(selectedBySource(info.subgraph.name), composedNames))
     val (invalid, validApplications) = rawApplications.map(compileApplication).partitionMap(identity)
     val applicationErrors            = invalid.flatten
-    val definitionByKey              = selectedByKey.map { case (key, values) =>
-      key -> values.minBy(_.source).definition
-    }
+    val definitionByKey              = selectedByKey.map { case (key, values) => key -> values.minBy(_.source) }
     val applicationsByKey            = validApplications
       .groupBy(application => application.coordinate -> application.key)
       .toList
     val mergedApplications           = applicationsByKey.sortBy { case ((coordinate, key), _) =>
       (coordinate.display, coordinate.location.toString, composedNames.getOrElse(key, key.member))
     }.map { case ((coordinate, key), values) =>
-      coordinate -> mergeApplications(values, definitionByKey.get(key).exists(_.isRepeatable))
+      coordinate -> mergeApplications(values, definitionByKey.get(key).exists(_.definition.isRepeatable))
     }
       .groupBy(_._1)
       .map { case (coordinate, values) => coordinate -> values.flatMap(_._2) }
     val deferredDiagnostics          = applicationsByKey.flatMap { case ((coordinate, key), values) =>
-      definitionByKey.get(key).toList.flatMap(applicationConflicts(coordinate, _, values))
+      definitionByKey.get(key).toList.flatMap(selected => applicationConflicts(coordinate, selected.definition, values))
     }
 
     val hiddenBySource = sourceDirectives.map { info =>
-      info.source.subgraph.name -> (info.source.protocolDirectives ++ info.definitions
+      info.subgraph.name -> (info.subgraph.directiveNames.hidden ++ info.definitions
         .map(_.localName)
         .filterNot(BuiltInDirectiveNames))
     }.toMap
@@ -93,6 +91,7 @@ private[composition] object DirectiveComposition {
     new ComposedDirectives(
       hiddenBySource,
       selectedDefinitions.sortBy(value => value.definition.name -> value.source),
+      definitionByKey.values.toList.sortBy(_.definition.name),
       mergedApplications,
       validApplications,
       deferredDiagnostics,
@@ -104,11 +103,8 @@ private[composition] object DirectiveComposition {
     document.schemaDefinition.toList.flatMap(_.directives)
 
   def linkedFeatures(document: Document): List[LinkedFeature] =
-    linkedFeatures(schemaDirectives(document))
-
-  def linkedFeatures(directives: List[Directive]): List[LinkedFeature] =
-    directives.filter(_.name == "link").flatMap { directive =>
-      directive.arguments.get("url").collect { case StringValue(url) => url }.flatMap { url =>
+    schemaDirectives(document).filter(_.name == "link").flatMap { directive =>
+      stringArgument(directive.arguments, "url").flatMap { url =>
         val normalized   = url.takeWhile(character => character != '?' && character != '#').stripSuffix("/")
         val versionStart = normalized.lastIndexOf('/')
         val identity     = if (versionStart < 0) "" else normalized.substring(0, versionStart)
@@ -122,10 +118,7 @@ private[composition] object DirectiveComposition {
               case InputListValue(values) => values.flatMap(importedName)
               case _                      => Nil
             }
-            val namespace = directive.arguments
-              .get("as")
-              .collect { case StringValue(value) => value.stripPrefix("@") }
-              .getOrElse(name)
+            val namespace = stringArgument(directive.arguments, "as").fold(name)(_.stripPrefix("@"))
             Some(LinkedFeature(identity, name, FeatureVersion(major.toInt, minor.toInt), namespace, imports))
           case _                                             => None
         }
@@ -161,13 +154,6 @@ private[composition] object DirectiveComposition {
         else None
       }
   }
-
-  final case class Source(
-    subgraph: PreparedSubgraph,
-    protocolDirectives: Set[String],
-    features: List[LinkedFeature],
-    interfaceObjectDirectives: Set[String]
-  )
 
   /**
    * A schema element where a directive is applied, such as Product.price or Query.product(id:).
@@ -215,6 +201,7 @@ private[composition] object DirectiveComposition {
   final class ComposedDirectives private[DirectiveComposition] (
     private val hiddenBySource: Map[String, Set[String]],
     private val selectedDefinitions: List[SelectedDefinition],
+    private val retainedDefinitions: List[SelectedDefinition],
     private val applications: Map[Coordinate, List[Directive]],
     private val validApplications: List[Application],
     private val deferredDiagnostics: List[(Coordinate, String)],
@@ -237,30 +224,24 @@ private[composition] object DirectiveComposition {
       selectedDefinitions.iterator.flatMap(_.definition.allArgs.iterator.flatMap(_._type.innerType.name)).toSet
 
     def definitions(rewrite: __Type => __Type): List[__Directive] =
-      selectedDefinitions
-        .groupBy(_.key)
-        .valuesIterator
-        .map(_.minBy(_.source))
-        .toList
-        .sortBy(_.definition.name)
-        .map { selected =>
-          val definition = selected.definition
-          val hidden     = hiddenNames(selected.source)
-          definition.copy(args =
-            includeDeprecated =>
-              definition
-                .args(includeDeprecated)
-                .map(argument =>
-                  argument.copy(
-                    `type` = () => rewrite(argument._type),
-                    directives = attach(
-                      TypeComposition.filterHiddenDirectives(argument.directives, hidden),
-                      DirectiveArgumentCoordinate(definition.name, argument.name)
-                    )
+      retainedDefinitions.map { selected =>
+        val definition = selected.definition
+        val hidden     = hiddenNames(selected.source)
+        definition.copy(args =
+          includeDeprecated =>
+            definition
+              .args(includeDeprecated)
+              .map(argument =>
+                argument.copy(
+                  `type` = () => rewrite(argument._type),
+                  directives = attach(
+                    TypeComposition.filterHiddenDirectives(argument.directives, hidden),
+                    DirectiveArgumentCoordinate(definition.name, argument.name)
                   )
                 )
-          )
-        }
+              )
+        )
+      }
 
     def attachType(tpe: __Type, name: String): __Type =
       tpe.copy(directives = attach(tpe.directives, TypeCoordinate(name, typeLocation(tpe.kind))))
@@ -325,7 +306,7 @@ private[composition] object DirectiveComposition {
         }
         val fields = found.inputFields.toList.sortBy(field => (field.typeName, field.fieldName)).collect {
           case TypeField(typeName, fieldName)
-              if !rootType.types.get(typeName).exists(_.allInputFields.exists(_.name == fieldName)) =>
+              if rootType.types.get(typeName).flatMap(inputFieldDefinition(_, fieldName)).isEmpty =>
             s"[$source] Composed directive '@$directive' at '$context' references non-visible input field '$typeName.$fieldName'."
         }
         val enums  = found.enumValues.toList.sorted.collect {
@@ -391,12 +372,11 @@ private[composition] object DirectiveComposition {
     definition: __Directive,
     ordinal: Int
   )
-  private final case class SourceDirectives(source: Source) {
-    private val subgraph                      = source.subgraph
-    private val features                      = source.features
+  private final case class SourceDirectives(subgraph: PreparedSubgraph) {
+    private val names                         = subgraph.directiveNames
+    private val features                      = names.features
     private val federationTransportDirectives =
       if (features.exists(_.identity == FederationIdentity)) FederationTransportDirectiveNames else Set.empty[String]
-    private val interfaceObjectDirectives     = source.interfaceObjectDirectives
     private val keysByName                    = features.flatMap { feature =>
       subgraph.rootType.additionalDirectives.flatMap { definition =>
         feature
@@ -425,7 +405,7 @@ private[composition] object DirectiveComposition {
       else
         definitions.iterator
           .filterNot(value =>
-            BuiltInDirectiveNames(value.localName) || source.protocolDirectives(value.localName) ||
+            BuiltInDirectiveNames(value.localName) || names.hidden(value.localName) ||
               federationTransportDirectives(value.localName) || ReservedFeatureIdentities(value.key.identity) ||
               value.key.identity == FederationIdentity
           )
@@ -488,10 +468,7 @@ private[composition] object DirectiveComposition {
         values.flatMap(value => selectedDirectives(value.directives, coordinate(value)))
 
       def typeApplications(typeName: String, tpe: __Type): List[Application] = {
-        val isInterfaceObject =
-          tpe.kind == __TypeKind.OBJECT && tpe.directives.exists(
-            _.exists(directive => interfaceObjectDirectives(directive.name))
-          )
+        val isInterfaceObject = tpe.kind == __TypeKind.OBJECT && hasDirective(tpe.directives, names.interfaceObject)
         val location          = if (isInterfaceObject) __DirectiveLocation.INTERFACE else typeLocation(tpe.kind)
         selectedDirectives(tpe.directives, TypeCoordinate(typeName, location)) :::
           tpe.allFields.flatMap { field =>
@@ -506,12 +483,7 @@ private[composition] object DirectiveComposition {
       val schemaApps            = selectedDirectives(Some(schemaDirectives(subgraph.document)), SchemaCoordinate)
       val typeApps              =
         subgraph.rootType.types.values.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
-          case (sourceName, tpe) =>
-            val typeNames = subgraph.rootNames.composedAll(sourceName) match {
-              case Nil    => sourceName :: Nil
-              case values => values
-            }
-            typeNames.flatMap(typeApplications(_, tpe))
+          case (sourceName, tpe) => typeApplications(subgraph.rootNames.composed(sourceName), tpe)
         }
       val directiveArgumentApps = definitions.filter(local => selected(local.key)).flatMap { local =>
         val directiveName = composedNames.getOrElse(local.key, local.localName)
@@ -529,23 +501,7 @@ private[composition] object DirectiveComposition {
     val sorted   = values.sortBy(value => (value.source, value.ordinal))
     val retained =
       if (!repeatable) sorted.headOption.toList
-      else {
-        // Preserve the greatest authored count per signature in any one source, rather than summing across sources.
-        val maximumBySignature  = sorted
-          .groupBy(value => applicationSignature(value.directive))
-          .map { case (signature, occurrences) =>
-            signature -> occurrences.groupBy(_.source).valuesIterator.map(_.size).foldLeft(0)(_ max _)
-          }
-        var retainedBySignature = Map.empty[List[(String, InputValue)], Int]
-        sorted.filter { value =>
-          val signature = applicationSignature(value.directive)
-          val count     = retainedBySignature.getOrElse(signature, 0)
-          if (count < maximumBySignature(signature)) {
-            retainedBySignature = retainedBySignature.updated(signature, count + 1)
-            true
-          } else false
-        }
-      }
+      else sorted.distinctBy(value => applicationSignature(value.directive))
     retained.map(_.directive)
   }
 
@@ -645,11 +601,6 @@ private[composition] object DirectiveComposition {
           case number: FloatValue => FloatValue(canonicalDecimal(number.toBigDecimal))
           case other              => other
         }
-      case __TypeKind.SCALAR if tpe.name.contains("ID")    =>
-        value match {
-          case number: IntValue => StringValue(number.toBigInt.toString)
-          case other            => other
-        }
       case _                                               => value
     }
 
@@ -661,14 +612,14 @@ private[composition] object DirectiveComposition {
       case SchemaCoordinate                                         => true
       case TypeCoordinate(typeName, _)                              => rootType.types.contains(typeName)
       case FieldCoordinate(typeName, fieldName)                     =>
-        rootType.types.get(typeName).exists(_.allFields.exists(_.name == fieldName))
+        rootType.types.get(typeName).flatMap(fieldDefinition(_, fieldName)).nonEmpty
       case ArgumentCoordinate(typeName, fieldName, argumentName)    =>
         rootType.types
           .get(typeName)
-          .flatMap(_.allFields.find(_.name == fieldName))
+          .flatMap(fieldDefinition(_, fieldName))
           .exists(_.allArgs.exists(_.name == argumentName))
       case InputFieldCoordinate(typeName, fieldName)                =>
-        rootType.types.get(typeName).exists(_.allInputFields.exists(_.name == fieldName))
+        rootType.types.get(typeName).flatMap(inputFieldDefinition(_, fieldName)).nonEmpty
       case EnumValueCoordinate(typeName, valueName)                 =>
         rootType.types.get(typeName).exists(_.allEnumValues.exists(_.name == valueName))
       case DirectiveArgumentCoordinate(directiveName, argumentName) =>
@@ -723,8 +674,8 @@ private[composition] object DirectiveComposition {
       case StringValue(name)        =>
         Some(ImportedName(name.stripPrefix("@"), name.stripPrefix("@"), name.startsWith("@")))
       case InputObjectValue(fields) =>
-        fields.get("name").collect { case StringValue(name) => name }.map { name =>
-          val alias = fields.get("as").collect { case StringValue(value) => value }.getOrElse(name)
+        stringArgument(fields, "name").map { name =>
+          val alias = stringArgument(fields, "as").getOrElse(name)
           ImportedName(name.stripPrefix("@"), alias.stripPrefix("@"), name.startsWith("@"))
         }
       case _                        => None
@@ -732,27 +683,8 @@ private[composition] object DirectiveComposition {
 
   private val VersionPattern                    = "v([0-9]+)\\.([0-9]+)".r
   private val BuiltInDirectiveNames             = Set("skip", "include", "deprecated", "specifiedBy", "oneOf")
-  private val FederationTransportDirectiveNames = Set(
-    "link",
-    "key",
-    "external",
-    "extends",
-    "shareable",
-    "inaccessible",
-    "override",
-    "requires",
-    "provides",
-    "interfaceObject",
-    "tag",
-    "composeDirective",
-    "authenticated",
-    "requiresScopes",
-    "policy",
-    "context",
-    "fromContext",
-    "cost",
-    "listSize"
-  )
+  private val FederationTransportDirectiveNames =
+    FederationDirectives.toSet ++ Set("link", "extends", "composeDirective")
   private val ReservedFeatureIdentities         =
     Set(LinkIdentity, AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity, CostIdentity)
 }

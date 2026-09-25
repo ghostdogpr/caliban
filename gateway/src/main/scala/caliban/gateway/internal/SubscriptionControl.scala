@@ -20,7 +20,7 @@ private[gateway] final class SubscriptionControl[-R] private (
   def stop(reason: CalibanError.ExecutionError)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       val next = current.copy(stopped = current.stopped.orElse(Some(reason)))
-      (next.active.values.toList, next.stopped.get) -> next
+      (next.active.toList, next.stopped.get) -> next
     }.flatMap { case (signals, stopped) =>
       ZIO.foreachDiscard(signals)(_.succeed(stopped)) *> drained.succeed(()).when(signals.isEmpty).unit
     }
@@ -35,8 +35,7 @@ private[gateway] final class SubscriptionControl[-R] private (
   )(implicit trace: Trace): ZStream[R1, Throwable, Response] =
     ZStream.unwrapScoped[R1] {
       for {
-        env             <- ZIO.environment[R1]
-        registration    <- ZIO.uninterruptible(register(env))
+        registration    <- ZIO.uninterruptible(register[R1])
         (signal, reason) = registration
         source          <- openSource[R1](open, signal, reason)
         buffer          <- SubscriptionBuffer.make[Response](config.bufferSize)
@@ -44,12 +43,11 @@ private[gateway] final class SubscriptionControl[-R] private (
       } yield events(buffer, signal, reason)(process)
     }
 
-  private def register[R1 <: R](
-    env: ZEnvironment[R1]
-  )(implicit trace: Trace): ZIO[R1 with Scope, CalibanError.ExecutionError, (Signal, Ref[String])] =
+  private def register[R1 <: R](implicit
+    trace: Trace
+  ): ZIO[R1 with Scope, CalibanError.ExecutionError, (Signal, Ref[String])] =
     for {
       signal   <- Promise.make[Nothing, CalibanError.ExecutionError]
-      token     = new Object
       started  <- Clock.nanoTime
       reason   <- Ref.make(CancelledReason)
       rejected <- state.modify { current =>
@@ -57,8 +55,7 @@ private[gateway] final class SubscriptionControl[-R] private (
                       if (current.active.size >= config.maxActive) Some(SubscriptionTermination.Capacity)
                       else None
                     )
-                    rejection -> (if (rejection.isEmpty) current.copy(active = current.active.updated(token, signal))
-                                  else current)
+                    rejection -> (if (rejection.isEmpty) current.copy(active = current.active + signal) else current)
                   }
       _        <- ZIO.foreachDiscard(rejected)(error =>
                     notify(Event.SubscriptionAdmission(false))(hooks.subscriptionAdmission) *> ZIO.fail(error)
@@ -71,10 +68,10 @@ private[gateway] final class SubscriptionControl[-R] private (
                           notify(Event.SubscriptionTerminated(why, ended - started))(hooks.subscriptionTerminated)
                         )
                         .ensuring(state.modify { current =>
-                          val next = current.copy(active = current.active - token)
+                          val next = current.copy(active = current.active - signal)
                           (next.stopped.nonEmpty && next.active.isEmpty) -> next
                         }.flatMap(empty => drained.succeed(()).when(empty).unit))
-                    }.provideEnvironment(env)
+                    }
                   }
       _        <- notify(Event.SubscriptionAdmission(true))(hooks.subscriptionAdmission)
     } yield (signal, reason)
@@ -155,12 +152,11 @@ private[gateway] object SubscriptionControl {
   def make[R](
     config: GatewaySubscriptionConfig,
     hooks: PhaseHooks[R]
-  )(implicit trace: Trace): ZIO[Scope, Nothing, SubscriptionControl[R]] =
+  )(implicit trace: Trace): UIO[SubscriptionControl[R]] =
     for {
-      state   <- Ref.make(State(None, Map.empty))
+      state   <- Ref.make(State(None, Set.empty))
       drained <- Promise.make[Nothing, Unit]
-      control  = new SubscriptionControl(config, hooks, state, drained)
-    } yield control
+    } yield new SubscriptionControl(config, hooks, state, drained)
 
   private type Response = GraphQLResponse[CalibanError]
   private type Signal   = Promise[Nothing, CalibanError.ExecutionError]
@@ -168,7 +164,7 @@ private[gateway] object SubscriptionControl {
   private final val CancelledReason = "cancelled"
   private final val CompleteReason  = "complete"
 
-  private final case class State(stopped: Option[CalibanError.ExecutionError], active: Map[Object, Signal])
+  private final case class State(stopped: Option[CalibanError.ExecutionError], active: Set[Signal])
 
   private def terminationReason(error: Throwable): String =
     SubscriptionTermination.code(SubscriptionTermination.fromFailure(error))

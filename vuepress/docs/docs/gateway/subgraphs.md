@@ -66,7 +66,7 @@ The gateway combines root fields into one public schema and merges types by name
 - Ordinary services cannot both own the same root field, such as `Query.product`. Rename or hide one field with a [schema transformation](#shaping-the-public-schema).
 - Object types can contribute different fields. Shared fields need compatible output types and arguments. For example, `Product.price: Int` and `Product.price: String` conflict. Output nullability can differ. The composed field is nullable if a contributing source allows null.
 - Input fields must agree on their types and defaults. A required input field must exist in every service that declares that input type.
-- Federation 2 fields with multiple owners need compatible `@shareable` declarations or an applicable `@override`. Subscription root fields always need one owner.
+- Federation 2 fields with multiple owners need compatible `@shareable` declarations or an applicable `@override`. Subscription root fields always need one owner. Interface fields cannot declare `@override`.
 
 Merging types does not tell the gateway how to retrieve an object from another service. Ordinary services need a [lookup](planning.md#connecting-objects-across-ordinary-services) for that step. Federation schemas supply entity keys and routing information themselves.
 
@@ -74,7 +74,7 @@ Composition errors identify the field or type and the services involved. Fix inc
 
 ## Supergraphs
 
-A supergraph document contains the combined schema and the routing information for its services. If you already have one for Apollo Router or Hive Router, load it with `Gateway.fromSupergraph`:
+A supergraph document contains the combined schema and the routing information for its services. The gateway does not support supergraphs composed with Federation 1 (`join/v0.1`). If you already have a supergraph for Apollo Router or Hive Router, load it with `Gateway.fromSupergraph`:
 
 ```scala
 import zio.Config.Secret

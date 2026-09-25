@@ -11,9 +11,9 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
   private val prefix      = s"[${subgraph.name}]"
   private val rootName    = subgraph.rootType.queryType.name.getOrElse("Query")
   private val targetType  = subgraph.rootType.types.get(lookup.typeName)
-  private val sourceField = subgraph.rootType.queryType.allFields.find(_.name == lookup.field)
+  private val sourceField = fieldDefinition(subgraph.rootType.queryType, lookup.field)
   private val keys        = targetType.toList
-    .flatMap(target => lookup.keyFields.flatMap(name => target.allFields.find(_.name == name).map(name -> _)))
+    .flatMap(target => lookup.keyFields.flatMap(name => fieldDefinition(target, name).map(name -> _)))
     .toMap
 
   def compile: Either[List[String], LookupOperation.GraphQLQuery] = {
@@ -186,7 +186,7 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
           s"$prefix By-key lookup correlation must map every declared key field exactly once."
         )
         val values      = byKey.correlation.toList.flatMap { case (responseField, keyField) =>
-          (target.allFields.find(_.name == responseField), keys.get(keyField)) match {
+          (fieldDefinition(target, responseField), keys.get(keyField)) match {
             case (None, _)                                                                     =>
               List(s"$prefix Lookup correlation field '${lookup.typeName}.$responseField' does not exist.")
             case (_, None)                                                                     =>

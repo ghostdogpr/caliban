@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
+import caliban.InputValue.{ ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
@@ -139,14 +139,11 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         response.errors.isEmpty,
         plan.contains("via Product(id)"),
         !plan.contains("via Product(sku,upc)"),
-        sent.headOption
-          .flatMap(_.variables)
-          .flatMap(_.get("representations"))
-          .exists {
-            case InputListValue(InputObjectValue(fields) :: Nil) =>
-              fields.get("id").contains(StringValue("p1")) && !fields.contains("sku") && !fields.contains("upc")
-            case _                                               => false
-          }
+        sent.headOption.map(representations).exists {
+          case InputObjectValue(fields) :: Nil =>
+            fields.get("id").contains(StringValue("p1")) && !fields.contains("sku") && !fields.contains("upc")
+          case _                               => false
+        }
       )
     },
     test("chooses the cheaper ordinary GraphQL lookup source") {
@@ -334,7 +331,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                     )
         target   <-
           stub(
-            """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","label":"one"},{"_caliban_gateway_entity_key":"p2","label":"two"}]}}"""
+            """{"data":{"_entities":[{"label":"one"},{"label":"two"}]}}"""
           )
         runtime  <- Gateway
                       .compose(
@@ -353,22 +350,17 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         plan.linesIterator.count(_.contains("via Product(k2)")) == 2,
         !plan.contains("via Product(k1)"),
         sent.size == 1,
-        sent.headOption
-          .flatMap(_.variables)
-          .flatMap(_.get("representations"))
-          .exists {
-            case InputListValue(values) =>
-              values.collect { case InputObjectValue(fields) => fields.get("k2") }.flatten ==
-                List(StringValue("p1"), StringValue("p2")) &&
-                values.forall {
-                  case InputObjectValue(fields) => !fields.contains("k1")
-                  case _                        => false
-                }
-            case _                      => false
-          }
+        sent.headOption.map(representations).exists { values =>
+          values.collect { case InputObjectValue(fields) => fields.get("k2") }.flatten ==
+            List(StringValue("p1"), StringValue("p2")) &&
+            values.forall {
+              case InputObjectValue(fields) => !fields.contains("k1")
+              case _                        => false
+            }
+        }
       )
     },
-    test("discards a cyclic alternative when a complete dependency DAG exists") {
+    test("rejects a dependency cycle before any call, and discards it once a complete DAG exists") {
       val originSchema =
         """
           |type Query { thing: Thing }
@@ -407,6 +399,15 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         left      <- stub("""{"data":{"_entities":[]}}""")
         right     <- stub("""{"data":{"_entities":[]}}""")
         valid     <- stub("""{"data":{"_entities":[{"b":"b1","c":"c1"}]}}""")
+        cyclic    <- Gateway
+                       .compose(
+                         Subgraph.graphql("origin", origin.endpoint, originSchema),
+                         Subgraph.federation("left", left.endpoint, leftSchema),
+                         Subgraph.federation("right", right.endpoint, rightSchema)
+                       )
+                       .interpreter
+        rejected  <- cyclic.execute("{ thing { b c } }")
+        before    <- origin.requests.get
         runtime   <- Gateway
                        .compose(
                          Subgraph.graphql("origin", origin.endpoint, originSchema),
@@ -420,6 +421,8 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         rightSent <- right.requests.get
         validSent <- valid.requests.get
       } yield assertTrue(
+        rejected.errors.map(_.msg) == List("Entity routing dependency cycle detected."),
+        before.isEmpty,
         response.errors.isEmpty,
         field(response.data, "thing").flatMap(field(_, "b")).contains(StringValue("b1")),
         field(response.data, "thing").flatMap(field(_, "c")).contains(StringValue("c1")),
@@ -473,7 +476,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         replicaSent.isEmpty
       )
     },
-    test("plans invariant nested alternatives once within each request's candidate budget") {
+    test("stays within the per-request candidate budget across sequential and concurrent requests") {
       val productsSchema =
         s"""
            |${federationSchemaPreamble("@key", "@external")}

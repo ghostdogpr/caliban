@@ -65,17 +65,8 @@ private[gateway] final class ResponseCompletion(
     fetched: FetchedFields,
     runtimeType: String,
     responsePath: Vector[String]
-  ): Array[CompiledField] = {
-    val result    = new Array[CompiledField](fields.length)
-    var i         = 0
-    var remaining = fields
-    while (remaining ne Nil) {
-      result(i) = compileField(remaining.head, fetched, runtimeType, responsePath)
-      i += 1
-      remaining = remaining.tail
-    }
-    result
-  }
+  ): Array[CompiledField] =
+    fields.map(compileField(_, fetched, runtimeType, responsePath)).toArray
 
   private def compileField(
     field: Field,
@@ -142,16 +133,9 @@ private[gateway] final class ResponseCompletion(
     )
   }
 
-  private def wasFetched(node: FetchedFields, field: Field, typeName: String): Boolean = {
-    if (node eq null) return false
-    var remaining = node.fields
-    while (remaining ne Nil) {
-      val selected = remaining.head
-      if (selected.name == field.name && selected._condition.forall(_.contains(typeName))) return true
-      remaining = remaining.tail
-    }
-    false
-  }
+  private def wasFetched(node: FetchedFields, field: Field, typeName: String): Boolean =
+    (node ne null) &&
+      node.fields.exists(selected => selected.name == field.name && selected._condition.forall(_.contains(typeName)))
 
   /**
    * Paths are accumulated in reverse order. A Scala null signals a non-null violation that must bubble;
@@ -255,34 +239,34 @@ private[gateway] final class ResponseCompletion(
     }
 
     private def bubble(field: CompiledField, path: List[PathValue], alreadyReported: Boolean): ResponseValue = {
-      val reversed = path.reverse
-      if (!alreadyReported && !sourceErrorPaths.overlaps(reversed)) {
+      if (!alreadyReported) {
         val parent = field.source.parentType.flatMap(_.name).getOrElse("Unknown")
-        errors += CalibanError.ExecutionError(
-          s"Cannot return null for non-nullable field $parent.${field.source.name}.",
-          reversed,
-          Some(field.source.locationInfo)
+        report(path)(
+          CalibanError.ExecutionError(
+            s"Cannot return null for non-nullable field $parent.${field.source.name}.",
+            _,
+            Some(field.source.locationInfo)
+          )
         )
       }
       null
     }
 
     private def invalidEnum(tpe: EnumType, field: CompiledField, path: List[PathValue]): ResponseValue = {
-      val reversed = path.reverse
-      if (!sourceErrorPaths.overlaps(reversed))
-        errors += CalibanError.ExecutionError(
-          s"Invalid value for enum '${tpe.name}'.",
-          reversed,
-          Some(field.source.locationInfo)
-        )
+      report(path)(
+        CalibanError.ExecutionError(s"Invalid value for enum '${tpe.name}'.", _, Some(field.source.locationInfo))
+      )
       NullValue
     }
 
     private def invalid(path: List[PathValue]): ResponseValue = {
-      val reversed = path.reverse
-      if (!(reversed.isEmpty && hasSourceErrors) && !sourceErrorPaths.overlaps(reversed))
-        errors += RemoteError.at(reversed)
+      if (!(path.isEmpty && hasSourceErrors)) report(path)(RemoteError.at)
       NullValue
+    }
+
+    private def report(path: List[PathValue])(error: List[PathValue] => CalibanError.ExecutionError): Unit = {
+      val reversed = path.reverse
+      if (!sourceErrorPaths.overlaps(reversed)) errors += error(reversed)
     }
 
     private def runtimeType(value: IndexedFields, typenameFields: List[String]): String = {
@@ -305,12 +289,10 @@ private[gateway] object ResponseCompletion {
     // A valid plan can omit conditional fields outside the common runtime types of a shareable path.
     // Retain fetched selections so those omissions do not look like malformed upstream responses.
     val root                                                    = new FetchedFields
-    var nonEmpty                                                = false
     def collect(fields: List[Field], node: FetchedFields): Unit =
       fields.foreach { field =>
         val child = node.childOrCreate(field.aliasedName)
         child.fields = field :: child.fields
-        nonEmpty = true
         collect(field.fields, child)
       }
     collect(plan.localFields ::: plan.roots.flatMap(_.selections), root)
@@ -319,7 +301,7 @@ private[gateway] object ResponseCompletion {
       fetch.mergePath.foreach(name => node = node.childOrCreate(name))
       collect(fetch.fields, node)
     }
-    new ResponseCompletion(plan.typenameSelections, if (nonEmpty) root else null)
+    new ResponseCompletion(plan.typenameSelections, if (root.isEmpty) null else root)
   }
 
   sealed trait Completion {
@@ -344,6 +326,8 @@ private[gateway] object ResponseCompletion {
   private[execution] final class FetchedFields {
     private val children    = new java.util.HashMap[String, FetchedFields](8)
     var fields: List[Field] = Nil
+
+    def isEmpty: Boolean = children.isEmpty
 
     def child(name: String): FetchedFields = children.get(name)
 
@@ -426,10 +410,8 @@ private[gateway] object ResponseCompletion {
 
   private case object PassThroughType extends CompiledType
 
-  private val NoErrorPaths = PathIndex(Iterator.empty)
-
   private def errorPaths(errors: List[CalibanError]): PathIndex =
-    if (errors.isEmpty) NoErrorPaths
+    if (errors.isEmpty) PathIndex.empty
     else
       PathIndex(errors.iterator.collect {
         case error: CalibanError.ExecutionError if error.path.nonEmpty => error.path
