@@ -211,7 +211,7 @@ object FederationV2Spec extends ZIOSpecDefault {
             )
           )
       },
-      test("connect spec includes the correct directives") {
+      test("connect spec does not include the correct directives") {
         import caliban.federation.v2_10._
         makeSchemaDirectives(federated(_)).map { schemaDirectives =>
           val linkDirectives   = schemaDirectives.filter(_.name == "link")
@@ -221,18 +221,7 @@ object FederationV2Spec extends ZIOSpecDefault {
               case _                  => false
             })
 
-          assertTrue(
-            connectDirective.get == Directive(
-              "link",
-              Map(
-                "url"    -> StringValue("https://specs.apollo.dev/connect/v0.1"),
-                "import" -> ListValue(
-                  StringValue("@connect") ::
-                    StringValue("@source") :: Nil
-                )
-              )
-            )
-          )
+          assertTrue(connectDirective.isEmpty)
         }
 
       },
@@ -296,10 +285,12 @@ object FederationV2Spec extends ZIOSpecDefault {
           Nil,                                       // 2.7
           List("@context", "@fromContext"),          // 2.8
           List("@cost", "@listSize"),                // 2.9
-          List("@connect", "@source"),               // 2.10 + connect 0.1
-          Nil,                                       // 2.11 + connect 0.2
-          List("@cacheTag"),                         // 2.12 + connect 0.3
-          Nil                                        // 2.13 + connect 0.4
+          Nil,                                       // 2.10
+          Nil,                                       // 2.11
+          List("@cacheTag"),                         // 2.12
+          Nil,                                       // 2.13,
+          Nil,                                       // 2.14
+          Nil                                        // 2.15
         )
           .scanLeft(DefaultDirectives)(_ ++ _.map(Import(_)))
 
@@ -317,7 +308,9 @@ object FederationV2Spec extends ZIOSpecDefault {
           v2_10,
           v2_11,
           v2_12,
-          v2_13
+          v2_13,
+          v2_14,
+          v2_15
         ).zip(directives).zipWithIndex.map { case ((fedVer, directives), index) =>
           renderFederationTest(fedVer, Fixture.api)(s"v2.$index", directives)
         }
