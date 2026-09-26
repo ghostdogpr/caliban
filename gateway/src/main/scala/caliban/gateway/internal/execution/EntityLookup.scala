@@ -7,57 +7,58 @@ import caliban.gateway.internal.composition.{ ComposedGraph, SchemaMapping }
 import caliban.gateway.internal.execution.EntityExecutor._
 import caliban.gateway.internal.execution.EntityLookup._
 import caliban.gateway.internal.execution.PlanExecutor.renderOperation
+import caliban.gateway.internal.execution.ResponseMerge.{ Overwrite, Patch }
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.gateway._
-import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue, VariableValue }
+import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.introspection.adt.{ __Type, __TypeKind }
-import caliban.parsing.adt.{ OperationType, Selection, VariableDefinition }
+import caliban.parsing.adt.{ OperationType, Selection }
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.adt.Type.NamedType
 import caliban.rendering.DocumentRenderer
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, NullValue, StringValue }
-
-import scala.collection.mutable
 
 /**
  * Builds entity lookup requests together with the rules for translating and correlating their responses.
  * Generated aliases and correlation selections stay private to each call.
  */
 private[execution] final class EntityLookup(graph: ComposedGraph) {
-  def prepare(fetch: EntityFetch, batch: EntityBatch, cache: PlanExecutionCache): Option[(GraphQLRequest, Call)] = {
+  def prepare(batch: EntityBatch, cache: PlanExecutionCache): Option[(GraphQLRequest, Call)] = {
+    val fetch   = batch.fetch
     val mapping = graph.schemaMapping(fetch.source)
     fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities                                                      =>
-        val variant = federationVariant(fetch, mapping, batch, cache)
+      case ComposedGraph.LookupOperation.FederationEntities                                                  =>
+        val variant = cache.federationLookup(batch)(federationVariant)
         val request = GraphQLRequest(
           query = Some(variant.query),
           operationName = Some(EntityOperationName),
           variables = Some(Map(RepresentationsVariable -> representations(fetch, mapping, batch)))
         )
-        Some(request -> new Call(fetch, batch, variant, ResponseShape.ListRoot(EntitiesField), Map.empty))
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single)       =>
-        val variant = graphqlVariant(fetch, mapping, batch, cache)(_ => EntityCorrelation.Ordered)
+        Some(
+          request -> new Call(batch, variant.projection, ResponseShape.Ordered(EntitiesField))
+        )
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single)   =>
+        val variant = cache.graphqlLookup(batch)(graphqlVariant)
         val aliases = Vector.tabulate(batch.entries.size)(index => s"${LookupAlias}_$index")
         traverseOption(batch.entries.zip(aliases)) { case (entry, alias) =>
           evaluateArguments(arguments, batch, Some(entry)).map(lookupField(mapping, field, alias, _, variant))
-        }.map(fields =>
-          lookupRequest(fields) -> new Call(fetch, batch, variant, ResponseShape.Aliases(aliases), Map.empty)
-        )
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, byKey: ComposedGraph.LookupResult.ByKey) =>
-        val variant = graphqlVariant(fetch, mapping, batch, cache)(graphqlCorrelation(fetch, byKey, _))
+        }.map(fields => lookupRequest(fields) -> new Call(batch, variant.projection, ResponseShape.Aliases(aliases)))
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, _: ComposedGraph.LookupResult.ByKey) =>
+        val variant = cache.graphqlLookup(batch)(graphqlVariant)
         evaluateArguments(arguments, batch, None).map { values =>
           lookupRequest(List(lookupField(mapping, field, LookupAlias, values, variant))) ->
-            new Call(fetch, batch, variant, ResponseShape.ListRoot(LookupAlias), expectedIdentities(fetch, batch))
+            new Call(batch, variant.projection, ResponseShape.Keyed(LookupAlias, variant.keys))
         }
     }
   }
 
-  def preparePart(fetch: EntityFetch, batch: EntityBatch, cache: PlanExecutionCache, slot: Int): (CallPart, Call) = {
+  def preparePart(batch: EntityBatch, cache: PlanExecutionCache, slot: Int): (CallPart, Call) = {
+    val fetch   = batch.fetch
     val mapping = graph.schemaMapping(fetch.source)
-    val variant = federationVariant(fetch, mapping, batch, cache)
+    val variant = cache.federationLookup(batch)(federationVariant)
     val part    = CallPart(slot, variant.selections, representations(fetch, mapping, batch))
-    part -> new Call(fetch, batch, variant, ResponseShape.ListRoot(part.alias), Map.empty)
+    part -> new Call(batch, variant.projection, ResponseShape.Ordered(part.alias))
   }
 
   private def representations(fetch: EntityFetch, mapping: SchemaMapping, batch: EntityBatch): InputValue =
@@ -89,215 +90,165 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   }
 
   final class Call private[EntityLookup] (
-    fetch: EntityFetch,
     batch: EntityBatch,
-    variant: PreparedVariant,
-    shape: ResponseShape,
-    expected: Map[EntityIdentity, Int]
+    projection: ResponseProjection,
+    shape: ResponseShape
   ) {
-    private val correlation = variant.correlation
-    private val projection  = variant.projection
+    private val fetch = batch.fetch
 
     def complete(response: GraphQLResponse[CalibanError], errorPolicy: SubgraphExecutor.ErrorPolicy): EntityResult = {
-      val values   = shape.values(response.data).map { case (index, value) => index -> projection(value) }
-      val assigned = assign(values)
+      val values         = shape.values(response.data).map { case (index, value) => index -> projection(value) }
+      val slots          = new Array[ResponseValue](batch.entries.size)
+      val protocolErrors = assign(values, slots)
 
-      val (missing, merged) = collectPatches(assigned.slots)
-
-      val errors = batch.errors :::
-        (if (response.errors.isEmpty) Nil else relocateErrors(values.toMap, response.errors, errorPolicy)) :::
-        assigned.protocolErrors :::
-        missingErrors(response.errors, missing)
-
-      EntityResult(merged, errors, blockEntries(batch.blocked, assigned.blocked ::: missing), batch.unmatched)
-    }
-
-    private def assign(values: List[(Int, ResponseValue)]): Assignment = {
-      val slots          = new Slots(batch.entries.size)
-      val protocolErrors = List.newBuilder[CalibanError]
-      val blocked        = List.newBuilder[EntityBatchEntry]
-
-      values.foreach {
-        case (index, NullValue)          =>
-          correlation match {
-            case EntityCorrelation.Ordered  =>
-              batch.entries.lift(index) match {
-                case Some(entry) =>
-                  slots.fill(index, NullValue)
-                  blocked += entry
-                case None        => protocolErrors += unexpectedEntityResult(fetch)
-              }
-            case _: EntityCorrelation.ByKey => protocolErrors += unexpectedEntityResult(fetch)
-          }
-        case (index, value: ObjectValue) =>
-          entryIndex(index, Some(value)) match {
-            case Some(entry) if slots.isEmpty(entry) => slots.fill(entry, value)
-            case Some(_)                             => protocolErrors += duplicateEntityResult(fetch)
-            case None                                => protocolErrors += unexpectedEntityResult(fetch)
-          }
-        case (_, _)                      =>
-          protocolErrors += unexpectedEntityResult(fetch)
+      lazy val byIndex = values.toMap
+      val attributed   = response.errors.map { error =>
+        val execution = executionError(error)
+        execution -> attribute(execution, byIndex)
+      }
+      // An error attributed to an omitted result stands for a null result.
+      attributed.foreach {
+        case (_, Some((entry, _))) if slots(entry) eq null => slots(entry) = NullValue
+        case _                                             =>
       }
 
-      Assignment(slots, protocolErrors.result(), blocked.result())
-    }
-
-    private def collectPatches(slots: Slots): (List[EntityBatchEntry], List[EntityPatch]) = {
       val missing = List.newBuilder[EntityBatchEntry]
-      val merged  = List.newBuilder[EntityPatch]
+      val blocked = List.newBuilder[EntityLocation]
+      val merged  = List.newBuilder[(FetchId, Patch)]
       var index   = 0
       batch.entries.foreach { entry =>
-        if (slots.isEmpty(index)) missing += entry
-        else {
+        if (slots(index) eq null) {
+          missing += entry
+          blocked ++= entry.locations
+        } else {
           val patch = slots(index)
-          if (patch != NullValue)
-            entry.locations.foreach(location => merged += EntityPatch(location.fetch, location.path, patch))
+          if (patch eq NullValue) blocked ++= entry.locations
+          else entry.locations.foreach(location => merged += location.fetch.root -> (location.path -> Overwrite(patch)))
         }
         index += 1
       }
-      (missing.result(), merged.result())
+
+      val errors =
+        attributed.flatMap { case (error, attribution) => relocate(error, attribution, errorPolicy) } :::
+          protocolErrors ::: missingErrors(attributed, missing.result())
+
+      EntityResult(merged.result(), errors, blocked.result())
+    }
+
+    private def assign(values: List[(Int, ResponseValue)], slots: Array[ResponseValue]): List[CalibanError] = {
+      val protocolErrors = List.newBuilder[CalibanError]
+      values.foreach { case (index, value) =>
+        entryIndex(index, Some(value)) match {
+          case Some(entry) if slots(entry) eq null =>
+            value match {
+              case NullValue | _: ObjectValue => slots(entry) = value
+              case _                          =>
+                slots(entry) = NullValue
+                protocolErrors ++= batch.mergePaths.map(unexpectedEntityResult(fetch, _))
+            }
+          case Some(_)                             => protocolErrors ++= batch.mergePaths.map(duplicateEntityResult(fetch, _))
+          case None                                => protocolErrors ++= batch.mergePaths.map(unexpectedEntityResult(fetch, _))
+        }
+      }
+      protocolErrors.result()
     }
 
     private def missingErrors(
-      responseErrors: List[CalibanError],
+      attributed: List[(CalibanError.ExecutionError, Option[(Int, List[PathValue])])],
       missing: List[EntityBatchEntry]
-    ): List[CalibanError] = {
-      val unindexedError = responseErrors.exists {
-        case error: CalibanError.ExecutionError => shape.errorIndex(error.path).isEmpty
-        case _                                  => false
-      }
-      if (unindexedError) Nil
-      else
-        correlation match {
-          case _: EntityCorrelation.ByKey => Nil
-          case EntityCorrelation.Ordered  =>
+    ): List[CalibanError] =
+      shape match {
+        case _: ResponseShape.Keyed => Nil
+        case _                      =>
+          if (attributed.exists(_._2.isEmpty)) Nil
+          else
             missing.flatMap { entry =>
               entry.locations.map(location => missingEntityResult(location.fetch, location.path))
             }
-        }
-    }
-
-    private def relocateErrors(
-      values: Map[Int, ResponseValue],
-      errors: List[CalibanError],
-      errorPolicy: SubgraphExecutor.ErrorPolicy
-    ): List[CalibanError] = {
-      lazy val fallbackPaths = mergePaths
-      errors.flatMap {
-        case error: CalibanError.ExecutionError =>
-          shape.errorIndex(error.path) match {
-            case Some((index, tail)) =>
-              val locations  = entityLocations(index, values.get(index))
-              val clientTail = projection.path(tail)
-              if (locations.isEmpty) fallbackPaths.map(errorPolicy.entityFallback(error, _))
-              else
-                locations.map { location =>
-                  if (clientTail.isEmpty || RemoteError.hasClientPath(location.fetch.fields, clientTail))
-                    error.copy(path = location.path ::: clientTail, locationInfo = None)
-                  else errorPolicy.entityFallback(error, location.path)
-                }
-            case None                =>
-              fallbackPaths.map(errorPolicy.entityFallback(error, _))
-          }
-        case error                              => List(error)
       }
-    }
 
-    private def entityLocations(index: Int, value: Option[ResponseValue]): List[EntityLocation] =
-      entryIndex(index, value).flatMap(batch.entries.lift).map(_.locations).getOrElse(Nil)
+    private def relocate(
+      error: CalibanError.ExecutionError,
+      attribution: Option[(Int, List[PathValue])],
+      errorPolicy: SubgraphExecutor.ErrorPolicy
+    ): List[CalibanError] =
+      attribution match {
+        case Some((entry, tail)) =>
+          val clientTail = projection.path(tail)
+          batch.entries(entry).locations.map { location =>
+            if (clientTail.isEmpty) error.copy(path = location.path)
+            else
+              errorPolicy
+                .place(location.fetch.fields, location.path, error, clientTail)
+                .getOrElse(errorPolicy.entityFallback(error, location.path))
+          }
+        case None                =>
+          batch.mergePaths.map(errorPolicy.entityFallback(error, _))
+      }
+
+    private def attribute(
+      error: CalibanError.ExecutionError,
+      values: => Map[Int, ResponseValue]
+    ): Option[(Int, List[PathValue])] =
+      shape.errorIndex(error.path).flatMap { case (index, tail) =>
+        entryIndex(index, values.get(index)).map(_ -> tail)
+      }
+
+    private lazy val expected = batch.entries.iterator.map(_.identity).zipWithIndex.toMap
 
     private def entryIndex(index: Int, value: Option[ResponseValue]): Option[Int] =
-      correlation.entryIndex(fetch, expected, index, value).filter(batch.entries.isDefinedAt)
+      (shape match {
+        case ResponseShape.Keyed(_, keys) =>
+          value.collect { case obj: ObjectValue => readIdentity(fetch.entityType, keys, IndexedFields(obj)) }.flatten
+            .flatMap(expected.get)
+        case _                            => Some(index)
+      }).filter(batch.entries.isDefinedAt)
 
-    private def mergePaths: List[List[PathValue]] = {
-      val paths = mutable.LinkedHashSet.empty[List[PathValue]]
-      batch.entries.foreach(_.locations.foreach(location => paths += fetchPath(location.fetch)))
-      paths += fetchPath(fetch)
-      paths.toList
-    }
   }
 
   private def federationVariant(
     fetch: EntityFetch,
-    mapping: SchemaMapping,
-    batch: EntityBatch,
-    cache: PlanExecutionCache
+    contexts: Map[ContextualArgument, InputValue]
   ): FederationVariant = {
-    def prepare: FederationVariant = {
-      val executableFields = executableEntityFields(fetch, batch)
-      val fragments        = federationFragments(fetch, mapping, sourceSelections(mapping, executableFields))
-      FederationVariant(
-        ResponseProjection.compile(fetch.fields, executableFields, Nil, mapping.typeNames),
-        renderOperation(federationOperation(fragments)),
-        renderSelections(fragments)
-      )
-    }
-    if (contextValues(batch).isEmpty) cache.federationLookup(fetch.id)(prepare) else prepare
+    val mapping          = graph.schemaMapping(fetch.source)
+    val executableFields = executableEntityFields(fetch, contexts)
+    val fragments        = federationFragments(fetch, mapping, sourceSelections(mapping, executableFields))
+    FederationVariant(
+      ResponseProjection.compile(fetch.fields, executableFields, mapping.typeNames),
+      renderSelections(fragments)
+    )
   }
 
-  private def graphqlVariant(fetch: EntityFetch, mapping: SchemaMapping, batch: EntityBatch, cache: PlanExecutionCache)(
-    correlate: List[Field] => EntityCorrelation
-  ): GraphQLVariant = {
-    def prepare: GraphQLVariant = {
-      val executableFields = executableEntityFields(fetch, batch)
-      val correlation      = correlate(executableFields)
-      GraphQLVariant(
-        correlation,
-        sourceSelections(mapping, executableFields) ::: correlation.required
-          .map(value => requiredSelection(mapping.requiredSelectionToSource(fetch.entityType, value))),
-        ResponseProjection.compile(fetch.fields, executableFields, correlation.required, mapping.typeNames)
-      )
+  private def graphqlVariant(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): GraphQLVariant = {
+    val mapping               = graph.schemaMapping(fetch.source)
+    val executableFields      = executableEntityFields(fetch, contexts)
+    val (keys, keySelections) = fetch.lookup.operation match {
+      case ComposedGraph.LookupOperation.GraphQLQuery(_, _, result: ComposedGraph.LookupResult.ByKey) =>
+        val aliases = new PrivateAliases(responseNames(executableFields))
+        val keys    = fetch.keys.map(key => RequiredSelection(key.field, aliases.next(LookupKeyAliasBase)))
+        keys -> keys.map(key =>
+          requiredSelection(
+            mapping.requiredSelectionToSource(fetch.entityType, key.copy(field = result.fields(key.field)))
+          )
+        )
+      case _                                                                                          => Nil -> Nil
     }
-    if (contextValues(batch).isEmpty) cache.graphqlLookup(fetch.id)(prepare) else prepare
+    GraphQLVariant(
+      keys,
+      sourceSelections(mapping, executableFields) ::: keySelections,
+      ResponseProjection.compile(fetch.fields, executableFields, mapping.typeNames)
+    )
   }
 
-  private def contextValues(batch: EntityBatch): Map[ContextualArgument, InputValue] =
-    batch.entries.headOption.fold(Map.empty[ContextualArgument, InputValue])(_.contextArguments)
-
-  private def executableEntityFields(fetch: EntityFetch, batch: EntityBatch): List[Field] =
+  private def executableEntityFields(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): List[Field] =
     graph.prepareEntityFields(
       fetch.source,
       fetch.entityType,
-      injectContextArguments(fetch.source, fetch.fields, contextValues(batch))
+      injectContextArguments(fetch.source, fetch.fields, contexts)
     )
 
   private def sourceSelections(mapping: SchemaMapping, executableFields: List[Field]): List[Selection] =
-    executableFields.flatMap(field => fieldSelection(mapping.fieldToSource(field)))
-
-  private def graphqlCorrelation(
-    fetch: EntityFetch,
-    result: ComposedGraph.LookupResult.ByKey,
-    executableFields: List[Field]
-  ): EntityCorrelation.ByKey = {
-    val fields     = result.fields
-    val usedNames  = responseNames(executableFields)
-    val configured = fetch.keys.flatMap(key =>
-      fields.collectFirst {
-        case (responseField, keyField) if keyField == key.field => responseField -> keyField
-      }
-    )
-    EntityCorrelation.ByKey(
-      IdentitySelections(
-        correlationKeys(
-          configured.map { case (responseField, keyField) =>
-            keyField -> RequiredSelection(responseField, responseField)
-          },
-          usedNames
-        ),
-        None
-      )
-    )
-  }
-
-  private def correlationKeys(
-    fields: List[(String, RequiredSelection)],
-    usedNames: Set[String]
-  ): List[CorrelationKey] = {
-    val aliases = new PrivateAliases(usedNames)
-    fields.map { case (keyField, selection) =>
-      CorrelationKey(keyField, selection.copy(responseName = aliases.next(LookupKeyAliasBase)))
-    }
-  }
+    executableFields.flatMap(field => targetedSelections(mapping.fieldToSource(field)))
 
   private def federationFragments(
     fetch: EntityFetch,
@@ -312,31 +263,6 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
       )
     )
 
-  private def federationOperation(fragments: List[Selection]): OperationDefinition = {
-    val entityField = Selection.Field(
-      None,
-      EntitiesField,
-      Map(RepresentationsArgument -> VariableValue(RepresentationsVariable)),
-      Nil,
-      fragments,
-      0
-    )
-    OperationDefinition(
-      OperationType.Query,
-      Some(EntityOperationName),
-      List(
-        VariableDefinition(
-          RepresentationsVariable,
-          ListType(NamedType(AnyType, nonNull = true), nonNull = true),
-          None,
-          Nil
-        )
-      ),
-      Nil,
-      List(entityField)
-    )
-  }
-
   private def renderSelections(selections: List[Selection]): String =
     DocumentRenderer.selectionsRenderer.renderCompact(selections)
 
@@ -349,15 +275,6 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
       value.children.map(requiredSelection),
       0
     )
-
-  private def fieldSelection(field: Field): List[Selection] =
-    field.targets match {
-      case Some(targets) =>
-        targets.toList.sorted.map(target =>
-          Selection.InlineFragment(Some(NamedType(target, nonNull = false)), Nil, field.toSelection :: Nil)
-        )
-      case None          => field.toSelection :: Nil
-    }
 
   private def injectContextArguments(
     source: String,
@@ -433,11 +350,18 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
           .map(InputListValue.apply)
     }
 
-  private def duplicateEntityResult(fetch: EntityFetch): CalibanError.ExecutionError =
-    lookupResponseError(fetch, "contained a duplicate result", fetchPath(fetch))
+  private def executionError(error: CalibanError): CalibanError.ExecutionError =
+    error match {
+      case error: CalibanError.ExecutionError  => error.copy(locationInfo = None)
+      case error: CalibanError.ValidationError => CalibanError.ExecutionError(error.msg, extensions = error.extensions)
+      case error: CalibanError.ParsingError    => CalibanError.ExecutionError(error.msg, extensions = error.extensions)
+    }
 
-  private def unexpectedEntityResult(fetch: EntityFetch): CalibanError.ExecutionError =
-    lookupResponseError(fetch, "contained an unexpected result", fetchPath(fetch))
+  private def duplicateEntityResult(fetch: EntityFetch, path: List[PathValue]): CalibanError.ExecutionError =
+    lookupResponseError(fetch, "contained a duplicate result", path)
+
+  private def unexpectedEntityResult(fetch: EntityFetch, path: List[PathValue]): CalibanError.ExecutionError =
+    lookupResponseError(fetch, "contained an unexpected result", path)
 
   private def missingEntityResult(fetch: EntityFetch, path: List[PathValue]): CalibanError.ExecutionError =
     lookupResponseError(fetch, "omitted a result", path)
@@ -453,54 +377,54 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
 private[execution] object EntityLookup {
   def combine(parts: List[CallPart]): GraphQLRequest =
     GraphQLRequest(
-      query = Some(
-        parts.map(part => s"$$${part.variable}:[$AnyType!]!").mkString("query " + EntityOperationName + "(", ",", ")") +
-          parts.map(_.field).mkString("{", " ", "}")
-      ),
+      query = Some(entitiesQuery(parts.map(part => part.variable -> part.field))),
       operationName = Some(EntityOperationName),
       variables = Some(parts.map(part => part.variable -> part.representations).toMap)
     )
 
-  def partResponse(response: GraphQLResponse[CalibanError], part: CallPart): GraphQLResponse[CalibanError] =
-    if (response.errors.isEmpty) response
-    else
-      response.copy(errors = response.errors.filter {
-        case error: CalibanError.ExecutionError =>
-          error.path match {
-            case PathValue.Key(alias) :: _ if CallPart.isPartAlias(alias) => alias == part.alias
-            case _                                                        => true
-          }
-        case _                                  => true
-      })
+  def partResponse(
+    response: GraphQLResponse[CalibanError],
+    part: CallPart,
+    aliases: Set[String]
+  ): GraphQLResponse[CalibanError] =
+    response.copy(errors = response.errors.filter {
+      case error: CalibanError.ExecutionError =>
+        error.path match {
+          case PathValue.Key(alias) :: _ if aliases(alias) => alias == part.alias
+          case _                                           => true
+        }
+      case _                                  => true
+    })
 
-  sealed trait PreparedVariant {
-    def correlation: EntityCorrelation
-    def projection: ResponseProjection
-  }
-
-  final case class FederationVariant(projection: ResponseProjection, query: String, selections: String)
-      extends PreparedVariant {
-    def correlation: EntityCorrelation = EntityCorrelation.Ordered
+  final case class FederationVariant(projection: ResponseProjection, selections: String) {
+    lazy val query: String =
+      entitiesQuery(List(RepresentationsVariable -> entitiesField(RepresentationsVariable, selections)))
   }
 
   final case class GraphQLVariant(
-    correlation: EntityCorrelation,
+    keys: List[RequiredSelection],
     sourceSelections: List[Selection],
     projection: ResponseProjection
-  ) extends PreparedVariant
+  )
 
   final case class CallPart(slot: Int, selections: String, representations: InputValue) {
     val alias: String    = s"${CallPart.AliasPrefix}$slot"
     val variable: String = s"${CallPart.VariablePrefix}$slot"
-    def field: String    = s"$alias:$EntitiesField($RepresentationsArgument:$$$variable)$selections"
+    def field: String    = s"$alias:${entitiesField(variable, selections)}"
   }
 
   object CallPart {
-    def isPartAlias(alias: String): Boolean = alias.startsWith(AliasPrefix)
-
     private final val AliasPrefix    = "_caliban_gateway_entities_"
     private final val VariablePrefix = "_caliban_gateway_representations_"
   }
+
+  private def entitiesQuery(fields: List[(String, String)]): String =
+    fields.map { case (variable, _) => s"$$$variable:[$AnyType!]!" }
+      .mkString(s"query $EntityOperationName(", ",", ")") +
+      fields.map(_._2).mkString("{", " ", "}")
+
+  private def entitiesField(variable: String, selections: String): String =
+    s"$EntitiesField($RepresentationsArgument:$$$variable)$selections"
 
   private final val EntityOperationName     = "__GatewayEntity"
   private final val LookupOperationName     = "__GatewayLookup"
@@ -508,72 +432,13 @@ private[execution] object EntityLookup {
   private final val LookupAlias             = "_caliban_gateway_lookup"
   private final val LookupKeyAliasBase      = "_caliban_gateway_lookup_key"
 
-  private def expectedIdentities(fetch: EntityFetch, batch: EntityBatch): Map[EntityIdentity, Int] =
-    batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
-      correlationIdentity(fetch, entry.identity) -> index
-    }.toMap
-
-  private def correlationIdentity(fetch: EntityFetch, identity: EntityIdentity): EntityIdentity =
-    fetch.lookup.representationType.fold(identity)(typename => identity.copy(typename = typename))
-
-  private final class Slots(size: Int) {
-    private val values = new Array[ResponseValue](size)
-
-    def isEmpty(index: Int): Boolean = values(index) eq null
-
-    def fill(index: Int, value: ResponseValue): Unit = values(index) = value
-
-    def apply(index: Int): ResponseValue = values(index)
-  }
-
-  private final case class Assignment(slots: Slots, protocolErrors: List[CalibanError], blocked: List[EntityBatchEntry])
-
-  sealed trait EntityCorrelation {
-    def required: List[RequiredSelection]
-
-    private[execution] def entryIndex(
-      fetch: EntityFetch,
-      expected: Map[EntityIdentity, Int],
-      index: Int,
-      value: Option[ResponseValue]
-    ): Option[Int]
-  }
-
-  object EntityCorrelation {
-    case object Ordered extends EntityCorrelation {
-      val required: List[RequiredSelection] = Nil
-
-      private[execution] def entryIndex(
-        fetch: EntityFetch,
-        expected: Map[EntityIdentity, Int],
-        index: Int,
-        value: Option[ResponseValue]
-      ): Option[Int] = Some(index)
-    }
-
-    final case class ByKey(identity: IdentitySelections) extends EntityCorrelation {
-      def required: List[RequiredSelection] =
-        identity.keys.map(_.selection) ::: identity.typename.toList
-
-      private[execution] def entryIndex(
-        fetch: EntityFetch,
-        expected: Map[EntityIdentity, Int],
-        index: Int,
-        value: Option[ResponseValue]
-      ): Option[Int] =
-        value.collect { case obj: ObjectValue => identity.read(fetch.entityType, IndexedFields(obj)) }.flatten
-          .map(correlationIdentity(fetch, _))
-          .flatMap(expected.get)
-    }
-  }
-
   private sealed trait ResponseShape {
     def values(data: ResponseValue): List[(Int, ResponseValue)]
     def errorIndex(path: List[PathValue]): Option[(Int, List[PathValue])]
   }
 
   private object ResponseShape {
-    final case class ListRoot(root: String) extends ResponseShape {
+    sealed abstract class ListRoot(root: String) extends ResponseShape {
       def values(data: ResponseValue): List[(Int, ResponseValue)] =
         data match {
           case obj: ObjectValue =>
@@ -586,11 +451,14 @@ private[execution] object EntityLookup {
 
       def errorIndex(path: List[PathValue]): Option[(Int, List[PathValue])] =
         path match {
-          case PathValue.Key(`root`) :: PathValue.Index(index) :: tail if index >= 0 => Some(index -> tail)
-          case _                                                                     => None
+          case PathValue.Key(`root`) :: PathValue.Index(index) :: tail => Some(index -> tail)
+          case _                                                       => None
         }
-
     }
+
+    final case class Ordered(root: String) extends ListRoot(root)
+
+    final case class Keyed(root: String, keys: List[RequiredSelection]) extends ListRoot(root)
 
     final case class Aliases(aliases: Vector[String]) extends ResponseShape {
       private lazy val indices: Map[String, Int] = aliases.iterator.zipWithIndex.toMap

@@ -217,6 +217,39 @@ object EntityRoutingSpec extends ZIOSpecDefault {
             .exists(_.contains("body" -> StringValue("Solid")))
         )
       } @@ TestAspect.timeout(5.seconds),
+      test("keeps each fragment's selections when interface entities of different types share a lookup") {
+        val nodesSchema   =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { a: Node b: Node }
+             |interface Node @key(fields: "id") { id: ID! }
+             |type Book implements Node @key(fields: "id") { id: ID! }
+             |type Movie implements Node @key(fields: "id") { id: ID! }
+             |""".stripMargin
+        val detailsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |interface Node @key(fields: "id") { id: ID! @external }
+             |type Book implements Node @key(fields: "id") { id: ID! @external title: String }
+             |type Movie implements Node @key(fields: "id") { id: ID! @external title: String }
+             |""".stripMargin
+        val nodeResponse  =
+          """{"data":{"a":{"_caliban_gateway_key":"b1","_caliban_gateway_typename":"Book"},"b":{"_caliban_gateway_key":"m1","_caliban_gateway_typename":"Movie"}}}"""
+
+        for {
+          nodes   <- stub(nodeResponse)
+          details <- stub("""{"data":{"_entities":[{"title":"Dune"},{"title":"Alien"}]}}""")
+          runtime <- Gateway
+                       .compose(
+                         Subgraph.federation("nodes", nodes.endpoint, nodesSchema),
+                         Subgraph.federation("details", details.endpoint, detailsSchema)
+                       )
+                       .interpreter
+          _       <- runtime.execute("{ a { ... on Book { title } } b { ... on Movie { title } } }")
+          sent    <- details.requests.get
+          queries  = sent.flatMap(_.query)
+        } yield assertTrue(queries.exists(_.contains("on Book")), queries.exists(_.contains("on Movie")))
+      },
       test("routes an interface key using the concrete runtime typename") {
         val nodesSchema     =
           s"""

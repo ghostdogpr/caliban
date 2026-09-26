@@ -642,6 +642,45 @@ object SubscriptionSpec extends ZIOSpecDefault {
         events.head.extensions.isEmpty
       )
     },
+    test("null passthrough event data is kept like a passthrough query response") {
+      val response = """{"data":null,"errors":[{"message":"failed","path":["event"]}]}"""
+      for {
+        endpoint <- sseEndpoint(s"event: next\ndata: $response\n\nevent: complete\n\n")
+        runtime  <- remoteGateway(endpoint, subscriptionSchema, sseConfig).interpreter
+        events   <- runtime.executeStream(request).runCollect
+        source   <- stub(response.replace("event", "value"))
+        query    <- remoteGateway(source.endpoint, subscriptionSchema).interpreter.flatMap(_.execute("{ value }"))
+      } yield assertTrue(
+        query.data == Value.NullValue,
+        events.size == 1,
+        events.head.data == Value.NullValue,
+        events.head.errors.map(_.asInstanceOf[CalibanError.ExecutionError].path) == List(List(PathValue.Key("event")))
+      )
+    },
+    test("null federated event data completes the nullable root field like a federated query") {
+      val products =
+        productsFederationSchema.replace("{ query: Query }", "{ query: Query subscription: Subscription }") +
+          " type Subscription { changed: Product }"
+      val body     =
+        "event: next\ndata: {\"data\":null,\"errors\":[{\"message\":\"failed\",\"path\":[\"changed\"]}]}\n\nevent: complete\n\n"
+      for {
+        endpoint <- sseEndpoint(body)
+        reviews  <- stub("""{"data":{"_entities":[]}}""")
+        runtime  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", endpoint, products, sseConfig),
+                        Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                      )
+                      .interpreter
+        events   <- runtime
+                      .executeStream(GraphQLRequest(query = Some("subscription { changed { name reviews { body } } }")))
+                      .runCollect
+      } yield assertTrue(
+        events.size == 1,
+        events.head.data == ResponseValue.ObjectValue(List("changed" -> Value.NullValue)),
+        events.head.errors.map(_.asInstanceOf[CalibanError.ExecutionError].path) == List(List(PathValue.Key("changed")))
+      )
+    },
     test("hydrates every source event with fresh entity results") {
       val products =
         productsFederationSchema.replace("{ query: Query }", "{ query: Query subscription: Subscription }") +

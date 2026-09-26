@@ -3,7 +3,6 @@ package caliban.gateway.internal.execution
 import caliban.{ PathValue, ResponseValue }
 import caliban.execution.Field
 import caliban.gateway.TypenameField
-import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.StringValue
 
@@ -16,104 +15,90 @@ import scala.jdk.CollectionConverters._
  */
 private[gateway] final class ResponseProjection private (
   fields: java.util.HashMap[String, ResponseProjection.Entry],
-  typeNames: Map[String, String],
-  translatesTypename: Boolean
+  typeNames: Map[String, String]
 ) {
-  def apply(value: ResponseValue): ResponseValue = project(value, restoresNames)
+  def apply(value: ResponseValue): ResponseValue = project(value)
 
   def path(errorPath: List[PathValue]): List[PathValue] = errorPath match {
     case PathValue.Key(name) :: tail    =>
       val entry = fields.get(name)
-      if ((entry eq null) || (entry.path eq null)) errorPath
+      if (entry eq null) errorPath
       else PathValue.Key(entry.clientName) :: entry.path.path(tail)
     case PathValue.Index(index) :: tail => PathValue.Index(index) :: path(tail)
     case _                              => errorPath
   }
 
-  private val traversesChildren = fields.values().asScala.exists(_.value.active)
-
-  private val active: Boolean = traversesChildren || translatesTypename
+  private val translatesTypename = typeNames.nonEmpty
 
   private val restoresNames: Boolean =
-    fields.asScala.exists { case (name, entry) => name != entry.clientName || entry.value.restoresNames }
+    fields.asScala.exists { case (name, entry) => name != entry.clientName }
 
-  private def project(value: ResponseValue, restore: Boolean): ResponseValue =
-    if (!active && !restore) value
+  private val traversesChildren = fields.values().asScala.exists(_.value.active)
+
+  private val active: Boolean = traversesChildren || translatesTypename || restoresNames
+
+  private def project(value: ResponseValue): ResponseValue =
+    if (!active) value
     else
       value match {
         case StringValue(name) if translatesTypename => StringValue(typeNames.getOrElse(name, name))
-        case _                                       => projectChildren(value, restore)
+        case _                                       => projectChildren(value)
       }
 
-  private def projectChildren(value: ResponseValue, restore: Boolean): ResponseValue =
-    if (!traversesChildren && !restore) value
-    else
-      value match {
-        case ObjectValue(values) if restore =>
-          val restored = mutable.LinkedHashMap.empty[String, ResponseValue]
-          values.foreach { case (name, nested) =>
-            val entry       = fields.get(name)
-            val clientName  = if (entry eq null) name else entry.clientName
-            val clientValue = if (entry eq null) nested else entry.value.project(nested, entry.path ne null)
-            restored.update(
-              clientName,
-              restored.get(clientName).fold(clientValue)(ResponseMerge.mergeRootValue(_, clientValue))
-            )
+  private def projectChildren(value: ResponseValue): ResponseValue =
+    value match {
+      case ObjectValue(values) if restoresNames =>
+        val restored = mutable.LinkedHashMap.empty[String, ResponseValue]
+        values.foreach { case field @ (name, nested) =>
+          val entry       = fields.get(name)
+          val clientName  = if (entry eq null) name else entry.clientName
+          val clientValue = if (entry eq null) nested else entry.value.project(nested)
+          restored.get(clientName) match {
+            case None                                                           => restored.update(clientName, clientValue)
+            // A repeated upstream key keeps its first value, as completion reads it.
+            case Some(previous) if values.find(_._1 == name).exists(_ eq field) =>
+              restored.update(clientName, ResponseMerge.mergeRootValue(previous, clientValue))
+            case _                                                              =>
           }
-          ObjectValue(restored.toList)
-        case ObjectValue(values)            =>
-          ObjectValue(values.map { field =>
-            val entry = fields.get(field._1)
-            if ((entry eq null) || !entry.value.active) field else field._1 -> entry.value.project(field._2, false)
-          })
-        case ListValue(values)              => ListValue(values.map(projectChildren(_, restore)))
-        case other                          => other
-      }
+        }
+        ObjectValue(restored.toList)
+      case ObjectValue(values)                  =>
+        ObjectValue(values.map { field =>
+          val entry = fields.get(field._1)
+          if ((entry eq null) || !entry.value.active) field else field._1 -> entry.value.project(field._2)
+        })
+      case ListValue(values)                    => ListValue(values.map(projectChildren))
+      case other                                => other
+    }
 
 }
 
 private[gateway] object ResponseProjection {
-  def compile(
-    client: List[Field],
-    executable: List[Field],
-    required: List[RequiredSelection],
-    typeNames: Map[String, String]
-  ): ResponseProjection = {
+  def compile(client: List[Field], executable: List[Field], typeNames: Map[String, String]): ResponseProjection = {
     def build(
       client: List[Field],
       executable: List[Field],
-      required: List[RequiredSelection],
-      translatesTypename: Boolean = false
+      translations: Map[String, String] = Map.empty
     ): ResponseProjection =
-      if (client.isEmpty && executable.isEmpty && required.isEmpty)
-        if (translatesTypename) new ResponseProjection(EmptyFields, typeNames, translatesTypename = true) else Identity
+      if (client.isEmpty && executable.isEmpty && translations.isEmpty) Identity
       else {
-        val paired       = executable.zip(client).groupBy(_._1.aliasedName)
-        val requirements = required.groupBy(_.responseName)
-        val fields       = new java.util.HashMap[String, Entry]
-        (paired.keySet ++ requirements.keySet).foreach { name =>
-          val matches         = paired.getOrElse(name, Nil)
-          val selections      = requirements.getOrElse(name, Nil)
-          val childClient     = matches.flatMap(_._2.fields)
-          val childExecutable = matches.flatMap(_._1.fields)
-          val typename        = typeNames.nonEmpty &&
-            (matches.exists(_._1.name == TypenameField) || selections.exists(_.field == TypenameField))
-          val child           = build(childClient, childExecutable, selections.flatMap(_.children), typename)
-          val path            = matches match {
+        val fields = new java.util.HashMap[String, Entry]
+        executable.zip(client).groupBy(_._1.aliasedName).foreach { case (name, matches) =>
+          val translations = if (matches.exists(_._1.name == TypenameField)) typeNames else Map.empty[String, String]
+          val child        = build(matches.flatMap(_._2.fields), matches.flatMap(_._1.fields), translations)
+          val path         = matches match {
             // Aliases shared by fragments combine for values, but errors retain first-match field lookup.
-            case (source, target) :: _ :: _ => build(target.fields, source.fields, Nil)
-            case Nil                        => null // Correlation selections have no client path or alias restoration.
+            case (source, target) :: _ :: _ => build(target.fields, source.fields)
             case _                          => child
           }
-          fields.put(name, Entry(matches.headOption.fold(name)(_._2.aliasedName), child, path))
+          fields.put(name, Entry(matches.head._2.aliasedName, child, path))
         }
-        new ResponseProjection(fields, typeNames, translatesTypename)
+        new ResponseProjection(fields, translations)
       }
 
-    build(client, executable, required)
+    build(client, executable)
   }
 
   private final case class Entry(clientName: String, value: ResponseProjection, path: ResponseProjection)
-  private val EmptyFields = new java.util.HashMap[String, Entry]
-  private val Identity    = new ResponseProjection(EmptyFields, Map.empty, translatesTypename = false)
+  private val Identity = new ResponseProjection(new java.util.HashMap[String, Entry], Map.empty)
 }

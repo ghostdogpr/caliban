@@ -73,32 +73,27 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     ZIO.serviceWithZIO[Scope] { sourceScope =>
       def open(headers: List[Header]) =
         encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source).flatMap { body =>
-          if (!hooks.attempt.enabled) sourceScope.extend(subscription.open(headers, request, body))
-          else {
-            val post = config.subscription.transport match {
-              case RemoteSubscriptionConfig.Sse(useGet) => !useGet
-              case RemoteSubscriptionConfig.WebSocket   => false
-            }
-            hooks.attempt.runWith(
-              Event.Attempt(
-                name,
-                0,
-                if (post) body.length.toLong else 0L,
-                subscription.target.host,
-                subscription.target.port,
-                headers,
-                if (post) "POST" else "GET"
-              )
-            )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(subscriptionResult)
+          val post = config.subscription.transport match {
+            case RemoteSubscriptionConfig.Sse(useGet) => !useGet
+            case RemoteSubscriptionConfig.WebSocket   => false
           }
+          hooks.attempt.runWith(
+            Event.Attempt(
+              name,
+              0,
+              if (post) body.length.toLong else 0L,
+              subscription.target.host,
+              subscription.target.port,
+              headers,
+              if (post) "POST" else "GET"
+            )
+          )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(subscriptionResult)
         }
 
       resolveHeaders.mapError(_ => SubscriptionTermination.Source).flatMap { headers =>
-        if (!hooks.subgraphCall.enabled) open(headers)
-        else
-          hooks.subgraphCall.runWith(Event.SubgraphCall(name, OperationType.Subscription, headers))(event =>
-            open(event.headers)
-          )(subscriptionResult)
+        hooks.subgraphCall.runWith(Event.SubgraphCall(name, OperationType.Subscription, headers))(event =>
+          open(event.headers)
+        )(subscriptionResult)
       }
     }
 
@@ -113,8 +108,8 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     http,
     config.subscription,
     execution.maxResponseBytes,
-    bytes => decodeBody(bytes).map(_.copy(extensions = None)),
-    value => decodeValue(value).map(_.copy(extensions = None)),
+    decodeBody,
+    decodeValue,
     validateStructure,
     remoteErrorMessages
   )
@@ -149,27 +144,25 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
     val response =
-      if (!hooks.attempt.enabled) send(body, headers)
-      else
-        hooks.attempt.runWith(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port, headers))(
-          event => send(body, event.headers)
-        )(
-          Result.fromExit(_)(
-            value =>
-              Result(
-                Outcome.fromResponse(value.response),
-                errorCount = value.response.errors.size,
-                statusCode = Some(value.statusCode),
-                responseBytes = Some(value.responseBytes)
-              ),
-            failure =>
-              Result(
-                SubgraphExecutor.failureOutcome(failure.failure),
-                statusCode = failure.statusCode,
-                responseBytes = failure.responseBytes
-              )
-          )
+      hooks.attempt.runWith(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port, headers))(
+        event => send(body, event.headers)
+      )(
+        Result.fromExit(_)(
+          value =>
+            Result(
+              Outcome.fromResponse(value.response),
+              errorCount = value.response.errors.size,
+              statusCode = Some(value.statusCode),
+              responseBytes = Some(value.responseBytes)
+            ),
+          failure =>
+            Result(
+              SubgraphExecutor.failureOutcome(failure.failure),
+              statusCode = failure.statusCode,
+              responseBytes = failure.responseBytes
+            )
         )
+      )
     val call     = response.map(_.response).mapError(_.failure)
 
     call.catchAll { failure =>
@@ -362,20 +355,13 @@ private[gateway] object RemoteSubgraphExecutor {
       call: => ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = ZIO.uninterruptible {
       val key = Key(body, headers)
-      calls.get.flatMap { current =>
-        current.get(key) match {
+      Promise.make[Nothing, CallExit].flatMap { candidate =>
+        register(key, candidate).flatMap {
+          case None           =>
+            // Shared work belongs to the executor scope, so one waiter cannot cancel it for the others.
+            complete(key, candidate, call).interruptible.forkIn(scope) *> await(candidate).interruptible
           case Some(existing) =>
             await(existing).interruptible
-          case None           =>
-            Promise.make[Nothing, CallExit].flatMap { candidate =>
-              register(key, candidate).flatMap {
-                case None           =>
-                  // Shared work belongs to the executor scope, so one waiter cannot cancel it for the others.
-                  complete(key, candidate, call).interruptible.forkIn(scope) *> await(candidate).interruptible
-                case Some(existing) =>
-                  await(existing).interruptible
-              }
-            }
         }
       }
     }

@@ -29,9 +29,17 @@ private[planning] object FetchGraphOptimizer {
     ): Either[PlanningFailure, List[List[EntityFetch]]] =
       if (pending.isEmpty) Right(waves.reverse)
       else {
-        val (ready, waiting) = pending.partition(_.dependencies.forall(completed))
+        val (available, waiting) = pending.partition(_.dependencies.forall(completed))
+        // Wait for compatible fetches to batch together, unless they depend on an available fetch.
+        val scheduled            = available.filterNot { fetch =>
+          waiting.exists(_.groupKey == fetch.groupKey) && waiting.forall(!_.dependencies.contains(fetch.id))
+        }
+        val ready                = if (scheduled.isEmpty) available else scheduled
         if (ready.isEmpty) Left(DependencyCycle)
-        else order(waiting, completed ++ ready.iterator.map(_.id), ready :: waves)
+        else {
+          val next = completed ++ ready.iterator.map(_.id)
+          order(pending.filterNot(fetch => next(fetch.id)), next, ready :: waves)
+        }
       }
 
     order(fetches, roots.iterator.map(_.id).toSet, Nil)

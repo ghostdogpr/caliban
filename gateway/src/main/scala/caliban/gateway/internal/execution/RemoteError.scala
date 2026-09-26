@@ -37,21 +37,14 @@ private[gateway] object RemoteError {
       case _                                  => at(Nil)
     }
 
-  def hasClientPath(fields: List[Field], path: List[PathValue]): Boolean =
-    path match {
-      case PathValue.Key(name) :: tail =>
-        fields.find(_.aliasedName == name).exists(field => hasClientSubpath(field, tail, field.fieldType))
-      case _                           => false
-    }
-
-  private def hasClientSubpath(field: Field, path: List[PathValue], tpe: __Type): Boolean =
+  def hasClientPath(field: Field, path: List[PathValue], tpe: __Type): Boolean =
     path match {
       case Nil                                          => true
       case PathValue.Index(index) :: tail if index >= 0 =>
-        Types.listOf(tpe).exists(itemType => hasClientSubpath(field, tail, itemType))
+        Types.listOf(tpe).exists(itemType => hasClientPath(field, tail, itemType))
       case PathValue.Key(name) :: tail                  =>
         Types.listOf(tpe).isEmpty &&
-        field.fields.find(_.aliasedName == name).exists(child => hasClientSubpath(child, tail, child.fieldType))
+        field.fields.find(_.aliasedName == name).exists(child => hasClientPath(child, tail, child.fieldType))
       case _                                            => false
     }
 }

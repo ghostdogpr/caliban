@@ -144,7 +144,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               .locallyScoped(headers)
               .as(
                 control.subscriptions
-                  .stream(frozen.subscribe(operation.plan, operation.executionRequest, operation.request))(response =>
+                  .stream(frozen.subscribe(operation.plan, operation.request))(response =>
                     frozen.executeEvent(operation.plan, response)
                   )
                   .provideEnvironment(env)

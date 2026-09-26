@@ -6,6 +6,7 @@ import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.execution.{ PlanExecutionCache, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
+import caliban.parsing.adt.Type.NamedType
 import caliban.rendering.DocumentRenderer
 import caliban.Scala3Annotations.threadUnsafe
 import caliban.Value.NullValue
@@ -18,9 +19,10 @@ import scala.collection.immutable.ListMap
  */
 private[gateway] final case class OperationPlan(
   operationType: OperationType,
+  operationName: Option[String],
   fields: List[Field],
   roots: List[RootFetch],
-  entities: List[EntityFetch],
+  entityWaves: List[List[EntityFetch]],
   typenameSelections: List[TypenameSelection],
   passthroughSubgraph: Option[String]
 ) {
@@ -28,6 +30,8 @@ private[gateway] final case class OperationPlan(
   def render: String = OperationPlan.render(this)
 
   def rootName: String = OperationPlan.rootName(operationType)
+
+  lazy val entities: List[EntityFetch] = entityWaves.flatten
 
   lazy val localFields: List[Field] = fields.filter(isMetaField)
 
@@ -114,8 +118,19 @@ private[gateway] object OperationPlan {
     fields: List[Field]
   ) {
 
-    lazy val groupKey: EntityGroupKey =
-      EntityGroupKey(source, entityType, lookup, keys, requirements, contextArguments, canonicalSelectionKey(fields))
+    lazy val groupKey: EntityGroupKey = {
+      val selections =
+        fields.map(field => if (field.targets.contains(Set(entityType))) field.copy(targets = None) else field)
+      EntityGroupKey(
+        source,
+        entityType,
+        lookup,
+        keys,
+        requirements,
+        contextArguments,
+        canonicalSelectionKey(selections)
+      )
+    }
   }
 
   private[internal] final case class EntityGroupKey(
@@ -135,6 +150,15 @@ private[gateway] object OperationPlan {
     fields.flatMap { field =>
       if (field.fields.isEmpty) List(field.aliasedName)
       else fieldPaths(field.fields).map(child => s"${field.aliasedName}.$child")
+    }
+
+  private[internal] def targetedSelections(field: Field): List[Selection] =
+    field.targets match {
+      case Some(targets) =>
+        targets.toList.sorted.map(target =>
+          Selection.InlineFragment(Some(NamedType(target, nonNull = false)), Nil, field.toSelection :: Nil)
+        )
+      case None          => field.toSelection :: Nil
     }
 
   private def canonicalSelectionKey(fields: List[Field]): String = {
@@ -170,7 +194,7 @@ private[gateway] object OperationPlan {
         case spread: Selection.FragmentSpread   => spread
       }
 
-    val selections = canonicalSelections(fields.map(_.toSelection))
+    val selections = canonicalSelections(fields.flatMap(targetedSelections))
     DocumentRenderer.selectionsRenderer.renderCompact(selections)
   }
 
@@ -225,7 +249,7 @@ private[gateway] object OperationPlan {
       plan.copy(
         fields = plan.fields.map(bindField),
         roots = plan.roots.map(bindRoot),
-        entities = plan.entities.map(bindEntity)
+        entityWaves = plan.entityWaves.map(_.map(bindEntity))
       )
     }
 

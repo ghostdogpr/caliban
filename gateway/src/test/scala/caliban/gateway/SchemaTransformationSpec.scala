@@ -292,6 +292,26 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         )
       )
     },
+    test("translates only __typename when a fragment reuses its response name for another field") {
+      val schema =
+        "type Query { node: Node } union Node = Product | Tag type Product { name: String! } type Tag { name: String! }"
+      val tag    =
+        """{"_caliban_gateway_runtime_typename":"Tag","_caliban_gateway_kind_2":"Product"}"""
+      for {
+        remote  <- stub(s"""{"data":{"node":$tag}}""")
+        runtime <- Gateway
+                     .compose(
+                       Subgraph
+                         .graphql("products", remote.endpoint, schema)
+                         .transform(SchemaTransformation.renameType("Product", "Item"))
+                     )
+                     .interpreter
+        result  <- runtime.execute("{ node { ... on Item { kind: __typename } ... on Tag { kind: name } } }")
+      } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "node").flatMap(field(_, "kind")).contains(StringValue("Product"))
+      )
+    },
     test("uses the same coordinate translation for local subgraphs") {
       val transformations = List(
         SchemaTransformation.renameType("EchoResult", "Reply"),

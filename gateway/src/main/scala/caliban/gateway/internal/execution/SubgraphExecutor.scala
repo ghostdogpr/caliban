@@ -64,20 +64,31 @@ private[gateway] object SubgraphExecutor {
     }
 
   sealed trait ErrorPolicy {
-    def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError]
-
     def forFetch(fields: List[Field], errors: List[CalibanError]): List[CalibanError]
 
     def entityFallback(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError
+
+    def place(
+      fields: List[Field],
+      base: List[PathValue],
+      error: CalibanError.ExecutionError,
+      tail: List[PathValue]
+    ): Option[CalibanError.ExecutionError] =
+      tail match {
+        case (key @ PathValue.Key(name)) :: rest =>
+          fields.find(_.aliasedName == name).map { field =>
+            if (RemoteError.hasClientPath(field, rest, field.fieldType)) error.copy(path = base ::: tail)
+            else entityFallback(error, base ::: key :: Nil)
+          }
+        case _                                   => None
+      }
   }
 
   object ErrorPolicy {
     case object Local extends ErrorPolicy {
-      def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = errors
-
       def forFetch(fields: List[Field], errors: List[CalibanError]): List[CalibanError] =
         errors.map {
-          case error: CalibanError.ExecutionError => error.copy(locationInfo = None)
+          case error: CalibanError.ExecutionError => place(fields, Nil, error, error.path).getOrElse(error)
           case error                              => error
         }
 
@@ -86,19 +97,10 @@ private[gateway] object SubgraphExecutor {
     }
 
     case object Remote extends ErrorPolicy {
-      def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = forFetch(fields, errors)
-
       def forFetch(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = {
         val placed = errors.map {
-          case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
-            Some(error.copy(locationInfo = None))
-          case error: CalibanError.ExecutionError                                                  =>
-            error.path match {
-              case PathValue.Key(name) :: _ if fields.exists(_.aliasedName == name) =>
-                Some(RemoteError.at(List(PathValue.Key(name))))
-              case _                                                                => None
-            }
-          case error                                                                               => Some(error)
+          case error: CalibanError.ExecutionError => place(fields, Nil, error, error.path)
+          case error                              => Some(error)
         }
 
         placed.flatten ::: (if (placed.exists(_.isEmpty)) RemoteError.forFields(fields) else Nil)

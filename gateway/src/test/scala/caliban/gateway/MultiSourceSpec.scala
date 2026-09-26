@@ -117,6 +117,34 @@ object MultiSourceSpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("recent")))
         )
       },
+      test("reports a root field its source omitted, as a single-source operation does") {
+        val productsSchema = "type Query { featured: Product } type Product { name: String! }"
+        val reviewsSchema  = "type Query { recent: [Review!] } type Review { body: String! }"
+
+        for {
+          products <- stub("""{"data":{}}""")
+          reviews  <- stub("""{"data":{"recent":[]}}""")
+          runtime  <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          split    <- runtime.execute("{ featured { name } recent { body } }")
+          single   <- runtime.execute("{ featured { name } }")
+        } yield assertTrue(
+          field(split.data, "featured").contains(NullValue),
+          executionErrors(split.errors).map(_.path) == List(List(PathValue.Key("featured"))),
+          executionErrors(split.errors).map(_.msg) == executionErrors(single.errors).map(_.msg),
+          executionErrors(split.errors).map(_.path) == executionErrors(single.errors).map(_.path)
+        )
+      },
+      test("keeps the first of a repeated upstream root key, as completion reads it") {
+        val productsSchema = "type Query { featured: Product } type Product { name: String }"
+        val reviewsSchema  = "type Query { recent: [Review!] } type Review { body: String! }"
+
+        for {
+          products <- stub("""{"data":{"featured":null,"featured":{"name":"A"}}}""")
+          reviews  <- stub("""{"data":{"recent":[]}}""")
+          runtime  <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response <- runtime.execute("{ featured { name } recent { body } }")
+        } yield assertTrue(field(response.data, "featured").contains(NullValue))
+      },
       test("relocates an unusable grouped error only to its visible root") {
         val schema = "type Query { first: Result second: Result } type Result { value: String }"
         val result =
@@ -420,7 +448,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           sent     <- reviews.requests.get
         } yield assertTrue(
           response.data == NullValue,
-          response.errors.map(_.msg) == List("update failed", "Invalid value for enum 'Status'."),
+          response.errors.map(_.msg) == List("Invalid value for enum 'Status'.", "update failed"),
           sent.isEmpty
         )
       },

@@ -7,6 +7,7 @@ import caliban.federation.EntityResolver
 import caliban.federation.v2_6.{ federated, GQLKey }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.wrappers.Wrapper
 import caliban.{ graphQL, CalibanError, GraphQLRequest, GraphQLResponse, PathValue, RootResolver }
 import zio._
 import zio.query.ZQuery
@@ -127,6 +128,29 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         failure
       }
     )
+  }
+
+  private object FailingKeyApi extends GenericSchema[Any] {
+    import auto._
+
+    final case class ProductId(value: String)
+    final case class ProductArgs(id: ProductId)
+    final case class Product(id: IO[CalibanError, ProductId], name: String)
+    final case class Query(product: Option[Product])
+
+    implicit val productIdSchema: Schema[Any, ProductId]     =
+      Schema.scalarSchema("ID", None, None, None, id => StringValue(id.value))
+    implicit val productIdBuilder: ArgBuilder[ProductId]     = ArgBuilder.string.map(ProductId(_))
+    implicit val productArgsSchema: Schema[Any, ProductArgs] = Schema.gen
+    implicit val productArgsBuilder: ArgBuilder[ProductArgs] = ArgBuilder.gen
+    implicit val productSchema: Schema[Any, Product]         =
+      obj("Product", directives = List(GQLKey("id").directive))(implicit attributes =>
+        List(field("id")(_.id), field("name")(_.name))
+      )
+
+    val api = graphQL(
+      RootResolver(Query(Some(Product(ZIO.fail(CalibanError.ExecutionError("key unavailable")), "Table"))))
+    ) @@ federated(EntityResolver.from[ProductArgs](_ => ZQuery.succeed(Option.empty[Product])))
   }
 
   private def progressiveProductSchema(query: String, product: String): String =
@@ -308,6 +332,112 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         } yield assertTrue(
           local.exists(message => message.startsWith("[pricing]") && message.contains("Subgraph.federation")),
           remote.exists(message => message.startsWith("[products]") && message.contains("Subgraph.federation"))
+        )
+      },
+      test("places a local root error at a gateway-injected field on the client field") {
+        for {
+          reviews  <- stub("""{"data":{"_entities":[]}}""")
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", FailingKeyApi.api),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                        )
+                        .interpreter
+          response <- runtime.execute("{ product { name reviews { body } } }")
+        } yield assertTrue(
+          executionErrors(response.errors).map(error => error.msg -> error.path) == List(
+            "key unavailable"                                              -> List(PathValue.Key("product")),
+            "Entity key 'Product(id)' was missing from the source result." -> List(PathValue.Key("product"))
+          )
+        )
+      },
+      test("places a local entity call's request-level error at the entity location, like any path-less error") {
+        val rejectEntities = new Wrapper.OverallWrapper[Any] {
+          def wrap[R1](
+            f: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
+          ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
+            request =>
+              if (request.query.exists(_.contains("_entities")))
+                ZIO.succeed(GraphQLResponse(NullValue, List(CalibanError.ValidationError("entities rejected", ""))))
+              else f(request)
+        }
+        val pricing        = new Pricing {
+          def currency: UIO[String]       = ZIO.succeed("USD")
+          def price(id: String): UIO[Int] = ZIO.succeed(0)
+        }
+
+        for {
+          products <- stub(tableProductResponse)
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsFederationSchema),
+                          Subgraph.federation("pricing", PricingApi.api @@ rejectEntities)
+                        )
+                        .interpreter
+          response <- runtime
+                        .execute("{ product(id: \"p1\") { name price } }")
+                        .provideEnvironment(ZEnvironment(pricing))
+        } yield assertTrue(
+          response.errors.map(error => error.getClass.getSimpleName -> error.msg) ==
+            List("ExecutionError" -> "entities rejected"),
+          executionErrors(response.errors).map(_.path) == List(List(PathValue.Key("product")))
+        )
+      },
+      test("reports an entity error on an omitted result once, as on a null result") {
+        val products =
+          """{"data":{"products":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
+        val error    = """"errors":[{"message":"not found","path":["_entities",1,"reviews"]}]"""
+        for {
+          products <- stub(products, products)
+          reviews  <- stub(
+                        s"""{"data":{"_entities":[{"reviews":[]}]},$error}""",
+                        s"""{"data":{"_entities":[{"reviews":[]},null]},$error}"""
+                      )
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                        )
+                        .interpreter
+          omitted  <- runtime.execute("{ products { reviews { body } } }")
+          nulled   <- runtime.execute("{ products { reviews { body } } }")
+        } yield assertTrue(omitted.errors == nulled.errors, omitted.data == nulled.data)
+      },
+      test("reports a malformed entity result once, as the keyed lookup does") {
+        for {
+          products <- stub(tableProductResponse)
+          reviews  <- stub("""{"data":{"_entities":["oops"]}}""")
+          runtime  <- productsAndReviews(products, reviews).interpreter
+          response <- runtime.execute("{ product(id: \"p1\") { name reviews { body } } }")
+        } yield assertTrue(
+          response.errors.map(_.msg) == List("Entity lookup response contained an unexpected result for 'Product(id)'.")
+        )
+      },
+      test("sends one representation for numerically equal keys encoded as 1 and 1.0") {
+        val productsSchema = listProductsFederationSchema.replace("id: ID!", "id: Float!")
+        val reviewsSchema  = reviewsFederationSchema.replace("id: ID!", "id: Float!")
+        val products       =
+          """{"data":{"products":[{"_caliban_gateway_key":1,"_caliban_gateway_typename":"Product"},{"_caliban_gateway_key":1.0,"_caliban_gateway_typename":"Product"}]}}"""
+        for {
+          products <- stub(products)
+          reviews  <- stub("""{"data":{"_entities":[{"reviews":[]}]}}""")
+          runtime  <- productsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response <- runtime.execute("{ products { reviews { body } } }")
+          sent     <- reviews.requests.get
+        } yield assertTrue(response.errors.isEmpty, sent.map(representations(_).size) == Vector(1))
+      },
+      test("reports a malformed value on an entity merge path as completion does, not as a missing key") {
+        val storeSchema = productsFederationSchema
+          .replace("  product(id: ID!): Product", "  store: Store")
+          .replace("type Product @key", "type Store { product: Product }\ntype Product @key")
+        for {
+          products <- stub("""{"data":{"store":"oops"}}""")
+          reviews  <- stub("""{"data":{"_entities":[]}}""")
+          runtime  <- productsAndReviews(products, reviews, storeSchema).interpreter
+          response <- runtime.execute("{ store { product { name reviews { body } } } }")
+        } yield assertTrue(
+          executionErrors(response.errors).map(error => error.msg -> error.path) ==
+            List("Remote GraphQL request failed." -> List(PathValue.Key("store")))
         )
       },
       test("preserves local entity failures while retaining independent remote data") {
@@ -560,7 +690,23 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("product")))
         )
       },
-      test("attaches unusable entity error paths safely at the merge location") {
+      test("a failed batched entity call reports errors only where it had entities") {
+        val products =
+          """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[]}}"""
+        for {
+          products <- stub(products)
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", unreachableEndpoint, reviewsFederationSchema)
+                        )
+                        .interpreter
+          response <- runtime.execute("{ first: products { reviews { body } } second: products { reviews { body } } }")
+        } yield assertTrue(executionErrors(response.errors).map(_.path) == List(List(PathValue.Key("first"))))
+      },
+      test(
+        "attaches unusable entity error paths at the merge location or the client field they name, as root errors do"
+      ) {
         val reviewResponse   =
           """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]},"errors":[{"message":"internal source detail","path":["_entities","unknown"]}]}"""
         val indexedResponse  =
@@ -587,7 +733,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           indexedErrors.map(_.msg) == List("Remote GraphQL request failed."),
           indexedErrors.map(_.path) == List(List(PathValue.Key("product"))),
           negativeErrors.map(_.msg) == List("Remote GraphQL request failed."),
-          negativeErrors.map(_.path) == List(List(PathValue.Key("product")))
+          negativeErrors.map(_.path) == List(List(PathValue.Key("product"), PathValue.Key("reviews")))
         )
       }
     ),
@@ -653,6 +799,59 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           errors.map(_.msg) == List("Entity lookup response contained an unexpected result for 'Product(id)'.")
         )
       },
+      test("sends a single entity batch as a compact _entities operation") {
+        for {
+          products <- stub(repeatedProductsResponse)
+          reviews  <- stub(solidReviewsResponse)
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema).interpreter
+          _        <- runtime.execute("{ first: products { reviews { body } } }")
+          sent     <- reviews.requests.get
+        } yield assertTrue(
+          sent.map(_.query) == Vector(
+            Some(
+              "query __GatewayEntity($representations:[_Any!]!){_entities(representations:$representations){...on Product{reviews{body}}}}"
+            )
+          ),
+          sent.map(_.operationName) == Vector(Some("__GatewayEntity"))
+        )
+      },
+      test("reports surplus entity results at every merge path of a shared batch") {
+        for {
+          products <- stub(repeatedProductsResponse)
+          reviews  <- stub("""{"data":{"_entities":[{"reviews":[{"body":"x"}]},{"reviews":[]}]}}""")
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema).interpreter
+          response <- runtime.execute("{ first: products { reviews { body } } second: products { reviews { body } } }")
+        } yield assertTrue(
+          executionErrors(response.errors).map(error => error.msg -> error.path) == List(
+            "Entity lookup response contained an unexpected result for 'Product(id)'." -> List(PathValue.Key("first")),
+            "Entity lookup response contained an unexpected result for 'Product(id)'." -> List(PathValue.Key("second"))
+          )
+        )
+      },
+      test("reports batch-level entity errors in the same merge path order for every failure kind") {
+        val products =
+          """{"data":{"a":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"b":[{"_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}],"c":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+        val query    =
+          "{ a: products { reviews { body } } b: products { reviews { body } } c: products { reviews { body } } }"
+        for {
+          source    <- stub(products)
+          surplus   <- stub("""{"data":{"_entities":[{"reviews":[]},{"reviews":[]},{"reviews":[]}]}}""")
+          surplusRt <- productsAndReviews(source, surplus, listProductsFederationSchema).interpreter
+          extra     <- surplusRt.execute(query)
+          failing   <- stub(products)
+          failedRt  <- Gateway
+                         .compose(
+                           Subgraph.federation("products", failing.endpoint, listProductsFederationSchema),
+                           Subgraph.federation("reviews", unreachableEndpoint, reviewsFederationSchema)
+                         )
+                         .interpreter
+          failed    <- failedRt.execute(query)
+          paths      = List("a", "b", "c").map(name => List(PathValue.Key(name)))
+        } yield assertTrue(
+          executionErrors(failed.errors).map(_.path) == paths,
+          executionErrors(extra.errors).map(_.path) == paths
+        )
+      },
       test("deduplicates compatible entity routes across the operation") {
         val orderedReviews = reviewsFederationSchema.replace(
           "type Review { body: String! }",
@@ -715,6 +914,35 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           ),
           firstNestedObject(response.data, "first", "reviews").exists(_.contains("body" -> StringValue("First"))),
           firstNestedObject(response.data, "second", "reviews").exists(_.contains("body" -> NullValue))
+        )
+      },
+      test("reports combined entity call errors naming an unknown part at every merge path") {
+        val entity     = """{"reviews":[{"body":"First"}]}"""
+        val strayError =
+          s"""{"data":{"_entities":[$entity]},"errors":[{"message":"Boom","path":["_caliban_gateway_entities_7",0]}]}"""
+
+        for {
+          products <- stub(repeatedProductsResponse)
+          reviews  <- stubByRequest { request =>
+                        if (request.query.exists(_.contains("reviews(limit:2)"))) strayError
+                        else s"""{"data":{"_entities":[$entity]}}"""
+                      }
+          runtime  <-
+            productsAndReviews(products, reviews, listProductsFederationSchema, limitedReviewsSchema).interpreter
+          response <-
+            runtime.execute(
+              """{
+                |  first: products { reviews(limit: 1) { body } }
+                |  second: products { reviews(limit: 2) { body } }
+                |}""".stripMargin
+            )
+          combined <- reviews.combined.get
+        } yield assertTrue(
+          combined.size == 1,
+          executionErrors(response.errors).map(_.path) == List(
+            List(PathValue.Key("first")),
+            List(PathValue.Key("second"))
+          )
         )
       },
       test("sends separate entity calls when the combined request exceeds the size limit") {
@@ -884,6 +1112,25 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           sent.size == 1
         )
       },
+      test("treats negative and out-of-range entity error indices alike") {
+        val productResponse            =
+          """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"},{"name":"Third","_caliban_gateway_key":"p3","_caliban_gateway_typename":"Product"}]}}"""
+        def reviewResponse(index: Int) =
+          s"""{"data":{"_entities":[null,{"reviews":[{"body":"Second review"}]}]},"errors":[{"message":"stray","path":["_entities",$index]}]}"""
+        def errorsFor(index: Int)      =
+          for {
+            products <- stub(productResponse)
+            reviews  <- stub(reviewResponse(index))
+            runtime  <-
+              productsAndReviews(products, reviews, listProductsFederationSchema, nullableReviewsSchema).interpreter
+            response <- runtime.execute("{ products { name reviews { body } } }")
+          } yield executionErrors(response.errors).map(error => error.msg -> error.path)
+
+        for {
+          negative   <- errorsFor(-1)
+          outOfRange <- errorsFor(5)
+        } yield assertTrue(outOfRange == negative)
+      },
       test("relocates an error on a null entity to the client entity path") {
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
@@ -906,6 +1153,50 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           onlyNested(values.lift(1), "reviews").exists(_.contains("body" -> StringValue("Second review"))),
           errors.map(_.msg) == List("first unavailable"),
           errors.map(_.path) == List(List(PathValue.Key("products"), PathValue.Index(0)))
+        )
+      },
+      test("a dependent fetch does not repeat the missing-key error at a location its dependency blocked") {
+        val productsSchema  =
+          s"""
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+             |$authoredFederationDirectives
+             |type Query { products: [Product!]! }
+             |type Product @key(fields: "id") { id: ID! }
+             |""".stripMargin
+        val pricingSchema   =
+          s"""
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+             |$authoredFederationDirectives
+             |type Product @key(fields: "id") { id: ID! price: Int! }
+             |""".stripMargin
+        val inventorySchema =
+          s"""
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
+             |$authoredFederationDirectives
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int! @external
+             |  shippingEstimate: Int! @requires(fields: "price")
+             |}
+             |""".stripMargin
+
+        for {
+          products  <- stub("""{"data":{"products":["oops"]}}""")
+          pricing   <- stub("""{"data":{"_entities":[]}}""")
+          inventory <- stub("""{"data":{"_entities":[]}}""")
+          runtime   <- Gateway
+                         .compose(
+                           Subgraph.federation("products", products.endpoint, productsSchema),
+                           Subgraph.federation("pricing", pricing.endpoint, pricingSchema),
+                           Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
+                         )
+                         .interpreter
+          response  <- runtime.execute("{ products { shippingEstimate } }")
+        } yield assertTrue(
+          executionErrors(response.errors).map(error => error.msg -> error.path) == List(
+            "Entity key 'Product(id)' was missing from the source result." ->
+              List(PathValue.Key("products"), PathValue.Index(0))
+          )
         )
       },
       test("correlates duplicate entity keys with distinct requirement values by position") {

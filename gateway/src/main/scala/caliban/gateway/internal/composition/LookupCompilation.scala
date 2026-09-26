@@ -34,7 +34,7 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
   private def result: LookupResult =
     lookup match {
       case _: Lookup.Single    => LookupResult.Single
-      case byKey: Lookup.ByKey => LookupResult.ByKey(byKey.correlation)
+      case byKey: Lookup.ByKey => LookupResult.ByKey(byKey.correlation.map(_.swap))
     }
 
   private def targetTypeDiagnostics: List[String] =

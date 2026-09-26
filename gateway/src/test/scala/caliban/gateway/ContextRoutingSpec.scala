@@ -67,6 +67,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         response         <- runtime.execute("{ users { transactions { amount } } }")
         usersSent        <- users.requests.get
         transactionsSent <- transactions.requests.get
+        combinedSent     <- transactions.combined.get
         amounts           = listValues(field(response.data, "users")).flatMap { user =>
                               listValues(field(user, "transactions")).flatMap(field(_, "amount"))
                             }
@@ -75,6 +76,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         amounts == List(IntNumber(100), IntNumber(200)),
         usersSent.headOption.flatMap(_.query).exists(_.contains("_caliban_gateway_requirement_currency")),
         transactionsSent.size == 3,
+        combinedSent.size == 1,
         transactionsSent.flatMap(_.query).exists(_.contains("amount(currency:\"USD\")")),
         transactionsSent.flatMap(_.query).exists(_.contains("amount(currency:\"EUR\")"))
       )

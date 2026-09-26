@@ -63,7 +63,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       operation <- RequestPreparation.parse(query)
       request   <-
         RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
-    } yield request -> OperationPlan(OperationType.Query, request.field.fields, Nil, Nil, Nil, Some("nodes"))
+    } yield request -> OperationPlan(OperationType.Query, None, request.field.fields, Nil, Nil, Nil, Some("nodes"))
 
   private def costLimitedGateway(maxCost: Long)(first: Subgraph[Any], rest: Subgraph[Any]*): Gateway[Any] =
     Gateway.compose(first, rest: _*).withConfig(_.withMaxOperationCost(maxCost))

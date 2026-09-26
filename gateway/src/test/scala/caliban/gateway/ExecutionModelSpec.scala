@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.{ InputValue, PathValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, InputValue, PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.Field
@@ -17,8 +17,13 @@ import zio.test._
 object ExecutionModelSpec extends ZIOSpecDefault {
   private val queryType  = Types.makeObject(Some("Query"), None, Nil, Nil)
   private val objectType = Types.makeObject(Some("Product"), None, Nil, Nil)
-  private val completion = new ResponseCompletion(Nil)
-  private val name       = Field("name", Types.string, Some(objectType))
+  private object completion {
+    def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): ResponseCompletion.Completion =
+      ResponseCompletion
+        .forPlan(OperationPlan(OperationType.Query, None, fields, Nil, Nil, Nil, None))
+        .complete(value, errors)
+  }
+  private val name = Field("name", Types.string, Some(objectType))
 
   private def projectionField(name: String, alias: String, children: List[Field] = Nil): Field =
     Field(name, Types.string, None, alias = Some(alias), fields = children)
@@ -47,8 +52,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           List(projectionField("__typename", "_kind"), projectionField("payload", "payload"))
         )
       )
-      val required   = List(RequiredSelection("__typename", "_correlationType"))
-      val projection = ResponseProjection.compile(client, executable, required, Map("Source" -> "Client"))
+      val projection = ResponseProjection.compile(client, executable, Map("Source" -> "Client"))
       val value      = ObjectValue(
         List(
           "_items"           -> ListValue(
@@ -63,7 +67,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
             "items"            -> ListValue(
               List(ObjectValue(List("kind" -> StringValue("Client"), "payload" -> payload)), NullValue)
             ),
-            "_correlationType" -> StringValue("Client")
+            "_correlationType" -> StringValue("Source")
           )
         ),
         projection.path(List(PathValue.Key("_items"), PathValue.Index(0), PathValue.Key("_kind"))) ==
@@ -79,13 +83,23 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           projectionField("item", "item", List(projectionField("id", "id")))
         )
       val executable = List(client.head.copy(alias = Some("_first")), client(1).copy(alias = Some("_second")))
-      val projection = ResponseProjection.compile(client, executable, Nil, Map.empty)
+      val projection = ResponseProjection.compile(client, executable, Map.empty)
       val first      = ObjectValue(List("name" -> StringValue("A")))
       val second     = ObjectValue(List("id" -> StringValue("1")))
       assertTrue(
         projection(ObjectValue(List("_first" -> first, "_second" -> second))) ==
           ObjectValue(List("item" -> ObjectValue(List("name" -> StringValue("A"), "id" -> StringValue("1"))))),
         projection(ObjectValue(List("_first" -> NullValue, "_second" -> second))) == ObjectValue(List("item" -> second))
+      )
+    },
+    test("keeps the first of a repeated upstream key where names are restored, as completion reads it") {
+      val client     = List(projectionField("item", "item", List(projectionField("name", "name"))))
+      val executable = List(client.head.copy(alias = Some("_item")))
+      val projection = ResponseProjection.compile(client, executable, Map.empty)
+      val first      = ObjectValue(List("name" -> StringValue("A")))
+      val second     = ObjectValue(List("id" -> StringValue("1")))
+      assertTrue(
+        projection(ObjectValue(List("_item" -> first, "_item" -> second))) == ObjectValue(List("item" -> first))
       )
     },
     test("combines fragment selections for values but uses the first fragment for error paths") {
@@ -98,7 +112,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           projectionField("node", "_node", List(projectionField("a", "_a"))),
           projectionField("node", "_node", List(projectionField("b", "_b")))
         )
-      val projection = ResponseProjection.compile(client, executable, Nil, Map.empty)
+      val projection = ResponseProjection.compile(client, executable, Map.empty)
       assertTrue(
         projection(
           ObjectValue(List("_node" -> ObjectValue(List("_a" -> StringValue("A"), "_b" -> StringValue("B")))))
@@ -116,7 +130,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
       val typename   = projectionField("__typename", "kind")
       val fields     = List(typename, typename, projectionField("scalar", "scalar"))
       val payload    = ObjectValue(List("__typename" -> StringValue("A")))
-      val projection = ResponseProjection.compile(fields, fields, Nil, Map("A" -> "B", "B" -> "C"))
+      val projection = ResponseProjection.compile(fields, fields, Map("A" -> "B", "B" -> "C"))
       val result     =
         projection(ObjectValue(List("kind" -> StringValue("A"), "scalar" -> payload))).asInstanceOf[ObjectValue]
       assertTrue(result.getOrNull("kind") == StringValue("B"), result.getOrNull("scalar") eq payload)
@@ -124,7 +138,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
     test("returns untransformed values by reference") {
       val fields               = List(projectionField("name", "name"))
       val value: ResponseValue = ObjectValue(List("name" -> StringValue("A")))
-      val projection           = ResponseProjection.compile(fields, fields, Nil, Map("Unused" -> "Renamed"))
+      val projection           = ResponseProjection.compile(fields, fields, Map("Unused" -> "Renamed"))
       assertTrue(projection(value) eq value)
     },
     test("a non-null list item nulls the nullable list") {
@@ -239,13 +253,13 @@ object ExecutionModelSpec extends ZIOSpecDefault {
     test("execution artifacts are reused but variable binding gets an independent cache") {
       val field        = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
       val fetch        = RootFetch(FetchId(0), "products", List(field), List(field))
-      val plan         = OperationPlan(OperationType.Query, List(field), List(fetch), Nil, Nil, None)
+      val plan         = OperationPlan(OperationType.Query, None, List(field), List(fetch), Nil, Nil, None)
       val cache        = plan.executionCache
       val completion   = plan.completion
       val bound        = plan.bind(Map("id" -> StringValue("p1")))
-      val projection   = ResponseProjection.compile(Nil, Nil, Nil, Map.empty)
-      val originalRoot = PlanExecutor.PreparedRoot("original", projection)
-      val boundRoot    = PlanExecutor.PreparedRoot("bound", projection)
+      val projection   = ResponseProjection.compile(Nil, Nil, Map.empty)
+      val originalRoot = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("original")), projection)
+      val boundRoot    = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("bound")), projection)
       val cachedRoot   = cache.root(fetch.id)(originalRoot)
       assertTrue(
         cache eq plan.executionCache,

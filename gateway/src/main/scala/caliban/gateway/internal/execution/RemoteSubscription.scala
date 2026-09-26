@@ -95,9 +95,8 @@ private[gateway] final class RemoteSubscription(
             ready.succeed(()) *> response.body.asStream
               .mapChunks(parser.feedAll)
               .mapZIO(ZIO.fromEither(_))
-              .takeUntil(_.name == SseEvent.Complete)
+              .takeWhile(_.name != SseEvent.Complete)
               .runForeach {
-                case SseEvent(SseEvent.Complete, _) => ZIO.unit
                 case SseEvent(SseEvent.Next, value) =>
                   ZIO
                     .fromEither(decode(value.getBytes(UTF_8)))

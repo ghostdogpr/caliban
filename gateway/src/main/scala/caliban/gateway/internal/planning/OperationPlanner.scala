@@ -97,9 +97,10 @@ private[gateway] object OperationPlanner {
         _                  <- validateContextBindings(best.roots, best.entities)
       } yield OperationPlan(
         operationType,
+        execution.operationName,
         fields,
         best.roots,
-        best.entities,
+        best.waves,
         typenameSelections,
         passthroughSubgraph
       )
@@ -119,7 +120,7 @@ private[gateway] object OperationPlanner {
               FetchGraphOptimizer.waves(planned.roots, entities).map { waves =>
                 val calls = waves.map(_.map(_.groupKey).distinct.size).sum
                 val cost  = PlanCost(planned.roots.size + calls, waves.size, internalSelectionCount(entities))
-                PlanCandidate(candidates, planned.roots, entities, cost)
+                PlanCandidate(candidates, planned.roots, waves, cost)
               }
             }
             .map(_.minBy(_.cost))
@@ -1297,9 +1298,11 @@ private[gateway] object OperationPlanner {
   private final case class PlanCandidate(
     rootCandidates: List[RootCandidate],
     roots: List[RootFetch],
-    entities: List[EntityFetch],
+    waves: List[List[EntityFetch]],
     cost: PlanCost
-  )
+  ) {
+    def entities: List[EntityFetch] = waves.flatten
+  }
 
   private final case class RequiredKeyField(field: __Field, children: List[RequiredKeyField], owned: Boolean) {
     def fullyOwned: Boolean = owned && children.forall(_.fullyOwned)

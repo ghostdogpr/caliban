@@ -17,14 +17,11 @@ private[gateway] object ResponseMerge {
   final case class Overwrite(value: ResponseValue) extends Edit
   final case class Fill(value: ResponseValue)      extends Edit
 
-  def applyPatches(value: ResponseValue, patches: List[Patch]): ResponseValue =
-    patches match {
-      case (path, edit) :: Nil => editAt(value, path, edit)
-      case _                   =>
-        val root = new PatchNode
-        patches.foreach { case (path, edit) => root.add(path, edit) }
-        root.patch(value)
-    }
+  def applyPatches(value: ResponseValue, patches: List[Patch]): ResponseValue = {
+    val root = new PatchNode
+    patches.foreach { case (path, edit) => root.add(path, edit) }
+    root.patch(value)
+  }
 
   def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
     merge(left, right, retainNonNull = true)
@@ -93,33 +90,6 @@ private[gateway] object ResponseMerge {
         case other                                => other
       }
   }
-
-  private def editAt(value: ResponseValue, path: List[PathValue], edit: Edit): ResponseValue =
-    path match {
-      case Nil                               => applyEdit(value, edit)
-      case StringValue(key) :: tail          =>
-        value match {
-          case ObjectValue(fields) =>
-            ObjectValue(fields.map(field => if (field._1 == key) (key, editAt(field._2, tail, edit)) else field))
-          case other               => other
-        }
-      case IntValue.IntNumber(index) :: tail =>
-        value match {
-          case ListValue(values) if index >= 0 => ListValue(editValueAt(values, index, tail, edit))
-          case other                           => other
-        }
-    }
-
-  private def editValueAt(
-    values: List[ResponseValue],
-    index: Int,
-    path: List[PathValue],
-    edit: Edit
-  ): List[ResponseValue] =
-    values.splitAt(index) match {
-      case (prefix, nested :: tail) => prefix ::: (editAt(nested, path, edit) :: tail)
-      case _                        => values
-    }
 
   private def merge(left: ResponseValue, right: ResponseValue, retainNonNull: Boolean): ResponseValue =
     (left, right) match {
