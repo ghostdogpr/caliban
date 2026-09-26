@@ -11,37 +11,37 @@ import scala.collection.mutable
  * entity patches overwrite fetched values, while blocked patches only fill missing values.
  */
 private[gateway] object ResponseMerge {
-  type Patch = (List[PathValue], ResponseValue)
+  type Patch = (List[PathValue], Edit)
+
+  sealed trait Edit
+  final case class Overwrite(value: ResponseValue) extends Edit
+  final case class Fill(value: ResponseValue)      extends Edit
 
   def applyPatches(value: ResponseValue, patches: List[Patch]): ResponseValue =
     patches match {
-      case Nil                  => value
-      case (path, patch) :: Nil => mergeAt(value, path, patch, onlyMissing = false)
-      case _                    =>
+      case (path, edit) :: Nil => editAt(value, path, edit)
+      case _                   =>
         val root = new PatchNode
-        patches.foreach { case (path, patch) => root.add(path, patch) }
+        patches.foreach { case (path, edit) => root.add(path, edit) }
         root.patch(value)
     }
-
-  def fillMissing(value: ResponseValue, patches: List[Patch]): ResponseValue =
-    patches.foldLeft(value) { case (filled, (path, patch)) => mergeAt(filled, path, patch, onlyMissing = true) }
-
-  def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    merge(left, right, retainNonNull = false)
 
   def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
     merge(left, right, retainNonNull = true)
 
-  private sealed trait PatchEntry
-
-  private final case class PatchValue(value: ResponseValue) extends PatchEntry
+  private def applyEdit(value: ResponseValue, edit: Edit): ResponseValue =
+    edit match {
+      case Overwrite(patch)  => merge(value, patch, retainNonNull = false)
+      case Fill(patch)       => merge(patch, value, retainNonNull = false)
+      case group: PatchGroup => group.patch(value)
+    }
 
   private final class PatchNode {
-    private var entries: List[PatchEntry] = Nil
+    private var entries: List[Edit] = Nil
 
-    def add(path: List[PathValue], patch: ResponseValue): Unit =
+    def add(path: List[PathValue], edit: Edit): Unit =
       path match {
-        case Nil             => entries = PatchValue(patch) :: entries
+        case Nil             => entries = edit :: entries
         case segment :: rest =>
           val group = entries match {
             case (group: PatchGroup) :: _ => group
@@ -50,17 +50,14 @@ private[gateway] object ResponseMerge {
               entries = created :: entries
               created
           }
-          group.nodeAt(segment).add(rest, patch)
+          group.nodeAt(segment).add(rest, edit)
       }
 
     def patch(value: ResponseValue): ResponseValue =
-      entries.foldRight(value) {
-        case (group: PatchGroup, current) => group.patch(current)
-        case (PatchValue(patch), current) => mergeObject(current, patch)
-      }
+      entries.foldRight(value)((edit, current) => applyEdit(current, edit))
   }
 
-  private final class PatchGroup extends PatchEntry {
+  private final class PatchGroup extends Edit {
     private var keys: java.util.HashMap[String, PatchNode] = null
     private var indices: mutable.LongMap[PatchNode]        = null
 
@@ -97,46 +94,30 @@ private[gateway] object ResponseMerge {
       }
   }
 
-  private def mergeAt(
-    value: ResponseValue,
-    path: List[PathValue],
-    patch: ResponseValue,
-    onlyMissing: Boolean
-  ): ResponseValue =
+  private def editAt(value: ResponseValue, path: List[PathValue], edit: Edit): ResponseValue =
     path match {
-      case Nil                               => if (onlyMissing) mergeObject(patch, value) else mergeObject(value, patch)
+      case Nil                               => applyEdit(value, edit)
       case StringValue(key) :: tail          =>
         value match {
-          case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch, onlyMissing))
+          case ObjectValue(fields) =>
+            ObjectValue(fields.map(field => if (field._1 == key) (key, editAt(field._2, tail, edit)) else field))
           case other               => other
         }
       case IntValue.IntNumber(index) :: tail =>
         value match {
-          case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch, onlyMissing))
+          case ListValue(values) if index >= 0 => ListValue(editValueAt(values, index, tail, edit))
           case other                           => other
         }
     }
 
-  private def updateFieldAt(
-    fields: List[(String, ResponseValue)],
-    key: String,
-    path: List[PathValue],
-    patch: ResponseValue,
-    onlyMissing: Boolean
-  ): List[(String, ResponseValue)] =
-    if (fields.exists(_._1 == key))
-      fields.map(field => if (field._1 == key) (key, mergeAt(field._2, path, patch, onlyMissing)) else field)
-    else fields
-
-  private def updateValueAt(
+  private def editValueAt(
     values: List[ResponseValue],
     index: Int,
     path: List[PathValue],
-    patch: ResponseValue,
-    onlyMissing: Boolean
+    edit: Edit
   ): List[ResponseValue] =
     values.splitAt(index) match {
-      case (prefix, nested :: tail) => prefix ::: (mergeAt(nested, path, patch, onlyMissing) :: tail)
+      case (prefix, nested :: tail) => prefix ::: (editAt(nested, path, edit) :: tail)
       case _                        => values
     }
 
@@ -144,7 +125,6 @@ private[gateway] object ResponseMerge {
     (left, right) match {
       case (leftObject: ObjectValue, rightObject: ObjectValue)                                    =>
         ObjectValue(mergeFields(leftObject.fields, rightObject.fields, retainNonNull))
-      case (NullValue, value) if retainNonNull                                                    => value
       case (value, NullValue) if retainNonNull                                                    => value
       case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
         ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
@@ -166,12 +146,11 @@ private[gateway] object ResponseMerge {
     while (remaining ne Nil) {
       val field    = remaining.head
       val position =
-        if (positions ne null) indexedPositionOf(positions, field._1) else lastPositionOf(left, field._1)
-      if (position >= 0) matches(position) = field._2
-      else {
+        if (positions ne null) indexedPositionOf(positions, field._1) else firstPositionOf(left, field._1)
+      if (position < 0) {
         if (extras eq null) extras = new mutable.ListBuffer
         extras += field
-      }
+      } else if (matches(position) eq null) matches(position) = field._2
       remaining = remaining.tail
     }
     val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
@@ -189,7 +168,7 @@ private[gateway] object ResponseMerge {
   }
 
   /**
-   * Returns null for objects below the index threshold, which `lastPositionOf` scans instead.
+   * Returns null for objects below the index threshold, which `firstPositionOf` scans instead.
    */
   private def indexPositions(fields: List[(String, ResponseValue)], size: Int): java.util.HashMap[String, Integer] =
     if (size < IndexedFields.IndexThreshold) null
@@ -198,7 +177,7 @@ private[gateway] object ResponseMerge {
       var position  = 0
       var remaining = fields
       while (remaining ne Nil) {
-        positions.put(remaining.head._1, Integer.valueOf(position))
+        positions.putIfAbsent(remaining.head._1, Integer.valueOf(position))
         position += 1
         remaining = remaining.tail
       }
@@ -210,15 +189,13 @@ private[gateway] object ResponseMerge {
     if (position eq null) -1 else position.intValue
   }
 
-  private def lastPositionOf(fields: List[(String, ResponseValue)], name: String): Int = {
+  private def firstPositionOf(fields: List[(String, ResponseValue)], name: String): Int = {
     var position  = 0
-    var found     = -1
     var remaining = fields
-    while (remaining ne Nil) {
-      if (remaining.head._1.equals(name)) found = position
+    while ((remaining ne Nil) && !remaining.head._1.equals(name)) {
       position += 1
       remaining = remaining.tail
     }
-    found
+    if (remaining eq Nil) -1 else position
   }
 }

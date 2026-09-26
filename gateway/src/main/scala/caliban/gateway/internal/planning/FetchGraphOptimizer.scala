@@ -4,44 +4,37 @@ import caliban.InputValue
 import caliban.execution.Field
 import caliban.gateway.internal.planning.CandidateSearch.PlanningFailure
 import caliban.gateway.internal.planning.OperationPlan._
-import caliban.gateway.traverseEither
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 
 private[planning] object FetchGraphOptimizer {
-  def optimize(roots: List[RootFetch], fetches: List[EntityFetch]): Either[PlanningFailure, List[EntityFetch]] =
-    addFetchDependencies(fetches, roots).map(mergeEquivalentFetches)
+  def optimize(
+    roots: List[RootFetch],
+    fetches: List[EntityFetch],
+    needPrerequisites: Set[FetchId]
+  ): List[EntityFetch] =
+    mergeEquivalentFetches(addFetchDependencies(fetches, roots, needPrerequisites))
 
   /**
-   * Counts compatible entity batches by dependency wave. Dependencies outside this list are already satisfied.
-   * Returns the dependency depth and the number of calls, or the cycle that prevents ordering the fetches.
+   * Orders entity fetches into dependency waves, starting with the root fetches completed.
+   * Returns the waves, or the cycle that prevents ordering the fetches.
    */
-  def waves(fetches: List[EntityFetch]): Either[PlanningFailure, (Int, Int)] = {
-    val fetchIds = fetches.iterator.map(_.id).toSet
-
+  def waves(roots: List[RootFetch], fetches: List[EntityFetch]): Either[PlanningFailure, List[List[EntityFetch]]] = {
     @tailrec
-    def count(
+    def order(
       pending: List[EntityFetch],
       completed: Set[FetchId],
-      depth: Int,
-      calls: Int
-    ): Either[PlanningFailure, (Int, Int)] =
-      if (pending.isEmpty) Right(depth -> calls)
+      waves: List[List[EntityFetch]]
+    ): Either[PlanningFailure, List[List[EntityFetch]]] =
+      if (pending.isEmpty) Right(waves.reverse)
       else {
-        val (ready, waiting) =
-          pending.partition(fetch => fetch.dependencies.forall(id => completed.contains(id) || !fetchIds(id)))
+        val (ready, waiting) = pending.partition(_.dependencies.forall(completed))
         if (ready.isEmpty) Left(DependencyCycle)
-        else
-          count(
-            waiting,
-            completed ++ ready.iterator.map(_.id),
-            depth + 1,
-            calls + ready.iterator.map(entityGroupKey).toSet.size
-          )
+        else order(waiting, completed ++ ready.iterator.map(_.id), ready :: waves)
       }
 
-    count(fetches, Set.empty, 0, 0)
+    order(fetches, roots.iterator.map(_.id).toSet, Nil)
   }
 
   def mergeFields(fields: List[Field]): List[Field] = {
@@ -62,57 +55,55 @@ private[planning] object FetchGraphOptimizer {
    */
   private def addFetchDependencies(
     fetches: List[EntityFetch],
-    roots: List[RootFetch]
-  ): Either[PlanningFailure, List[EntityFetch]] =
-    if (!fetches.exists(_.mayNeedPrerequisiteFetches)) Right(fetches)
+    roots: List[RootFetch],
+    needPrerequisites: Set[FetchId]
+  ): List[EntityFetch] =
+    if (needPrerequisites.isEmpty) fetches
     else {
       val byId = fetches.iterator.map(fetch => fetch.id -> fetch).toMap
 
-      def dependsOn(fetch: EntityFetch, dependency: FetchId, seen: Set[FetchId]): Boolean                      =
-        fetch.dependencies.contains(dependency) || fetch.dependencies.exists { id =>
-          !seen.contains(id) && byId.get(id).exists(dependsOn(_, dependency, seen + id))
-        }
-      def selectionPaths(selection: RequiredSelection): List[Vector[String]]                                   =
-        if (selection.children.isEmpty) Vector(selection.responseName) :: Nil
-        else selection.children.flatMap(selectionPaths).map(Vector(selection.responseName) ++ _)
-      def targetedPaths(field: Field): List[(Vector[String], List[Set[String]])]                               = {
+      def dependsOn(fetch: EntityFetch, dependency: FetchId): Boolean                                          =
+        fetch.dependencies.exists(id => id == dependency || byId.get(id).exists(dependsOn(_, dependency)))
+      def selectionPaths(prefix: Vector[String])(selection: RequiredSelection): List[Vector[String]]           = {
+        val path = prefix :+ selection.responseName
+        if (selection.children.isEmpty) path :: Nil
+        else selection.children.flatMap(selectionPaths(path))
+      }
+      def targetedPaths(prefix: Vector[String])(field: Field): List[(Vector[String], List[Set[String]])]       = {
+        val path    = prefix :+ field.aliasedName
         val targets = field.targets.toList
-        if (field.fields.isEmpty) (Vector(field.aliasedName), targets) :: Nil
+        if (field.fields.isEmpty) (path, targets) :: Nil
         else
-          field.fields.flatMap(targetedPaths).map { case (path, nested) =>
-            (Vector(field.aliasedName) ++ path, targets ::: nested)
+          field.fields.flatMap(targetedPaths(path)).map { case (nested, conditions) =>
+            (nested, targets ::: conditions)
           }
       }
       def provides(paths: List[(Vector[String], List[Set[String]])], path: Vector[String], entityType: String) =
         paths.exists { case (candidate, targets) => candidate == path && targets.forall(_.contains(entityType)) }
 
-      val providedPaths = fetches.iterator.map(fetch => fetch.id -> fetch.fields.flatMap(targetedPaths)).toMap
-      val rootPaths     = roots.iterator.map(root => root.id -> root.downstream.flatMap(targetedPaths)).toMap
+      val providers = fetches.map(fetch => fetch -> fetch.fields.flatMap(targetedPaths(fetch.mergePath)))
+      val rootPaths = roots.iterator.map(root => root.id -> root.downstream.flatMap(targetedPaths(Vector.empty))).toMap
 
-      traverseEither(fetches) { fetch =>
-        if (!fetch.mayNeedPrerequisiteFetches) Right(fetch)
+      providers.map { case (fetch, own) =>
+        if (!needPrerequisites(fetch.id)) fetch
         else {
-          val required                                               =
-            (fetch.keys ::: fetch.requirements).flatMap(selectionPaths).map(fetch.mergePath ++ _).toSet ++
+          val required                                         =
+            (fetch.keys ::: fetch.requirements).flatMap(selectionPaths(fetch.mergePath)).toSet ++
               fetch.contextArguments.flatMap(argument => argument.projection.paths.map(argument.sourcePath ++ _))
-          def provided(candidate: EntityFetch): List[Vector[String]] =
-            providedPaths(candidate.id).map { case (path, _) => candidate.mergePath ++ path }.filter(required)
-          def providedElsewhere(path: Vector[String]): Boolean       =
+          val siblings                                         =
+            providers.filter { case (other, _) => other.id != fetch.id && other.root == fetch.root }
+          def providedElsewhere(path: Vector[String]): Boolean =
             provides(rootPaths.getOrElse(fetch.root, Nil), path, fetch.entityType) ||
-              fetches.exists(other =>
-                other.id != fetch.id && other.root == fetch.root && path.startsWith(other.mergePath) &&
-                  provides(providedPaths(other.id), path.drop(other.mergePath.size), fetch.entityType)
-              )
-          if (provided(fetch).exists(path => !providedElsewhere(path))) Left(DependencyCycle)
-          else {
-            val dependencies = fetches.iterator
-              .filter(candidate => candidate.id != fetch.id && candidate.root == fetch.root)
-              .filterNot(candidate => dependsOn(candidate, fetch.id, Set.empty))
-              .filter(provided(_).nonEmpty)
-              .map(_.id)
-              .toSet
-            Right(fetch.copy(dependencies = fetch.dependencies ++ dependencies))
-          }
+              siblings.exists { case (_, paths) => provides(paths, path, fetch.entityType) }
+          // A fetch that needs its own output depends on itself, which waves rejects as a cycle.
+          val needsItself                                      = own.exists { case (path, _) => required(path) && !providedElsewhere(path) }
+          val dependencies                                     = siblings.iterator.collect {
+            case (candidate, paths) if !dependsOn(candidate, fetch.id) && paths.exists { case (path, _) =>
+                  required(path)
+                } =>
+              candidate.id
+          }.toSet
+          fetch.copy(dependencies = fetch.dependencies ++ dependencies ++ (if (needsItself) Set(fetch.id) else Nil))
         }
       }
     }
@@ -124,20 +115,13 @@ private[planning] object FetchGraphOptimizer {
       val key = fetch.copy(
         id = FetchId(0),
         dependencies = fetch.dependencies.map(id => replaced.getOrElse(id, id)),
-        fields = Nil,
-        mayNeedPrerequisiteFetches = false
+        fields = Nil
       )
       grouped.get(key) match {
         case None           => grouped.put(key, fetch)
         case Some(existing) =>
           replaced.update(fetch.id, existing.id)
-          grouped.update(
-            key,
-            existing.copy(
-              fields = mergeFields(existing.fields ::: fetch.fields),
-              mayNeedPrerequisiteFetches = existing.mayNeedPrerequisiteFetches || fetch.mayNeedPrerequisiteFetches
-            )
-          )
+          grouped.update(key, existing.copy(fields = mergeFields(existing.fields ::: fetch.fields)))
       }
     }
     if (replaced.isEmpty) fetches

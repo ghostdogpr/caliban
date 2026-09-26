@@ -113,14 +113,14 @@ private[gateway] object OperationPlanner {
         .flatMap(options =>
           search
             .evaluate(options) { candidates =>
-              val planned = rootFetches(candidates, operationType)
-              for {
-                entities <-
-                  FetchGraphOptimizer.optimize(planned.roots, entityFetches(planned.assignments, planned.roots.size))
-                cost     <- FetchGraphOptimizer.waves(entities).map { case (depth, calls) =>
-                              PlanCost(planned.roots.size + calls, depth, internalSelectionCount(entities))
-                            }
-              } yield PlanCandidate(candidates, planned.roots, entities, cost)
+              val planned                      = rootFetches(candidates, operationType)
+              val (fetches, needPrerequisites) = entityFetches(planned.assignments, planned.roots.size)
+              val entities                     = FetchGraphOptimizer.optimize(planned.roots, fetches, needPrerequisites)
+              FetchGraphOptimizer.waves(planned.roots, entities).map { waves =>
+                val calls = waves.map(_.map(_.groupKey).distinct.size).sum
+                val cost  = PlanCost(planned.roots.size + calls, waves.size, internalSelectionCount(entities))
+                PlanCandidate(candidates, planned.roots, entities, cost)
+              }
             }
             .map(_.minBy(_.cost))
         )
@@ -214,19 +214,25 @@ private[gateway] object OperationPlanner {
       PlannedRootFetches(roots, assignments)
     }
 
-    private def entityFetches(assignments: List[(RootCandidate, FetchId)], firstId: Int): List[EntityFetch] = {
-      var nextFetchId = firstId
+    private def entityFetches(
+      assignments: List[(RootCandidate, FetchId)],
+      firstId: Int
+    ): (List[EntityFetch], Set[FetchId]) = {
+      var nextFetchId       = firstId
+      val needPrerequisites = Set.newBuilder[FetchId]
 
       def flatten(values: List[EntityCandidate], root: FetchId, dependencies: Set[FetchId]): List[EntityFetch] =
         values.flatMap { entity =>
           val id       = FetchId(nextFetchId)
           nextFetchId += 1
+          if (entity.mayNeedPrerequisiteFetches) needPrerequisites += id
           val current  = entity.toFetch(id, root, dependencies)
           val children = flatten(entity.entities, root, Set(id))
           current :: children
         }
 
-      assignments.flatMap { case (planned, root) => flatten(planned.entities, root, Set(root)) }
+      val fetches = assignments.flatMap { case (planned, root) => flatten(planned.entities, root, Set(root)) }
+      fetches -> needPrerequisites.result()
     }
 
     private def collectTypenameSelections(
@@ -1484,8 +1490,7 @@ private[gateway] object OperationPlanner {
         contextArguments,
         typename,
         lookup,
-        fields,
-        mayNeedPrerequisiteFetches
+        fields
       )
   }
 

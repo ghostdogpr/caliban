@@ -30,8 +30,7 @@ private[gateway] final class EntityExecutor[-R](
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
     val grouped = mutable.LinkedHashMap.empty[EntityGroupKey, mutable.ListBuffer[EntityFetch]]
     fetches.foreach { fetch =>
-      val key = cache.groupKey(fetch)
-      grouped.getOrElseUpdate(key, mutable.ListBuffer.empty) += fetch
+      grouped.getOrElseUpdate(fetch.groupKey, mutable.ListBuffer.empty) += fetch
     }
     val wave    = Wave(blocked, collectCandidates(fetches, roots), cache)
     grouped.values.map(_.toList).toList match {

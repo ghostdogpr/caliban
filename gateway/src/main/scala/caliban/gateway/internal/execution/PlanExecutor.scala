@@ -223,7 +223,7 @@ private[gateway] final class PlanExecutor[-R](
   )(implicit trace: Trace): URIO[R, EntityExecution] =
     if (pending.isEmpty) ZIO.succeed(EntityExecution(roots, Nil))
     else {
-      val ready = readyFetches(pending, completed, cache)
+      val ready = readyFetches(pending, completed)
       if (ready.isEmpty)
         ZIO.succeed(
           EntityExecution(
@@ -238,7 +238,7 @@ private[gateway] final class PlanExecutor[-R](
         )
       else
         entityExecutor.execute(ready, roots, blocked, cache).flatMap { results =>
-          val nextRoots     = fillUnfetched(applyEntityPatches(roots, results), pending, results)
+          val nextRoots     = patchRoots(roots, entityPatches(results) ::: unfetchedPatches(pending, results))
           val nextCompleted = completed ++ ready.iterator.map(_.id)
           val nextBlocked   = unionBlocked(blocked, results.flatMap(_.blocked))
           val remaining     = pending.filterNot(fetch => nextCompleted.contains(fetch.id))
@@ -247,54 +247,39 @@ private[gateway] final class PlanExecutor[-R](
         }
     }
 
-  private def readyFetches(
-    pending: List[EntityFetch],
-    completed: Set[FetchId],
-    cache: PlanExecutionCache
-  ): List[EntityFetch] = {
+  private def readyFetches(pending: List[EntityFetch], completed: Set[FetchId]): List[EntityFetch] = {
     val (available, waiting) = pending.partition(fetch => fetch.dependencies.forall(completed.contains))
     // Wait for compatible fetches to batch together, unless they depend on an available fetch.
     val scheduled            = available.filterNot { fetch =>
-      val key = cache.groupKey(fetch)
-      waiting.exists(cache.groupKey(_) == key) && waiting.forall(!_.dependencies.contains(fetch.id))
+      waiting.exists(_.groupKey == fetch.groupKey) && waiting.forall(!_.dependencies.contains(fetch.id))
     }
     if (scheduled.isEmpty) available else scheduled
   }
 
-  private def applyEntityPatches(
-    roots: Map[FetchId, ResponseValue],
-    results: List[EntityResult]
-  ): Map[FetchId, ResponseValue] =
-    patchRoots(roots, results.flatMap(_.patches).groupMap(_.fetch.root)(patch => patch.path -> patch.value))(
-      applyPatches
-    )
+  private def entityPatches(results: List[EntityResult]): List[(FetchId, Patch)] =
+    results.flatMap(_.patches).map(patch => patch.fetch.root -> (patch.path -> Overwrite(patch.value)))
 
-  private def fillUnfetched(
-    roots: Map[FetchId, ResponseValue],
-    pending: List[EntityFetch],
-    results: List[EntityResult]
-  ): Map[FetchId, ResponseValue] = {
+  private def unfetchedPatches(pending: List[EntityFetch], results: List[EntityResult]): List[(FetchId, Patch)] = {
     val unfetched = results.flatMap(result => result.blocked.toList ::: result.unmatched.toList)
-    if (unfetched.isEmpty) roots
+    if (unfetched.isEmpty) Nil
     else {
       val fetchesById = pending.iterator.map(fetch => fetch.id -> fetch).toMap
-      val patches     = unfetched.flatMap { case (fetchId, paths) =>
+      unfetched.flatMap { case (fetchId, paths) =>
         fetchesById.get(fetchId).toList.flatMap { fetch =>
-          val patch = RemoteError.nullObject(fetch.fields)
+          val patch = Fill(RemoteError.nullObject(fetch.fields))
           paths.toList.map(path => fetch.root -> (path -> patch))
         }
       }
-      patchRoots(roots, patches.groupMap(_._1)(_._2))(fillMissing)
     }
   }
 
   private def patchRoots(
     roots: Map[FetchId, ResponseValue],
-    patchesByRoot: Map[FetchId, List[Patch]]
-  )(patch: (ResponseValue, List[Patch]) => ResponseValue): Map[FetchId, ResponseValue] =
-    patchesByRoot.foldLeft(roots) { case (values, (rootId, patches)) =>
+    patches: List[(FetchId, Patch)]
+  ): Map[FetchId, ResponseValue] =
+    patches.groupMap(_._1)(_._2).foldLeft(roots) { case (values, (rootId, rootPatches)) =>
       values.get(rootId) match {
-        case Some(root) => values.updated(rootId, patch(root, patches))
+        case Some(root) => values.updated(rootId, applyPatches(root, rootPatches))
         case None       => values
       }
     }
@@ -459,11 +444,7 @@ private[gateway] final class PlanExecutionCache {
   ): EntityLookup.GraphQLVariant =
     memoize(graphqlLookups, id)(prepare)
 
-  private[execution] def groupKey(fetch: EntityFetch): EntityGroupKey =
-    memoize(groupKeys, fetch.id)(entityGroupKey(fetch))
-
   private val roots             = new ConcurrentHashMap[FetchId, PlanExecutor.PreparedRoot]
-  private val groupKeys         = new ConcurrentHashMap[FetchId, EntityGroupKey]
   private val federationLookups = new ConcurrentHashMap[FetchId, EntityLookup.FederationVariant]
   private val graphqlLookups    = new ConcurrentHashMap[FetchId, EntityLookup.GraphQLVariant]
 

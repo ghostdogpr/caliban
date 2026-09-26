@@ -100,6 +100,22 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           second == 2
         )
       },
+      test("cleans up an in-flight entry when the miss hook dies") {
+        for {
+          die    <- Ref.make(true)
+          hooks   = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
+                      case PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss) =>
+                        die.getAndSet(false).flatMap(if (_) ZIO.dieMessage("hook") else ZIO.unit)
+                      case _                                                         => ZIO.unit
+                    })
+          cache  <- OperationCache.make[String, String, Int, Any](32, hooks)
+          first  <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).exit
+          second <- Live.live(cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4))).timeout(5.seconds))
+        } yield assertTrue(
+          first.isFailure,
+          second.contains(2)
+        )
+      },
       test("retries a waiter when the compute leader is interrupted before computation starts") {
         for {
           firstMiss <- Ref.make(true)

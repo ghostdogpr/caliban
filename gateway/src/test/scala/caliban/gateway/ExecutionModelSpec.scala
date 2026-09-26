@@ -152,27 +152,50 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           ObjectValue(List("name" -> StringValue("first")))
       )
     },
-    test("patches the last duplicate on both sides of the wide threshold") {
+    test("patches the duplicate field that completion reads on both sides of the wide threshold") {
       def value(size: Int): ObjectValue =
         ObjectValue(
-          ("duplicate"   -> StringValue("first")) ::
+          ("name"   -> StringValue("first")) ::
             List.tabulate(size - 2)(index => s"field$index" -> StringValue(index.toString)) :::
-            ("duplicate" -> StringValue("last")) :: Nil
+            ("name" -> StringValue("last")) :: Nil
         )
 
-      val patch  = ObjectValue(("duplicate" -> StringValue("merged")) :: Nil)
-      val narrow = ResponseMerge.mergeObject(value(15), patch)
-      val wide   = ResponseMerge.mergeObject(value(16), patch)
-
-      def duplicateValues(value: ResponseValue): List[StringValue] =
-        value match {
-          case ObjectValue(fields) => fields.collect { case ("duplicate", nested: StringValue) => nested }
-          case _                   => Nil
-        }
+      val patch                               = ObjectValue(("name" -> StringValue("merged")) :: Nil)
+      def completed(size: Int): ResponseValue =
+        completion
+          .complete(
+            List(name),
+            ResponseMerge.applyPatches(value(size), (Nil, ResponseMerge.Overwrite(patch)) :: Nil),
+            Nil
+          )
+          .toResponseValue
 
       assertTrue(
-        duplicateValues(narrow) == List(StringValue("first"), StringValue("merged")),
-        duplicateValues(wide) == List(StringValue("first"), StringValue("merged"))
+        completed(15) == ObjectValue(List("name" -> StringValue("merged"))),
+        completed(16) == ObjectValue(List("name" -> StringValue("merged")))
+      )
+    },
+    test("keeps the first duplicate of a patch field on both sides of the wide threshold") {
+      def value(size: Int): ObjectValue =
+        ObjectValue(
+          ("name" -> StringValue("fetched")) :: List.tabulate(size - 1)(index =>
+            s"field$index" -> StringValue(index.toString)
+          )
+        )
+
+      val patch                               = ObjectValue(("name" -> StringValue("first")) :: ("name" -> StringValue("last")) :: Nil)
+      def completed(size: Int): ResponseValue =
+        completion
+          .complete(
+            List(name),
+            ResponseMerge.applyPatches(value(size), (Nil, ResponseMerge.Overwrite(patch)) :: Nil),
+            Nil
+          )
+          .toResponseValue
+
+      assertTrue(
+        completed(15) == ObjectValue(List("name" -> StringValue("first"))),
+        completed(16) == ObjectValue(List("name" -> StringValue("first")))
       )
     },
     test("keeps correlation aliases distinct from disambiguated abstract entity fields") {

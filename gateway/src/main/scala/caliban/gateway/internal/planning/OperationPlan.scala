@@ -105,11 +105,11 @@ private[gateway] object OperationPlan {
     contextArguments: List[ContextualArgument],
     typename: Option[RequiredSelection],
     lookup: ComposedGraph.EntityLookup,
-    fields: List[Field],
-    mayNeedPrerequisiteFetches: Boolean
+    fields: List[Field]
   ) {
 
-    lazy val selectionKey: String = canonicalSelectionKey(fields)
+    lazy val groupKey: EntityGroupKey =
+      EntityGroupKey(source, entityType, lookup, keys, requirements, contextArguments, canonicalSelectionKey(fields))
   }
 
   private[internal] final case class EntityGroupKey(
@@ -124,17 +124,6 @@ private[gateway] object OperationPlan {
     @transient @threadUnsafe
     final override lazy val hashCode: Int = Hash.caseClassHash(this)
   }
-
-  private[internal] def entityGroupKey(fetch: EntityFetch): EntityGroupKey =
-    EntityGroupKey(
-      fetch.source,
-      fetch.entityType,
-      fetch.lookup,
-      fetch.keys,
-      fetch.requirements,
-      fetch.contextArguments,
-      fetch.selectionKey
-    )
 
   private[planning] def fieldPaths(fields: List[Field]): List[String] =
     fields.flatMap { field =>
