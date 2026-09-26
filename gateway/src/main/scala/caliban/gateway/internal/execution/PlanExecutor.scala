@@ -128,12 +128,12 @@ private[gateway] final class PlanExecutor[-R](
   ): PreparedRoot =
     cache.root(fetch.id) {
       val mapping    = graph.schemaMapping(fetch.source)
-      val executable = fetch.selections.map(graph.prepareField(fetch.source, _))
+      val executable = fetch.downstream.map(graph.prepareField(fetch.source, _))
       val downstream = executable.map(mapping.fieldToSource)
       val operation  = OperationDefinition(operationType, operationName, Nil, Nil, downstream.map(_.toSelection))
       PreparedRoot(
         renderOperation(operation),
-        ResponseProjection.compile(fetch.selections, executable, Nil, mapping.typeNames)
+        ResponseProjection.compile(fetch.downstream, executable, Nil, mapping.typeNames)
       )
     }
 

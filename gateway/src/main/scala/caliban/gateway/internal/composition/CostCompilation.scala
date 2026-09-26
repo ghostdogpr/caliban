@@ -63,7 +63,7 @@ private[composition] final class CostCompilation private (
   }
 
   private def cost(coordinate: Coordinate, directive: Directive): Either[String, CostEntry] = {
-    val entry: Either[String, Long => CostEntry] = coordinate match {
+    val entry: Either[String, BigInt => CostEntry] = coordinate match {
       case TypeCoordinate(typeName, location)
           if location == __DirectiveLocation.OBJECT || location == __DirectiveLocation.SCALAR ||
             location == __DirectiveLocation.ENUM =>
@@ -81,12 +81,12 @@ private[composition] final class CostCompilation private (
       case _                                                                                          =>
         Left("@cost is not supported at this location.")
     }
-    val prefix                                   = s"[${subgraph.name}] Invalid Federation @cost application at '${coordinate.display}'"
+    val prefix                                     = s"[${subgraph.name}] Invalid Federation @cost application at '${coordinate.display}'"
     (entry, directive.arguments.get("weight")) match {
       case (Left(error), _)                                 => Left(s"$prefix: $error")
       case _ if directive.arguments.keySet != Set("weight") =>
         Left(s"$prefix: exactly one 'weight' argument is required.")
-      case (Right(entry), Some(weight: IntValue))           => Right(entry(weight.toBigInt.longValue))
+      case (Right(entry), Some(weight: IntValue))           => Right(entry(weight.toBigInt))
       case _                                                => Left(s"$prefix: the 'weight' argument must be an integer.")
     }
   }
@@ -185,18 +185,18 @@ private[composition] object CostCompilation {
   private val ListSizeArguments = Set("assumedSize", "slicingArguments", "sizedFields", "requireOneSlicingArgument")
 
   private sealed trait CostEntry
-  private final case class TypeCost(name: String, weight: Long)                                    extends CostEntry
-  private final case class FieldCost(parent: String, name: String, weight: Long)                   extends CostEntry
-  private final case class ArgumentCost(parent: String, field: String, name: String, weight: Long) extends CostEntry
-  private final case class InputFieldCost(parent: String, name: String, weight: Long)              extends CostEntry
+  private final case class TypeCost(name: String, weight: BigInt)                                    extends CostEntry
+  private final case class FieldCost(parent: String, name: String, weight: BigInt)                   extends CostEntry
+  private final case class ArgumentCost(parent: String, field: String, name: String, weight: BigInt) extends CostEntry
+  private final case class InputFieldCost(parent: String, name: String, weight: BigInt)              extends CostEntry
 
-  private def maximum[K](values: Iterable[(K, Long)]): Map[K, Long] =
+  private def maximum[K](values: Iterable[(K, BigInt)]): Map[K, BigInt] =
     values.groupMapReduce(_._1)(_._2)(_ max _)
 
-  private def assumedSize(arguments: Map[String, InputValue]): Either[String, Option[Long]] =
+  private def assumedSize(arguments: Map[String, InputValue]): Either[String, Option[BigInt]] =
     arguments.get("assumedSize") match {
       case None                                         => Right(None)
-      case Some(value: IntValue) if value.toBigInt >= 0 => Right(Some(value.toBigInt.longValue))
+      case Some(value: IntValue) if value.toBigInt >= 0 => Right(Some(value.toBigInt))
       case Some(_: IntValue)                            => Left("the 'assumedSize' argument must not be negative.")
       case _                                            => Left("the 'assumedSize' argument must be an integer.")
     }

@@ -20,7 +20,6 @@ private[gateway] final class CandidateSearch(limits: Limits) {
 
   def combine[A, B, C](left: List[A], right: List[B])(pair: (A, B) => C): Either[PlanningFailure, List[C]] =
     (left, right) match {
-      case (Nil, _) | (_, Nil)  => checkTimeout.map(_ => Nil)
       case (a :: Nil, b :: Nil) => checkTimeout.map(_ => pair(a, b) :: Nil)
       case _                    =>
         val count = left.size.toLong * right.size.toLong
@@ -54,7 +53,6 @@ private[gateway] final class CandidateSearch(limits: Limits) {
   def evaluate[A, B](values: List[A])(plan: A => Either[PlanningFailure, B]): Either[PlanningFailure, List[B]] =
     values match {
       case value :: Nil => checkTimeout.flatMap(_ => plan(value)).map(List(_))
-      case Nil          => checkTimeout.flatMap(_ => Left(NoCompleteCandidate))
       case _            =>
         recordCandidates(values.size).flatMap { _ =>
           @tailrec

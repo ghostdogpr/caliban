@@ -1,7 +1,7 @@
 package caliban.gateway.internal.planning
 
 import caliban.{ Hash, InputValue }
-import caliban.execution.{ isIntrospectionField, Field, Fragment }
+import caliban.execution.{ isIntrospectionField, isMetaField, Field, Fragment }
 import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.execution.{ PlanExecutionCache, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
@@ -18,9 +18,7 @@ import scala.collection.immutable.ListMap
  */
 private[gateway] final case class OperationPlan(
   operationType: OperationType,
-  rootName: String,
   fields: List[Field],
-  localFields: List[Field],
   roots: List[RootFetch],
   entities: List[EntityFetch],
   typenameSelections: List[TypenameSelection],
@@ -28,6 +26,10 @@ private[gateway] final case class OperationPlan(
 ) {
 
   def render: String = OperationPlan.render(this)
+
+  def rootName: String = OperationPlan.rootName(operationType)
+
+  lazy val localFields: List[Field] = fields.filter(isMetaField)
 
   lazy val introspectionFields: List[Field] = localFields.filter(isIntrospectionField)
 
@@ -44,6 +46,13 @@ private[gateway] final case class OperationPlan(
 private[gateway] object OperationPlan {
   final case class FetchId(value: Int) extends AnyVal
 
+  def rootName(operation: OperationType): String =
+    operation match {
+      case OperationType.Query        => "Query"
+      case OperationType.Mutation     => "Mutation"
+      case OperationType.Subscription => "Subscription"
+    }
+
   final case class RequiredSelection(
     field: String,
     responseName: String,
@@ -56,11 +65,8 @@ private[gateway] object OperationPlan {
     id: FetchId,
     source: String,
     client: List[Field],
-    downstream: List[Field],
-    contextRoots: List[Field]
-  ) {
-    def selections: List[Field] = downstream ::: contextRoots
-  }
+    downstream: List[Field]
+  )
 
   final case class ContextualArgument(
     parentType: String,
@@ -138,9 +144,6 @@ private[gateway] object OperationPlan {
     def sortedArguments(arguments: Map[String, InputValue]): ListMap[String, InputValue] =
       ListMap(arguments.toList.sortBy(_._1): _*)
 
-    def canonicalDirective(directive: Directive): Directive =
-      directive.copy(arguments = sortedArguments(directive.arguments), index = 0)
-
     def canonicalSelections(selections: List[Selection]): List[Selection] = {
       val canonical = selections.map(canonicalSelection)
       canonical match {
@@ -158,17 +161,13 @@ private[gateway] object OperationPlan {
         case field: Selection.Field             =>
           field.copy(
             arguments = sortedArguments(field.arguments),
-            directives = field.directives.map(canonicalDirective),
-            selectionSet = canonicalSelections(field.selectionSet),
-            index = 0
+            directives =
+              field.directives.map(directive => directive.copy(arguments = sortedArguments(directive.arguments))),
+            selectionSet = canonicalSelections(field.selectionSet)
           )
         case fragment: Selection.InlineFragment =>
-          fragment.copy(
-            dirs = fragment.dirs.map(canonicalDirective),
-            selectionSet = canonicalSelections(fragment.selectionSet)
-          )
-        case fragment: Selection.FragmentSpread =>
-          fragment.copy(directives = fragment.directives.map(canonicalDirective))
+          fragment.copy(selectionSet = canonicalSelections(fragment.selectionSet))
+        case spread: Selection.FragmentSpread   => spread
       }
 
     val selections = canonicalSelections(fields.map(_.toSelection))
@@ -215,8 +214,7 @@ private[gateway] object OperationPlan {
         if (rootReferences(fetch))
           fetch.copy(
             client = fetch.client.map(bindField),
-            downstream = fetch.downstream.map(bindField),
-            contextRoots = fetch.contextRoots.map(bindField)
+            downstream = fetch.downstream.map(bindField)
           )
         else fetch
 
@@ -226,15 +224,13 @@ private[gateway] object OperationPlan {
 
       plan.copy(
         fields = plan.fields.map(bindField),
-        localFields = plan.localFields.map(bindField),
         roots = plan.roots.map(bindRoot),
         entities = plan.entities.map(bindEntity)
       )
     }
 
     private def rootReferences(fetch: RootFetch): Boolean =
-      fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences) ||
-        fetch.contextRoots.exists(fieldReferences)
+      fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences)
 
     private def fieldReferences(field: Field): Boolean =
       field.arguments.valuesIterator.exists(valueReferences) ||

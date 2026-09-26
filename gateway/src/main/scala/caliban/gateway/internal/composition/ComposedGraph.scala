@@ -129,6 +129,8 @@ private[gateway] final case class ComposedGraph private[internal] (
   def schemaMapping(source: String): SchemaMapping =
     schemaMappings(source)
 
+  def subgraphCount: Int = schemaMappings.size
+
   def hasContextArguments: Boolean = contextBindings.nonEmpty
 
   def contextDeclarations(typeName: String): List[ContextDeclaration] = {
@@ -168,12 +170,10 @@ private[gateway] final case class ComposedGraph private[internal] (
       .getOrElse(sourcePossibleTypes.getOrElse(SourceType(source, outputType), Set.empty))
   }
 
-  def interfaceObjectTypes(source: String, typeName: String): List[(String, __Type)] =
+  def interfaceObjectTypes(source: String, typeName: String): List[__Type] =
     interfaceObjectsByType
       .getOrElse(typeName, Nil)
-      .collect { case (`source`, interfaceName) =>
-        rootType.types.get(interfaceName).map(interfaceName -> _)
-      }
+      .collect { case (`source`, interfaceName) => rootType.types.get(interfaceName) }
       .flatten
 
   def isInterfaceObject(source: String, typeName: String): Boolean =
@@ -186,10 +186,7 @@ private[gateway] final case class ComposedGraph private[internal] (
     runtimeType == typeName || possibleTypesByName.getOrElse(typeName, Set.empty).contains(runtimeType)
 
   def fieldApplies(source: String, parentType: String, field: Field): Boolean =
-    field._condition.forall(condition =>
-      isInterfaceObject(source, parentType) ||
-        sourcePossibleTypes.getOrElse(SourceType(source, parentType), Set.empty).exists(condition)
-    )
+    field._condition.forall(sourcePossibleTypes.getOrElse(SourceType(source, parentType), Set.empty).exists(_))
 
   def prepareField(source: String, field: Field): Field =
     prepareField(source, None, field)
@@ -309,15 +306,15 @@ private[gateway] object ComposedGraph {
   final case class FieldArgument(typeName: String, fieldName: String, argumentName: String)
 
   final case class CostMetadata(
-    types: Map[String, Long],
-    fields: Map[TypeField, Long],
-    arguments: Map[FieldArgument, Long],
-    inputFields: Map[TypeField, Long],
+    types: Map[String, BigInt],
+    fields: Map[TypeField, BigInt],
+    arguments: Map[FieldArgument, BigInt],
+    inputFields: Map[TypeField, BigInt],
     listSizes: Map[SourceField, ListSize]
   )
 
   final case class ListSize(
-    assumedSize: Option[Long],
+    assumedSize: Option[BigInt],
     slicingArguments: List[SlicingArgument],
     sizedFields: List[Vector[String]],
     requireOneSlicingArgument: Boolean

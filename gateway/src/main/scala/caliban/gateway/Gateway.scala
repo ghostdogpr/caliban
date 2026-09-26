@@ -137,7 +137,7 @@ final class Gateway[-R] private[gateway] (
       security     = new OperationSecurity(graph.possibleTypesByName, graph.securityApplications)
       _           <- ZIO
                        .fail(GatewayBuildError.InvalidConfiguration(security.diagnostics))
-                       .when(!hooks.authorization.hasIncoming && security.hasRequirements)
+                       .when(!hooks.authorization.hasIncoming && security.diagnostics.nonEmpty)
       control     <- GatewayExecutionControl.make(
                        config.subscriptions,
                        hooks,
@@ -150,7 +150,6 @@ final class Gateway[-R] private[gateway] (
                        requestRoot,
                        new OperationPlanner(
                          graph,
-                         executors.size,
                          CandidateSearch.Limits(
                            config.maxPlanningCandidates,
                            config.maxPlanningExpansions,

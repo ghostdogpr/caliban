@@ -222,7 +222,7 @@ private[gateway] final class OperationPreparation[-R] private (
         def reject(message: String, code: String) =
           ZIO.fail(CalibanError.ValidationError(message, "", extensions = errorCode(code)))
 
-        cost.estimate(operation.executionRequest, operation.plan) match {
+        cost.estimate(operation.plan) match {
           case Left(error)                             => reject(error, "COST_QUERY_PARSE_FAILURE")
           case Right(estimated) if estimated > maximum =>
             reject(
@@ -248,7 +248,7 @@ private[gateway] final class OperationPreparation[-R] private (
       .fold(0L)(value =>
         fieldWeight(value.fields) +
           value.roots.foldLeft(0L)((count, fetch) =>
-            count + fieldWeight(fetch.client) + fieldWeight(fetch.downstream) + fieldWeight(fetch.contextRoots)
+            count + fieldWeight(fetch.client) + fieldWeight(fetch.downstream)
           ) +
           value.entities.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.fields)) +
           value.typenameSelections.size.toLong

@@ -295,7 +295,7 @@ private[gateway] object ResponseCompletion {
         child.fields = field :: child.fields
         collect(field.fields, child)
       }
-    collect(plan.localFields ::: plan.roots.flatMap(_.selections), root)
+    collect(plan.localFields ::: plan.roots.flatMap(_.downstream), root)
     plan.entities.foreach { fetch =>
       var node = root
       fetch.mergePath.foreach(name => node = node.childOrCreate(name))

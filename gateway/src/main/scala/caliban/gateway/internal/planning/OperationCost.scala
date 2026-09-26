@@ -1,7 +1,7 @@
 package caliban.gateway.internal.planning
 
 import caliban.InputValue
-import caliban.execution.{ ExecutionRequest, Field }
+import caliban.execution.Field
 import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.planning.OperationPlan.EntityFetch
@@ -22,25 +22,25 @@ private[gateway] final class OperationCost(
 ) {
   import OperationCost._
 
-  def estimate(request: ExecutionRequest, plan: OperationPlan): Either[String, Long] = {
+  def estimate(plan: OperationPlan): Either[String, Long] = {
     val hasListSizes = costMetadata.listSizes.nonEmpty
     plan.passthroughSubgraph match {
       case Some(source) =>
-        val fields = collectedFields(request.field)
+        val fields = plan.fields.map(field => field.copy(fields = collectedFields(field)))
         val error  = if (hasListSizes) validateListSizes(fields, source) else None
-        error.toLeft(bounded(operationBase(request.operationType) + fieldsCost(fields, source)))
+        error.toLeft(bounded(operationBase(plan.operationType) + fieldsCost(fields, source)))
       case None         =>
         val error =
           if (!hasListSizes) None
           else
             firstError(
-              plan.roots.iterator.map(fetch => validateListSizes(fetch.selections, fetch.source)) ++
+              plan.roots.iterator.map(fetch => validateListSizes(fetch.downstream, fetch.source)) ++
                 plan.entities.iterator.map(fetch => validateListSizes(fetch.fields, fetch.source))
             )
         error.toLeft {
           val multipliers = if (hasListSizes) representationMultipliers(plan) else NoMultipliers
           val rootCost    = plan.roots.foldLeft(BigInt(0)) { (total, fetch) =>
-            total + operationBase(plan.operationType) + fieldsCost(fetch.selections, fetch.source)
+            total + operationBase(plan.operationType) + fieldsCost(fetch.downstream, fetch.source)
           }
           val entityCost  = plan.entities
             .groupBy(fetch => fetch.root -> fetch.mergePath)
@@ -73,11 +73,11 @@ private[gateway] final class OperationCost(
   private def operationBase(operation: OperationType): BigInt =
     if (operation == OperationType.Mutation) BigInt(10) else BigInt(0)
 
-  private def fieldsCost(fields: List[Field], source: String): BigInt =
-    runtimeBranchCost(fields.map(field => field._condition -> fieldCost(field, source)))
-
-  private def runtimeBranchCost(costs: List[(Option[Set[String]], BigInt)]): BigInt =
-    conditionalCost(costs, (entry: (Option[Set[String]], BigInt)) => entry._1)((entry, _) => entry._2)
+  private def fieldsCost(fields: List[Field], source: String, paths: List[SizedPath] = Nil): BigInt =
+    conditionalCost(
+      fields.map(field => field._condition -> fieldCost(field, source, paths)),
+      (entry: (Option[Set[String]], BigInt)) => entry._1
+    )((entry, _) => entry._2)
 
   private def entityFetchCost(
     fetch: EntityFetch,
@@ -87,10 +87,7 @@ private[gateway] final class OperationCost(
     val entity     = types.get(fetch.entityType).fold(BigInt(1))(outputTypeCost).max(BigInt(0))
     val fields     =
       runtimeType.fold(fetch.fields)(runtime => fetch.fields.filter(_._condition.forall(_.contains(runtime))))
-    val selections = multipliers.sizedFields.get(fetch.mergePath) match {
-      case Some(paths) => sizedFieldsCost(fields, fetch.source, paths)
-      case None        => fieldsCost(fields, fetch.source)
-    }
+    val selections = fieldsCost(fields, fetch.source, multipliers.sizedFields.getOrElse(fetch.mergePath, Nil))
     multipliers.representations.getOrElse(fetch.mergePath, BigInt(1)) * (entity + selections)
   }
 
@@ -119,19 +116,6 @@ private[gateway] final class OperationCost(
     base + branch
   }
 
-  private def fieldCost(field: Field, source: String): BigInt = {
-    val nested    = fieldsCost(field.fields, source)
-    val listSizes = fieldListSizes(field, source).map { listSize =>
-      val size = resolvedListSize(field, listSize)
-      if (listSize.sizedFields.isEmpty) Left(size)
-      else Right(sizedFieldsCost(field.fields, source, listSize.sizedFields.map(SizedPath(_, size))))
-    }
-    maximumFieldCost(field) { own =>
-      if (listSizes.isEmpty) own.totalOnce(nested)
-      else listSizes.map(_.fold(own.total(_, nested), own.totalOnce)).max
-    }
-  }
-
   private def maximumFieldCost(field: Field)(cost: FieldCostParts => BigInt): BigInt = {
     val parent       = innerParentTypeName(field)
     def declaredCost = {
@@ -139,37 +123,36 @@ private[gateway] final class OperationCost(
         field.parentType.flatMap(tpe => fieldDefinition(tpe.innerType, field.name)).toList.flatMap(_.allArgs)
       cost(fieldOwnCost(parent, field, field.fieldType, arguments))
     }
-    field.parentType match {
-      case Some(tpe) if isAbstractType(tpe.innerType) =>
-        possibleTypesByName
-          .getOrElse(parent, Set.empty)
-          .iterator
-          .flatMap { name =>
-            types.get(name).flatMap(fieldDefinition(_, field.name)).map { definition =>
-              cost(fieldOwnCost(name, field, definition._type, definition.allArgs))
-            }
-          }
-          .reduceOption(_ max _)
-          .getOrElse(declaredCost)
-      case _                                          => declaredCost
+    implementingParents(field).iterator.flatMap { name =>
+      types.get(name).flatMap(fieldDefinition(_, field.name)).map { definition =>
+        cost(fieldOwnCost(name, field, definition._type, definition.allArgs))
+      }
     }
+      .reduceOption(_ max _)
+      .getOrElse(declaredCost)
   }
 
-  private def sizedFieldsCost(fields: List[Field], source: String, paths: List[SizedPath]): BigInt =
-    runtimeBranchCost(fields.map(field => field._condition -> sizedFieldCost(field, source, paths)))
+  private def implementingParents(field: Field): Set[String] =
+    if (field.parentType.exists(tpe => isAbstractType(tpe.innerType)))
+      possibleTypesByName.getOrElse(innerParentTypeName(field), Set.empty)
+    else Set.empty
 
-  private def sizedFieldCost(field: Field, source: String, paths: List[SizedPath]): BigInt = {
-    val matching = matchingSizedPaths(field.name, paths)
-    if (matching.isEmpty) fieldCost(field, source)
-    else {
-      val definitions            = fieldListSizes(field, source)
-      val local                  = declaredSizedPaths(field, definitions)
-      val (activated, remaining) = matching.partition(_.path.isEmpty)
-      val nested                 = sizedFieldsCost(field.fields, source, preferSizedPaths(local, remaining))
-      val size                   =
-        activated.map(_.size).reduceOption(_ max _).orElse(resolvedDirectListSize(field, definitions))
-      maximumFieldCost(field)(own => size.fold(own.totalOnce(nested))(own.total(_, nested)))
+  private def fieldCost(field: Field, source: String, paths: List[SizedPath]): BigInt = {
+    val (size, nestedPaths) = sizing(field, source, paths)
+    val nested              = fieldsCost(field.fields, source, nestedPaths)
+    maximumFieldCost(field)(_.total(size, nested))
+  }
+
+  private def sizing(field: Field, source: String, paths: List[SizedPath]): (BigInt, List[SizedPath]) = {
+    val definitions            = fieldListSizes(field, source)
+    val (activated, remaining) = matchingSizedPaths(field.name, paths).partition(_.path.isEmpty)
+    val direct                 = definitions.filter(_.sizedFields.isEmpty).map(resolvedListSize(field, _))
+    val declared               = definitions.flatMap { definition =>
+      val size = resolvedListSize(field, definition)
+      definition.sizedFields.map(SizedPath(_, size))
     }
+    activated.map(_.size).reduceOption(_ max _).orElse(direct.reduceOption(_ max _)).getOrElse(BigInt(1)) ->
+      preferSizedPaths(declared, remaining)
   }
 
   // A nearer @listSize replaces an inherited size for the same path.
@@ -190,14 +173,10 @@ private[gateway] final class OperationCost(
     else {
       val parent   = innerParentTypeName(field)
       val direct   = costMetadata.listSizes.get(SourceField(source, parent, field.name)).toList
-      val concrete = field.parentType match {
-        case Some(tpe) if isAbstractType(tpe.innerType) =>
-          possibleTypesByName
-            .getOrElse(parent, Set.empty)
-            .toList
-            .flatMap(name => costMetadata.listSizes.get(SourceField(source, name, field.name)))
-        case _                                          => Nil
-      }
+      val concrete =
+        implementingParents(field).toList.flatMap(name =>
+          costMetadata.listSizes.get(SourceField(source, name, field.name))
+        )
       (direct ::: concrete).distinct
     }
 
@@ -219,19 +198,14 @@ private[gateway] final class OperationCost(
       pending: List[SizedPath]
     ): Unit =
       fields.foreach { field =>
-        val path          = basePath :+ field.aliasedName
-        val matching      = matchingSizedPaths(field.name, pending)
-        val activated     = matching.filter(_.path.isEmpty).map(_.size).reduceOption(_ max _)
-        val definitions   = fieldListSizes(field, source)
-        val direct        = resolvedDirectListSize(field, definitions)
-        val multiplier    = inherited * activated.orElse(direct).getOrElse(BigInt(1))
-        val localPending  = declaredSizedPaths(field, definitions)
-        val nestedPending = preferSizedPaths(localPending, matching.filter(_.path.nonEmpty))
+        val path                  = basePath :+ field.aliasedName
+        val (size, nestedPending) = sizing(field, source, pending)
+        val multiplier            = inherited * size
         record(path, multiplier, nestedPending)
         collect(field.fields, source, path, multiplier, nestedPending)
       }
 
-    plan.roots.foreach(fetch => collect(fetch.selections, fetch.source, Vector.empty, BigInt(1), Nil))
+    plan.roots.foreach(fetch => collect(fetch.downstream, fetch.source, Vector.empty, BigInt(1), Nil))
     plan.entities.foreach { fetch =>
       val inherited = representations.getOrElse(fetch.mergePath, BigInt(1))
       collect(fetch.fields, fetch.source, fetch.mergePath, inherited, pendingByPath.getOrElse(fetch.mergePath, Nil))
@@ -241,12 +215,6 @@ private[gateway] final class OperationCost(
 
   private def matchingSizedPaths(name: String, paths: List[SizedPath]): List[SizedPath] =
     paths.filter(_.path.headOption.contains(name)).map(value => SizedPath(value.path.drop(1), value.size))
-
-  private def declaredSizedPaths(field: Field, definitions: List[ListSize]): List[SizedPath] =
-    definitions.flatMap { definition =>
-      val size = resolvedListSize(field, definition)
-      definition.sizedFields.map(SizedPath(_, size))
-    }
 
   private def validateListSizes(fields: List[Field], source: String): Option[String] =
     firstError(fields.iterator.map(validateListSize(_, source)))
@@ -268,14 +236,8 @@ private[gateway] final class OperationCost(
     listSize.slicingArguments
       .flatMap(argument => slicingValue(field, argument))
       .reduceOption(_ max _)
-      .orElse(listSize.assumedSize.map(value => BigInt(value).max(BigInt(0))))
+      .orElse(listSize.assumedSize)
       .getOrElse(BigInt(1))
-
-  private def resolvedDirectListSize(field: Field, definitions: List[ListSize]): Option[BigInt] =
-    definitions
-      .filter(_.sizedFields.isEmpty)
-      .map(resolvedListSize(field, _))
-      .reduceOption(_ max _)
 
   private def slicingValue(field: Field, argument: SlicingArgument): Option[BigInt] = {
     val path = argument.path
@@ -308,7 +270,7 @@ private[gateway] final class OperationCost(
     fieldType: __Type,
     definitions: List[__InputValue]
   ): FieldCostParts = {
-    val oneTime = costMetadata.fields.get(TypeField(parent, field.name)).fold(BigInt(0))(BigInt(_)) +
+    val oneTime = costMetadata.fields.get(TypeField(parent, field.name)).getOrElse(BigInt(0)) +
       argumentCost(parent, field, definitions)
     FieldCostParts(oneTime.max(BigInt(0)), outputTypeCost(fieldType).max(BigInt(0)))
   }
@@ -319,7 +281,7 @@ private[gateway] final class OperationCost(
         case Some(value) =>
           val base = costMetadata.arguments
             .get(FieldArgument(parent, field.name, argument.name))
-            .fold(namedTypeCost(argument._type.innerType))(BigInt(_))
+            .getOrElse(namedTypeCost(argument._type.innerType))
           total + base + inputFieldCost(value, argument._type)
         case None        => total
       }
@@ -345,7 +307,7 @@ private[gateway] final class OperationCost(
                 .fold(total) { nested =>
                   val base = costMetadata.inputFields
                     .get(TypeField(tpe.name.getOrElse(""), field.name))
-                    .fold(namedTypeCost(field._type.innerType))(BigInt(_))
+                    .getOrElse(namedTypeCost(field._type.innerType))
                   total + base + inputFieldCost(nested, field._type)
                 }
             }
@@ -359,21 +321,20 @@ private[gateway] final class OperationCost(
     if (isAbstractType(inner)) {
       val concrete = inner.name.toList.flatMap(name => possibleTypesByName.getOrElse(name, Set.empty))
       concrete
-        .map(name => costMetadata.types.get(name).fold(BigInt(1))(BigInt(_)))
+        .map(name => costMetadata.types.getOrElse(name, BigInt(1)))
         .reduceOption(_ max _)
         .getOrElse(BigInt(1))
     } else namedTypeCost(inner)
   }
 
   private def namedTypeCost(tpe: __Type): BigInt =
-    costMetadata.types
-      .get(tpe.name.getOrElse(""))
-      .fold {
-        tpe.kind match {
-          case __TypeKind.SCALAR | __TypeKind.ENUM => BigInt(0)
-          case _                                   => BigInt(1)
-        }
-      }(BigInt(_))
+    costMetadata.types.getOrElse(
+      tpe.name.getOrElse(""),
+      tpe.kind match {
+        case __TypeKind.SCALAR | __TypeKind.ENUM => BigInt(0)
+        case _                                   => BigInt(1)
+      }
+    )
 
   private def bounded(value: BigInt): Long =
     if (value > BigInt(Long.MaxValue)) Long.MaxValue
@@ -384,8 +345,6 @@ private[gateway] final class OperationCost(
 private object OperationCost {
   // Field and argument costs are charged once; return-type costs are charged per result.
   private final case class FieldCostParts(oneTime: BigInt, perResult: BigInt) {
-    def totalOnce(nested: BigInt): BigInt = oneTime + perResult + nested
-
     def total(size: BigInt, nested: BigInt): BigInt = oneTime + size * (perResult + nested)
   }
 

@@ -15,11 +15,11 @@ import zio.test._
 
 object OperationCostSpec extends ZIOSpecDefault {
 
-  private final class CountingCosts(values: Map[TypeField, Long])
-      extends Map.WithDefault[TypeField, Long](values, values.default) {
+  private final class CountingCosts(values: Map[TypeField, BigInt])
+      extends Map.WithDefault[TypeField, BigInt](values, values.default) {
     var lookups = 0
 
-    override def get(key: TypeField): Option[Long] = {
+    override def get(key: TypeField): Option[BigInt] = {
       lookups += 1
       values.get(key)
     }
@@ -63,16 +63,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       operation <- RequestPreparation.parse(query)
       request   <-
         RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
-    } yield request -> OperationPlan(
-      OperationType.Query,
-      "Query",
-      request.field.fields,
-      Nil,
-      Nil,
-      Nil,
-      Nil,
-      Some("nodes")
-    )
+    } yield request -> OperationPlan(OperationType.Query, request.field.fields, Nil, Nil, Nil, Some("nodes"))
 
   private def costLimitedGateway(maxCost: Long)(first: Subgraph[Any], rest: Subgraph[Any]*): Gateway[Any] =
     Gateway.compose(first, rest: _*).withConfig(_.withMaxOperationCost(maxCost))
@@ -92,11 +83,11 @@ object OperationCostSpec extends ZIOSpecDefault {
         prepared       <- prepare(root, query)
         (request, plan) = prepared
         weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                            TypeField(name, "value") -> (index + 1L)
+                            TypeField(name, "value") -> BigInt(index + 1)
                           }.toMap)
         metadata        = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
         costs           = new OperationCost(root.types, Map("Node" -> names.toSet), metadata)
-        estimated       = costs.estimate(request, plan)
+        estimated       = costs.estimate(plan)
       } yield assertTrue(
         estimated == Right(35L),
         weights.lookups > 0,
@@ -118,11 +109,11 @@ object OperationCostSpec extends ZIOSpecDefault {
         prepared       <- prepare(root, query)
         (request, plan) = prepared
         weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                            TypeField(name, "value") -> (index + 1L)
+                            TypeField(name, "value") -> BigInt(index + 1)
                           }.toMap)
         metadata        = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
         costs           = new OperationCost(root.types, Map("Node" -> names.toSet, "Entity" -> names.toSet), metadata)
-        estimated       = costs.estimate(request, plan)
+        estimated       = costs.estimate(plan)
       } yield assertTrue(
         estimated.isRight,
         weights.lookups > 0,
@@ -145,15 +136,15 @@ object OperationCostSpec extends ZIOSpecDefault {
         root    <- rootType(schema)
         metadata = ComposedGraph.CostMetadata(
                      Map.empty,
-                     Map(TypeField("Child", "cheap") -> 1L, TypeField("Child", "expensive") -> 100L),
+                     Map(TypeField("Child", "cheap") -> BigInt(1), TypeField("Child", "expensive") -> BigInt(100)),
                      Map.empty,
                      Map.empty,
                      Map.empty
                    )
         costs    = new OperationCost(root.types, Map("Node" -> Set("A", "B")), metadata)
         results <- ZIO.foreach(queries) { case (query, expected) =>
-                     prepare(root, query).map { case (request, plan) =>
-                       assertTrue(costs.estimate(request, plan) == Right(expected))
+                     prepare(root, query).map { case (_, plan) =>
+                       assertTrue(costs.estimate(plan) == Right(expected))
                      }
                    }
       } yield results.reduce(_ && _)
@@ -547,6 +538,49 @@ object OperationCostSpec extends ZIOSpecDefault {
       } yield assertTrue(
         result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
+      )
+    },
+    test("saturates list sizes beyond the Long range instead of wrapping them") {
+      val listSchema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@listSize"]) { query: Query }
+           |$directives
+           |$listSizeDefinition
+           |type Query { books: [Book!]! @listSize(assumedSize: 18446744073709551616) }
+           |type Book { title: String }
+           |""".stripMargin
+      for {
+        remote  <- stub("""{"data":{"books":[]}}""")
+        runtime <- costLimitedGateway(1000)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
+        result  <- runtime.execute("{ books { title } }")
+        sent    <- remote.requests.get
+      } yield assertTrue(
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        sent.isEmpty
+      )
+    },
+    test("combines interface and implementation list sizes like a sized-field path does") {
+      val listSchema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@listSize"]) { query: Query }
+           |$directives
+           |$listSizeDefinition
+           |type Query { node: Node }
+           |interface Node { items: [Item!]! @listSize(assumedSize: 10) }
+           |type A implements Node { items: [Item!]! @listSize(assumedSize: 3, sizedFields: ["parts"]) }
+           |type Item { parts: [Part!]! }
+           |type Part { value: String }
+           |""".stripMargin
+      val query      = "{ node { items { parts { value } } } }"
+      for {
+        remote   <- stub("""{"data":{"node":null}}""")
+        rejected <- costLimitedGateway(40)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
+        accepted <- costLimitedGateway(41)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
+        tooHigh  <- rejected.execute(query)
+        allowed  <- accepted.execute(query)
+      } yield assertTrue(
+        tooHigh.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        allowed.errors.isEmpty
       )
     },
     test("uses concrete argument costs on intermediate sized fields") {
