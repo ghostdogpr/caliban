@@ -4,7 +4,8 @@ import caliban.gateway.TypenameField
 import caliban.{ GraphQLRequest, InputValue }
 import caliban.gateway.{ SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.gateway.SchemaAcquisitionError.InvalidResponse
-import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
+import caliban.gateway.SupergraphAcquisitionError.UplinkFetchFailed
+import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition._
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ NullValue, StringValue }
@@ -24,7 +25,7 @@ private[acquisition] object ApolloUplinkClient {
     // Any non-success status is an unexpected response, so that the loader fails over to the next endpoint.
     // Remote error text must not reach diagnostics, including JSON decoding exceptions.
     fetchData[SupergraphAcquisitionError](endpoint, request, config.acquisition, http)(
-      reply => reply.status.isSuccess && RemoteTransport.isJsonResponse(reply.status, reply.contentType),
+      _.isSuccess,
       _ => InvalidResponse("$.errors")
     ).flatMap(data => ZIO.fromEither(decode(data)))
   }
@@ -34,7 +35,6 @@ private[acquisition] object ApolloUplinkClient {
   object UplinkResponse {
     final case class Updated(id: String, supergraphSDL: String) extends UplinkResponse
     case object Unchanged                                       extends UplinkResponse
-    final case class Failure(code: String)                      extends UplinkResponse
   }
 
   private def uplinkRequest(apiKey: String, ref: String, ifAfterId: Option[String]): GraphQLRequest =
@@ -50,7 +50,7 @@ private[acquisition] object ApolloUplinkClient {
       )
     )
 
-  private def decode(data: ObjectValue): Either[InvalidResponse, UplinkResponse] = {
+  private def decode(data: ObjectValue): Either[SupergraphAcquisitionError, UplinkResponse] = {
     val path = "$.data.routerConfig"
     objectField(data, "routerConfig", "$.data").flatMap { routerConfig =>
       string(routerConfig, TypenameField, path).flatMap {
@@ -59,7 +59,8 @@ private[acquisition] object ApolloUplinkClient {
             id  <- string(routerConfig, "id", path)
             sdl <- string(routerConfig, "supergraphSDL", path)
           } yield UplinkResponse.Updated(id, sdl)
-        case "FetchError"         => string(routerConfig, "code", path).map(UplinkResponse.Failure(_))
+        // The code is a fixed enum and safe to render; the message beside it is remote free text.
+        case "FetchError"         => string(routerConfig, "code", path).flatMap(code => Left(UplinkFetchFailed(code)))
         case "Unchanged"          => Right(UplinkResponse.Unchanged)
         case _                    => Left(InvalidResponse(s"$path.$TypenameField"))
       }

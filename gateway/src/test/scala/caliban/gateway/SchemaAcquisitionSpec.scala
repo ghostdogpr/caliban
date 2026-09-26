@@ -217,6 +217,66 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         }
         .map(results => assertTrue(results.forall(value => value)))
     },
+    test("rejects introspection types and type references that are nameless, unwrapped, or doubly non-null") {
+      val cases = List(
+        (
+          """"kind":"OBJECT","name":"Product"""",
+          """"kind":"OBJECT","name":null""",
+          """^\$\.data\.__schema\.types\[\d+\]\.name$"""
+        ),
+        (
+          """"types":[""",
+          """"types":[{"kind":"LIST","name":"Wrapper"},""",
+          """^\$\.data\.__schema\.types\[0\]\.kind$"""
+        ),
+        (""""name":"String","ofType":null""", """"name":null,"ofType":null""", """\.type\.ofType\.name$"""),
+        (""""ofType":{"kind":"SCALAR","name":"String","ofType":null}""", """"ofType":null""", """\.type\.ofType$"""),
+        (
+          """"queryType":{"name":"Query"}""",
+          """"queryType":{"name":null}""",
+          """^\$\.data\.__schema\.queryType\.name$"""
+        ),
+        (
+          """"ofType":{"kind":"SCALAR","name":"String","ofType":null}""",
+          """"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}}""",
+          """\.ofType\.kind$"""
+        )
+      )
+
+      introspectionResponse(ProductsApi.api).flatMap { introspection =>
+        ZIO
+          .foreach(cases) { case (from, to, expected) =>
+            val response = introspection.replace(from, to)
+            for {
+              remote <- stub(response)
+              result <- Gateway.compose(Subgraph.graphql("products", remote.endpoint)).interpreter.either
+            } yield response != introspection && result.left.toOption.collect {
+              case GatewayBuildError.SubgraphLoadingFailed(
+                    List(SubgraphError("products", SchemaAcquisitionError.InvalidResponse(path)))
+                  ) =>
+                path
+            }.exists(expected.r.findFirstIn(_).isDefined)
+          }
+          .map(results => assertTrue(results == cases.map(_ => true)))
+      }
+    },
+    test("rejects an introspected default value that is not a GraphQL literal") {
+      for {
+        introspection <- introspectionResponse(ProductsApi.api)
+        response       = introspection.replaceFirst("\"defaultValue\":null", "\"defaultValue\":\"{ unclosed\"")
+        remote        <- stub(response)
+        result        <- Gateway.compose(Subgraph.graphql("products", remote.endpoint)).interpreter.either
+      } yield assertTrue(
+        response != introspection,
+        result.left.toOption.exists {
+          case GatewayBuildError.SubgraphLoadingFailed(
+                List(SubgraphError("products", _: SchemaAcquisitionError.SchemaParsingFailed))
+              ) =>
+            true
+          case _ => false
+        }
+      )
+    },
     test("rejects duplicate subgraph names before loading remote schemas") {
       for {
         valid      <- stub(serviceResponse(reviewsSchema))

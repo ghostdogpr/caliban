@@ -18,7 +18,7 @@ private[acquisition] object FederationClient {
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
     fetchData[SubgraphAcquisitionError](endpoint, Request, config, http)(
-      isGraphQLResponse,
+      !_.isRedirection,
       FederationErrors(_)
     ).flatMap { data =>
       ZIO.fromEither(for {

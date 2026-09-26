@@ -1,9 +1,10 @@
 package caliban.gateway.internal.acquisition
 
 import caliban.gateway.SchemaAcquisitionError._
-import caliban.gateway.SupergraphAcquisitionError.{ FileReadFailed, UplinkFetchFailed }
+import caliban.gateway.SupergraphAcquisitionError.FileReadFailed
 import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
 import caliban.gateway.internal.acquisition.ApolloUplinkClient.UplinkResponse
+import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition.{ parseSdl, parseWithinDepth }
 import caliban.gateway.{ RemoteGraphQLConfig, Supergraph, SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
@@ -26,7 +27,7 @@ private[gateway] object SupergraphAcquisition {
     trace: Trace
   ): UIO[IO[SupergraphAcquisitionError, Document]] =
     source match {
-      case Supergraph.Source.Sdl(value)             => ZIO.succeed(constant(parse(value)))
+      case Supergraph.Source.Sdl(value)             => ZIO.succeed(constant(parseSdl(value)))
       case Supergraph.Source.Parsed(value)          => ZIO.succeed(constant(Right(value)))
       case Supergraph.Source.File(path)             => ZIO.succeed(file(path))
       case Supergraph.Source.Http(endpoint, config) => remote(endpoint, config, http)
@@ -48,7 +49,7 @@ private[gateway] object SupergraphAcquisition {
     ZIO
       .attemptBlocking(new String(Files.readAllBytes(path), StandardCharsets.UTF_8))
       .mapError(FileReadFailed(_))
-      .flatMap(value => ZIO.fromEither(parse(value)))
+      .flatMap(value => ZIO.fromEither(parseSdl(value)))
 
   /**
    * Conditional requests reuse the last fetched document, even if it failed to compose. The caller
@@ -63,7 +64,7 @@ private[gateway] object SupergraphAcquisition {
         val headers =
           (if (redirects == 0) config.headers else Nil) :::
             Header.Custom("Accept", "application/graphql, text/plain;q=0.9") ::
-            cached.flatMap(_.tag).map(tag => Header.IfNoneMatch.ETags(NonEmptyChunk(tag))).toList
+            cached.map(entry => Header.IfNoneMatch.ETags(NonEmptyChunk(entry.tag))).toList
 
         http
           .get(url, headers, config.maxResponseBytes)
@@ -83,7 +84,7 @@ private[gateway] object SupergraphAcquisition {
             else
               // Save the tag only with a parsed document, so a later 304 can be answered.
               parseRemote(new String(reply.body.bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
-                .tap(document => cache.set(Some(Cached(reply.response.rawHeader(Header.ETag), document))))
+                .tap(document => cache.set(reply.response.rawHeader(Header.ETag).map(Cached(_, document))))
           }
       }
 
@@ -105,20 +106,17 @@ private[gateway] object SupergraphAcquisition {
 
       def acquire(endpoint: URL, cached: Option[Cached]): IO[SupergraphAcquisitionError, Document] =
         ApolloUplinkClient
-          .fetch(endpoint, config, cached.flatMap(_.tag), http)
+          .fetch(endpoint, config, cached.map(_.tag), http)
           .flatMap {
             case UplinkResponse.Updated(id, sdl) =>
               parseRemote(sdl, acquisition.maxParsingDepth)
-                .tap(document => cache.set(Some(Cached(Some(id), document))))
+                .tap(document => cache.set(Some(Cached(id, document))))
             case UplinkResponse.Unchanged        =>
               // An unchanged response answers a cursor we sent, so an empty cache means the server
               // answered one we never stored. Fail without advancing the cursor.
               ZIO
                 .fromOption(cached.map(_.document))
                 .orElseFail(InvalidResponse("$.data.routerConfig.supergraphSDL"))
-            case UplinkResponse.Failure(code)    =>
-              // The code is a fixed enum and safe to render; the message beside it is remote free text.
-              ZIO.fail(UplinkFetchFailed(code))
           }
           .timeoutFail(TimedOut(acquisition.timeout))(acquisition.timeout)
 
@@ -130,11 +128,8 @@ private[gateway] object SupergraphAcquisition {
       }
     }
 
-  private def parse(value: String): Either[SupergraphAcquisitionError, Document] =
-    Parser.parseQuery(value).left.map(SchemaParsingFailed(_))
-
   private def parseRemote(sdl: String, maxDepth: Int)(implicit trace: Trace): IO[SupergraphAcquisitionError, Document] =
-    ZIO.fromEither(RemoteSchemaAcquisition.parseWithinDepth(sdl, maxDepth)(Parser.parseQuery))
+    ZIO.fromEither(parseWithinDepth(sdl, maxDepth)(Parser.parseQuery))
 
   private def resolveRedirect(base: URL, location: String): Option[URL] =
     Try(new URI(location)).toOption.flatMap { reference =>
@@ -158,5 +153,5 @@ private[gateway] object SupergraphAcquisition {
     status.isSuccess && !RemoteTransport.mediaType(contentType).exists(_.startsWith("text/html"))
 
   // The ETag or uplink id of the last fetched document.
-  private final case class Cached(tag: Option[String], document: Document)
+  private final case class Cached(tag: String, document: Document)
 }

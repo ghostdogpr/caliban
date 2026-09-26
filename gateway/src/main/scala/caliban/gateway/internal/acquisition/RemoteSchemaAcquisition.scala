@@ -12,7 +12,7 @@ import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
 import zio.{ IO, Trace, ZIO }
-import zio.http.URL
+import zio.http.{ Status, URL }
 
 private[gateway] object RemoteSchemaAcquisition {
 
@@ -20,7 +20,7 @@ private[gateway] object RemoteSchemaAcquisition {
     trace: Trace
   ): IO[SubgraphAcquisitionError, Document] =
     remote.schema match {
-      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(SchemaParsingFailed(_))
+      case SchemaInput.Sdl(value)    => ZIO.fromEither(parseSdl(value))
       case SchemaInput.Parsed(value) => ZIO.succeed(value)
       case SchemaInput.Acquired      =>
         val config      = remote.config.acquisition
@@ -32,7 +32,7 @@ private[gateway] object RemoteSchemaAcquisition {
     }
 
   /**
-   * Posts `request` and returns the `data` object when `accepts` the reply and it fits the size and depth limits.
+   * Posts `request` and returns the `data` object when `accepts` its status and it fits the size and depth limits.
    * A response carrying GraphQL errors fails with `onErrors`.
    */
   private[acquisition] def fetchData[E >: SchemaAcquisitionError](
@@ -40,7 +40,7 @@ private[gateway] object RemoteSchemaAcquisition {
     request: GraphQLRequest,
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
-  )(accepts: GatewayHttpClient.Reply => Boolean, onErrors: List[CalibanError] => E)(implicit
+  )(accepts: Status => Boolean, onErrors: List[CalibanError] => E)(implicit
     trace: Trace
   ): IO[E, ObjectValue] =
     http
@@ -49,7 +49,7 @@ private[gateway] object RemoteSchemaAcquisition {
       .flatMap { reply =>
         if (reply.body.limitExceeded)
           ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
-        else if (!accepts(reply))
+        else if (!accepts(reply.status) || !RemoteTransport.isJsonResponse(reply.status, reply.contentType))
           ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
         else if (!RemoteTransport.withinJsonDepth(reply.body.bytes, config.maxParsingDepth))
           ZIO.fail(ParsingDepthExceeded(config.maxParsingDepth))
@@ -63,9 +63,6 @@ private[gateway] object RemoteSchemaAcquisition {
           data     <- objectField(envelope, "data", "$")
         } yield data)
       }
-
-  private[acquisition] def isGraphQLResponse(reply: GatewayHttpClient.Reply): Boolean =
-    !reply.status.isRedirection && RemoteTransport.isJsonResponse(reply.status, reply.contentType)
 
   /**
    * Fails for malformed errors, or returns Nil when the response has no errors.
@@ -92,10 +89,16 @@ private[gateway] object RemoteSchemaAcquisition {
     asObject(obj.getOrNull(field), s"$path.$field")
 
   private[acquisition] def string(obj: ObjectValue, field: String, path: String): Either[InvalidResponse, String] =
-    obj.getOrNull(field) match {
+    asString(obj.getOrNull(field), s"$path.$field")
+
+  private[acquisition] def asString(value: ResponseValue, path: String): Either[InvalidResponse, String] =
+    value match {
       case StringValue(value) => Right(value)
-      case _                  => Left(InvalidResponse(s"$path.$field"))
+      case _                  => Left(InvalidResponse(path))
     }
+
+  private[acquisition] def parseSdl(sdl: String): Either[SchemaParsingFailed, Document] =
+    Parser.parseQuery(sdl).left.map(SchemaParsingFailed(_))
 
   /**
    * Parses schema text embedded in a response after checking its nesting against `maxDepth`.

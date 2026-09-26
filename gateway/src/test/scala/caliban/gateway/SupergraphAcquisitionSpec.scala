@@ -300,6 +300,15 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           error <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.UnexpectedResponse])
       },
+      test("a 304 to an unconditional request after a 200 without ETag is a protocol violation") {
+        for {
+          cdn    <- recordingEndpoint(Answer.sdl(etag = None), Answer.notModified)
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
+          _      <- loader
+          exit   <- loader.exit
+          error  <- acquisitionFailure(exit)
+        } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.UnexpectedResponse])
+      },
       test("a 200 carrying no ETag leaves the next request unconditional") {
         // The stored tag has to be cleared, not kept: re-sending a tag the origin no longer knows
         // about invites a `304` for a document that has in fact changed.
