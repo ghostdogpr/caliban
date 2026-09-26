@@ -176,6 +176,24 @@ object Types {
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
     }
 
+  private[caliban] def collectRootTypes(
+    additionalTypes: List[__Type],
+    queryType: Option[__Type],
+    mutationType: Option[__Type],
+    subscriptionType: Option[__Type],
+    includedTypes: List[__Type] = Nil
+  ): List[__Type] = {
+    val init = additionalTypes.foldLeft(List.empty[__Type]) { case (types, tpe) => collectTypes(tpe, types) }
+    (init ++
+      includedTypes ++
+      queryType.fold(List.empty[__Type])(collectTypes(_, init)) ++
+      mutationType.fold(List.empty[__Type])(collectTypes(_, init)) ++
+      subscriptionType.fold(List.empty[__Type])(collectTypes(_, init)))
+      .groupBy(tpe => (tpe.name, tpe.kind, tpe.origin))
+      .flatMap(_._2.headOption)
+      .toList
+  }
+
   /**
    * Tries to find a common widened type among a list of fields.
    *

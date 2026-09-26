@@ -3,8 +3,8 @@ package caliban.introspection
 import caliban.CalibanError.ExecutionError
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.Document
-import caliban.parsing.adt.Selection.Field
+import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
@@ -48,6 +48,9 @@ object Introspector extends IntrospectionDerivation {
   private val introspectionType       = introspectionSchema.toType_()
   val introspectionRootType: RootType = RootType(introspectionType, None, None)
 
+  private[caliban] def withIntrospection(rootType: RootType): RootType =
+    rootType.copy(queryType = introspectionRootType.queryType |+| rootType.queryType)
+
   private val oneOfDirective =
     __Directive(
       "oneOf",
@@ -66,6 +69,8 @@ object Introspector extends IntrospectionDerivation {
     rootType: RootType,
     introWrappers: List[IntrospectionWrapper[R]] = Nil
   ): RootSchema[R] = {
+    // Fragments on the query root (`... on Query`) only match when the introspection root has the same name
+    val executionSchema = introspectionSchema.rename(rootType.queryType.name.getOrElse("Query"))
 
     @tailrec
     def wrap(
@@ -100,20 +105,38 @@ object Introspector extends IntrospectionDerivation {
     )
 
     val step = introWrappers match {
-      case Nil => introspectionSchema.resolve(resolver)
-      case ws  => QueryStep(ZQuery.fromZIONow(wrap(Exit.succeed(resolver))(ws).map(introspectionSchema.resolve)))
+      case Nil => executionSchema.resolve(resolver)
+      case ws  => QueryStep(ZQuery.fromZIONow(wrap(Exit.succeed(resolver))(ws).map(executionSchema.resolve)))
     }
 
-    RootSchema(Operation(introspectionType, step), None, None)
+    RootSchema(Operation(executionSchema.toType_(), step), None, None)
   }
 
   private[caliban] def isIntrospection(document: Document): Boolean =
     document.definitions.forall {
       case OperationDefinition(_, _, _, _, selectionSet) =>
-        selectionSet.nonEmpty && selectionSet.forall {
-          case Field(_, "__schema" | "__type", _, _, _, _) => true
-          case _                                           => false
-        }
+        selectionSet.nonEmpty && selectionSet.forall(isIntrospectionField)
       case _                                             => true
+    }
+
+  private[caliban] def hasIntrospection(document: Document, operationName: Option[String]): Boolean = {
+    def loop(selections: List[Selection], visited: Set[String]): Boolean =
+      selections.exists {
+        case InlineFragment(_, _, selectionSet) => loop(selectionSet, visited)
+        case FragmentSpread(name, _)            =>
+          !visited.contains(name) &&
+          document.fragmentDefinitions.find(_.name == name).exists(f => loop(f.selectionSet, visited + name))
+        case field                              => isIntrospectionField(field)
+      }
+
+    document
+      .operationDefinition(operationName)
+      .exists(operation => operation.operationType == OperationType.Query && loop(operation.selectionSet, Set.empty))
+  }
+
+  private def isIntrospectionField(selection: Selection): Boolean =
+    selection match {
+      case Field(_, "__schema" | "__type", _, _, _, _) => true
+      case _                                           => false
     }
 }

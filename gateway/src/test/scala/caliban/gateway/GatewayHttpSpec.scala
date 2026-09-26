@@ -1,0 +1,389 @@
+package caliban.gateway
+
+import caliban.Configurator.ExecutionConfiguration
+import caliban.Value.{ NullValue, StringValue }
+import caliban.gateway.GatewayTestSupport._
+import caliban.schema.{ GenericSchema, Schema }
+import caliban._
+import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, writeToString }
+import zio._
+import zio.http._
+import zio.test._
+
+object GatewayHttpSpec extends ZIOSpecDefault {
+
+  private final case class HttpResult(response: Response, body: String)
+
+  private object TimeoutApi extends GenericSchema[Any] {
+    import auto._
+    final case class Query(delayed: UIO[String])
+    implicit val querySchema: Schema[Any, Query] = gen
+    val api                                      = graphQL(RootResolver(Query(ZIO.never)))
+  }
+
+  private val schema =
+    """
+      |schema { query: Query mutation: Mutation }
+      |type Query { greeting: String! failing: String }
+      |type Mutation { setValue(value: String!): String! }
+      |""".stripMargin
+
+  private val parityProductsSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) {
+       |  query: Query
+       |  mutation: Mutation
+       |}
+       |$federationDirectives
+       |type Query { product(id: ID!): Product }
+       |type Mutation { renameProduct(id: ID!, name: String!): Product! }
+       |type Product @key(fields: "id") { id: ID! name: String! }
+       |""".stripMargin
+
+  private val parityReviewsSchema =
+    s"""
+       |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+       |$federationDirectives
+       |type Product @key(fields: "id") { id: ID! @external reviews: [Review]! }
+       |type Review { body: String! }
+       |""".stripMargin
+
+  private val greetingResponse = """{"data":{"greeting":"hello"}}"""
+  private val greetingQuery    = """{"query":"{ greeting }"}"""
+
+  private def install(adapter: QuickAdapter[Any]): ZIO[Server with Ref[Int], Nothing, URL] =
+    routesEndpoint("gateway-http")(path => adapter.routes(s"/$path"))
+
+  private def post(url: URL, body: String, accept: String = "application/graphql-response+json"): Request =
+    Request
+      .post(url, Body.fromString(body).contentType(MediaType.application.json))
+      .addHeader(Header.Custom("Accept", accept))
+
+  private def execute(request: Request): ZIO[Client, Throwable, HttpResult] =
+    Client.batched(request).flatMap(response => response.body.asString.map(HttpResult(response, _)))
+
+  private def responseValue(body: String): ResponseValue =
+    readFromString[ResponseValue](body)
+
+  def spec = suite("Gateway HTTP")(
+    suite("execution")(
+      test("serves queries and mutations while preserving request and FiberRef header context") {
+        for {
+          executionHeader <- FiberRef.make("missing")
+          source          <- stubByRequest { request =>
+                               if (request.query.exists(_.contains("setValue")))
+                                 """{"data":{"setValue":"saved"}}"""
+                               else
+                                 """{"data":{"greeting":"hello"},"extensions":{"cacheControl":{"httpHeader":"max-age=60"}}}"""
+                             }
+          config           = RemoteGraphQLConfig.default
+                               .withExecution(
+                                 _.forwardIncomingHeaders("X-Client")
+                               )
+                               .withExecutionHeadersZIO(
+                                 executionHeader.get.map(value => List(Header.Custom("X-Fiber", value)))
+                               )
+          runtime         <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema, config)).interpreter
+          url             <- install(
+                               QuickAdapter(runtime).configure(executionHeader.locallyScoped("configured"))
+                             )
+          query           <- execute(
+                               post(url, """{"query":"query { greeting }"}""")
+                                 .addHeader(Header.Custom("X-Client", "forwarded"))
+                             )
+          mutation        <- execute(post(url, """{"query":"mutation { setValue(value: \"next\") }"}"""))
+          headers         <- source.headers.get
+        } yield assertTrue(
+          query.response.status == Status.Ok,
+          query.response.headers
+            .get(Header.ContentType)
+            .exists(_.mediaType.fullType == "application/graphql-response+json"),
+          query.response.headers.get(Header.CacheControl).exists(_.renderedValue == "max-age=60"),
+          field(responseValue(query.body), "data").flatMap(field(_, "greeting")).contains(StringValue("hello")),
+          mutation.response.status == Status.Ok,
+          field(responseValue(mutation.body), "data")
+            .flatMap(field(_, "setValue"))
+            .contains(StringValue("saved")),
+          headers.head.get("X-Client").contains("forwarded"),
+          headers.head.get("X-Fiber").contains("configured")
+        )
+      },
+      test("preserves disabled introspection through Quick configuration") {
+        for {
+          source  <- stub(greetingResponse)
+          runtime <- remoteGateway(source.endpoint, schema).interpreter
+          url     <- install(QuickAdapter(runtime).configure(ExecutionConfiguration(enableIntrospection = false)))
+          result  <- execute(post(url, """{"query":"{ __schema { queryType { name } } }"}"""))
+          sent    <- source.requests.get
+        } yield assertTrue(
+          result.response.status == Status.BadRequest,
+          result.body.contains("Introspection is disabled"),
+          sent.isEmpty
+        )
+      },
+      test("returns request timeouts as HTTP 504 without data") {
+        for {
+          runtime        <- Gateway
+                              .compose(Subgraph.graphql("service", TimeoutApi.api))
+                              .withConfig(_.withRequestTimeout(20.millis))
+                              .interpreter
+          gqlFiber       <- QuickAdapter(runtime).handlers.api
+                              .runZIO(post(URL.empty, """{"query":"{ delayed }"}"""))
+                              .fork
+          _              <- TestClock.adjust(20.millis)
+          gqlResponse    <- gqlFiber.join
+          gqlBody        <- gqlResponse.body.asString.orDie
+          legacyFiber    <- QuickAdapter(runtime).handlers.api
+                              .runZIO(post(URL.empty, """{"query":"{ delayed }"}""", "application/json"))
+                              .fork
+          _              <- TestClock.adjust(20.millis)
+          legacyResponse <- legacyFiber.join
+          legacyBody     <- legacyResponse.body.asString.orDie
+        } yield assertTrue(
+          gqlResponse.status == Status.GatewayTimeout,
+          gqlBody.contains("Gateway request timed out."),
+          !gqlBody.contains("\"data\""),
+          legacyResponse.status == Status.GatewayTimeout,
+          legacyBody.contains("Gateway request timed out.")
+        )
+      }
+    ),
+    suite("encoded responses")(
+      test("matches structured execution for joins, partial errors, null propagation, and mutations") {
+        val query    = """query { product(id: "p1") { name reviews { body } } }"""
+        val mutation = """mutation { renameProduct(id: "p1", name: "next") { id name } }"""
+
+        for {
+          products           <- stubByRequest { request =>
+                                  if (request.query.exists(_.contains("renameProduct")))
+                                    """{"data":{"renameProduct":{"id":"p1","name":"next"}}}"""
+                                  else
+                                    """{"data":{"product":{"id":"p1","name":"original","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+                                }
+          reviews            <-
+            stub(
+              """{"data":{"_entities":[{"reviews":[{"body":"good"},{"body":null}]}]},"errors":[{"message":"bad review","path":["_entities",0,"reviews",1,"body"]}]}"""
+            )
+          runtime            <- Gateway
+                                  .compose(
+                                    Subgraph.federation("products", products.endpoint, parityProductsSchema),
+                                    Subgraph.federation("reviews", reviews.endpoint, parityReviewsSchema)
+                                  )
+                                  .interpreter
+          url                <- install(QuickAdapter(runtime))
+          structuredQuery    <- runtime.executeRequest(GraphQLRequest(query = Some(query)))
+          encodedQueryResult <- execute(post(url, writeToString(GraphQLRequest(query = Some(query)))))
+          encodedQuery        = readFromString[GraphQLResponse[CalibanError]](encodedQueryResult.body)
+          structuredMutation <- runtime.executeRequest(GraphQLRequest(query = Some(mutation)))
+          encodedMutation    <- execute(post(url, writeToString(GraphQLRequest(query = Some(mutation)))))
+          decodedMutation     = readFromString[GraphQLResponse[CalibanError]](encodedMutation.body)
+        } yield assertTrue(
+          encodedQueryResult.response.status == Status.Ok,
+          encodedQuery.toResponseValue == structuredQuery.toResponseValue,
+          field(encodedQuery.data, "product")
+            .flatMap(field(_, "reviews"))
+            .contains(
+              ResponseValue.ListValue(
+                List(ResponseValue.ObjectValue(List("body" -> StringValue("good"))), NullValue)
+              )
+            ),
+          encodedQuery.errors.nonEmpty,
+          decodedMutation.toResponseValue == structuredMutation.toResponseValue
+        )
+      }
+    ),
+    suite("GraphQL over HTTP")(
+      test("serves trusted-document IDs without query text") {
+        for {
+          source   <- stub(greetingResponse)
+          runtime  <- Gateway
+                        .compose(Subgraph.graphql("service", source.endpoint, schema))
+                        .withPhaseHooks(
+                          PhaseHooks.trustedDocuments(Map("greeting-v1" -> "{ greeting }")) { request =>
+                            request.extensions.flatMap(_.get("documentId")).collect { case StringValue(id) => id }
+                          }
+                        )
+                        .interpreter
+          url      <- install(QuickAdapter(runtime))
+          resolved <- execute(post(url, """{"extensions":{"documentId":"greeting-v1"}}"""))
+          sent     <- source.requests.get
+        } yield assertTrue(
+          resolved.response.status == Status.Ok,
+          resolved.body == """{"data":{"greeting":"hello"}}""",
+          sent.size == 1
+        )
+      },
+      test("serializes public resolver rejections as HTTP 200 while internal failures remain HTTP 500") {
+        def serialized(url: URL, mediaType: String) =
+          for {
+            rejected <- execute(post(url, """{"extensions":{"documentId":"unknown"}}""", mediaType))
+            failed   <- execute(post(url, """{"query":"internal"}""", mediaType))
+          } yield assertTrue(
+            rejected.response.status == Status.Ok,
+            rejected.body ==
+              """{"data":null,"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
+            failed.response.status == Status.InternalServerError,
+            failed.body.contains("Operation resolution failed."),
+            !failed.body.contains("resolver-secret"),
+            !failed.body.contains("PERSISTED_QUERY_NOT_FOUND")
+          )
+
+        ZIO
+          .foreach(List(false, true)) { observed =>
+            for {
+              source  <- stub(greetingResponse)
+              gateway  = Gateway
+                           .compose(Subgraph.graphql("service", source.endpoint, schema))
+                           .withPhaseHooks(PhaseHooks.resolution[Any] { request =>
+                             if (request.query.contains("internal")) ZIO.fail(new RuntimeException("resolver-secret"))
+                             else
+                               ZIO.fail(PhaseHooks.Rejection("Document not found.", "PERSISTED_QUERY_NOT_FOUND"))
+                           })
+              runtime <- (if (observed) gateway @@ GatewayMetrics.hooks else gateway).interpreter
+              url     <- install(QuickAdapter(runtime))
+              results <- ZIO.foreach(List("application/json", "application/graphql-response+json"))(serialized(url, _))
+              sent    <- source.requests.get
+            } yield results.reduce(_ && _) && assertTrue(sent.isEmpty)
+          }
+          .map(_.reduce(_ && _))
+      },
+      test("uses the negotiated request-error status and response media type") {
+        for {
+          source    <- stubByRequest { request =>
+                         if (request.query.exists(_.contains("failing")))
+                           """{"data":{"failing":null},"errors":[{"message":"source failed","path":["failing"]}]}"""
+                         else greetingResponse
+                       }
+          runtime   <- remoteGateway(source.endpoint, schema).interpreter
+          url       <- install(QuickAdapter(runtime))
+          gqlParse  <- execute(post(url, """{"query":"query {"}"""))
+          legacy    <- execute(post(url, """{"query":"{ unknown }"}""", "application/json"))
+          execution <- execute(post(url, """{"query":"{ failing }"}"""))
+        } yield assertTrue(
+          gqlParse.response.status == Status.BadRequest,
+          gqlParse.response.headers
+            .get(Header.ContentType)
+            .exists(_.mediaType.fullType == "application/graphql-response+json"),
+          !gqlParse.body.contains("\"data\""),
+          legacy.response.status == Status.Ok,
+          legacy.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
+          legacy.body.contains("\"data\":null"),
+          execution.response.status == Status.Ok,
+          execution.body.contains("Remote GraphQL request failed.")
+        )
+      },
+      test("rejects mutations over GET with Allow POST") {
+        for {
+          source  <- stub("""{"data":{"setValue":"saved"}}""")
+          runtime <- remoteGateway(source.endpoint, schema).interpreter
+          url     <- install(QuickAdapter(runtime))
+          request  = Request
+                       .get(url.addQueryParam("query", "mutation { setValue(value: \"next\") }"))
+                       .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
+          result  <- execute(request)
+          sent    <- source.requests.get
+        } yield assertTrue(
+          result.response.status == Status.MethodNotAllowed,
+          result.response.headers.get(Header.Allow).exists(_.renderedValue == "POST"),
+          !result.body.contains("\"data\""),
+          sent.isEmpty
+        )
+      },
+      test("rejects unsupported methods and falls back to JSON for unsupported response encodings") {
+        for {
+          source          <- stub(greetingResponse)
+          runtime         <- remoteGateway(source.endpoint, schema).interpreter
+          url             <- install(QuickAdapter(runtime))
+          method          <- execute(Request(method = Method.DELETE, url = url))
+          accept          <- execute(post(url, greetingQuery, "text/plain"))
+          fallback        <- execute(
+                               post(
+                                 url,
+                                 greetingQuery,
+                                 "application/graphql-response+json;q=0, application/json"
+                               )
+                             )
+          multipart       <- execute(post(url, greetingQuery, "multipart/mixed"))
+          bounded         <- execute(
+                               post(
+                                 url,
+                                 greetingQuery,
+                                 "multipart/mixed; boundary=\"graphql\"; deferSpec=20220824"
+                               )
+                             )
+          quoted          <- execute(
+                               post(
+                                 url,
+                                 greetingQuery,
+                                 "multipart/mixed; boundary=\"graphql\"; deferSpec=\"20220824\""
+                               )
+                             )
+          multipartRange  <- execute(
+                               post(
+                                 url,
+                                 greetingQuery,
+                                 "multipart/*; boundary=\"graphql\"; deferSpec=20220824"
+                               )
+                             )
+          invalidBoundary <- execute(
+                               post(url, greetingQuery, "application/json; boundary=graphql")
+                             )
+          wildcard        <- execute(
+                               post(url, greetingQuery, "application/json;q=0, */*;q=1")
+                             )
+          parameters      <- execute(
+                               post(
+                                 url,
+                                 greetingQuery,
+                                 "application/json;profile=unsupported;q=1, application/graphql-response+json;q=0.5"
+                               )
+                             )
+        } yield assertTrue(
+          method.response.status == Status.NotFound,
+          accept.response.status == Status.Ok,
+          accept.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
+          fallback.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
+          multipart.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          multipart.body.contains("\"greeting\":\"hello\""),
+          bounded.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          bounded.body.contains("\"greeting\":\"hello\""),
+          quoted.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          quoted.body.contains("\"greeting\":\"hello\""),
+          multipartRange.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          multipartRange.body.contains("\"greeting\":\"hello\""),
+          invalidBoundary.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
+          wildcard.response.headers
+            .get(Header.ContentType)
+            .exists(_.mediaType.fullType == "application/graphql-response+json"),
+          parameters.response.headers
+            .get(Header.ContentType)
+            .exists(_.mediaType.fullType == "application/graphql-response+json")
+        )
+      },
+      test("does not infer a server failure from a pathless execution error") {
+        val interpreter = new GraphQLInterpreter[Any, CalibanError] {
+          def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] = ZIO.unit
+
+          def executeRequest(request: GraphQLRequest)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
+            ZIO.succeed(GraphQLResponse(NullValue, List(CalibanError.ExecutionError("pathless"))))
+        }
+
+        for {
+          response <- QuickAdapter(interpreter).handlers.api
+                        .runZIO(post(URL.empty, greetingQuery))
+          body     <- response.body.asString.orDie
+        } yield assertTrue(response.status == Status.Ok, body.contains("pathless"))
+      },
+      test("rejects request bodies larger than the finite default") {
+        for {
+          source  <- stub(greetingResponse)
+          runtime <- remoteGateway(source.endpoint, schema).interpreter
+          url     <- install(QuickAdapter(runtime))
+          body     = greetingQuery + (" " * (1024 * 1024))
+          result  <- execute(post(url.addQueryParam("query", "{ greeting }"), body))
+          sent    <- source.requests.get
+        } yield assertTrue(result.response.status == Status.RequestEntityTooLarge, sent.isEmpty)
+      }
+    )
+  ).provideSomeShared[Scope](testServer, stubIds, ZClient.default) @@ TestAspect.sequential
+}

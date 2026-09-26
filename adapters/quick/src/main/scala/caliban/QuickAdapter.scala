@@ -87,13 +87,23 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
 
   def configureSse(config: quick.SseConfig): QuickAdapter[R] =
     new QuickAdapter(requestHandler.configureSse(config))
+
+  def configureHttp(config: quick.HttpConfig): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.configureHttp(config))
 }
 
 object QuickAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
   def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
-    new QuickAdapter(new QuickRequestHandler(interpreter, quick.WebSocketConfig.default, quick.SseConfig.default))
+    new QuickAdapter(
+      new QuickRequestHandler(
+        interpreter,
+        quick.WebSocketConfig.default,
+        quick.SseConfig.default,
+        quick.HttpConfig.default
+      )
+    )
 
   def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R], QuickHandlers[R]] =
     ZIO.serviceWith(_.handlers)

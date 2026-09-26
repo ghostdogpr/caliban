@@ -68,6 +68,19 @@ module.exports = {
             ]
           },
           {
+            title: 'Caliban Gateway',
+            collapsable: true,
+            sidebarDepth: 2,
+            children: [
+              'gateway',
+              'gateway/subgraphs',
+              'gateway/planning',
+              'gateway/subscriptions',
+              'gateway/hooks',
+              'gateway/configuration',
+            ]
+          },
+          {
             title: 'Caliban Client',
             collapsable: true,
             sidebarDepth: 2,

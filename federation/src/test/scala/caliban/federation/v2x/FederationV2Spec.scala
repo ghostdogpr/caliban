@@ -112,6 +112,28 @@ object FederationV2Spec extends ZIOSpecDefault {
           )
         }
       },
+      test("renders a progressive override label") {
+        import caliban.federation.v2_7._
+
+        val progressive = GQLProgressiveOverride("products", "percent(12.5)").directive
+        val raw         = ProgressiveOverride("products", "percent(12.5)")
+        val immediate   = GQLOverride("products").directive
+
+        assertTrue(
+          progressive == Directive(
+            "override",
+            Map(
+              "from"  -> StringValue("products"),
+              "label" -> StringValue("percent(12.5)")
+            )
+          ),
+          raw == progressive,
+          immediate == Directive(
+            "override",
+            Map("from" -> StringValue("products"))
+          )
+        )
+      },
       test("includes schema directives - custom") {
         object myFederation
             extends FederationV2(
