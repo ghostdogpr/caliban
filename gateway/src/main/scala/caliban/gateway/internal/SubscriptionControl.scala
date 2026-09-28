@@ -4,6 +4,7 @@ import caliban._
 import caliban.gateway._
 import caliban.gateway.PhaseHooks.{ Event, Result }
 import zio._
+import zio.stm.{ STM, TQueue, TRef }
 import zio.stream.ZStream
 
 /**
@@ -12,21 +13,19 @@ import zio.stream.ZStream
 private[gateway] final class SubscriptionControl[-R] private (
   config: GatewaySubscriptionConfig,
   hooks: PhaseHooks[R],
-  state: Ref[SubscriptionControl.State],
-  drained: Promise[Nothing, Unit]
+  state: TRef[SubscriptionControl.State]
 ) {
   import SubscriptionControl._
 
-  def stop(reason: CalibanError.ExecutionError)(implicit trace: Trace): UIO[Unit] =
+  def stop(reason: SubscriptionTermination.Error)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       val stopped = current.stopped.getOrElse(reason)
-      (current.active.toList, stopped) -> current.copy(stopped = Some(stopped))
-    }.flatMap { case (signals, stopped) =>
-      ZIO.foreachDiscard(signals)(_.succeed(stopped)) *> drained.succeed(()).when(signals.isEmpty).unit
-    }
+      ZIO.foreachDiscard(current.active)(_.fail(stopped)) -> current.copy(stopped = Some(stopped))
+    }.commit.flatten
 
   // Retain resources and admission slots until cleanup finishes.
-  def close(implicit trace: Trace): UIO[Unit] = stop(SubscriptionTermination.Shutdown) *> drained.await
+  private def close(implicit trace: Trace): UIO[Unit] =
+    stop(SubscriptionTermination.Shutdown) *> state.get.retryUntil(_.active.isEmpty).unit.commit
 
   def stream[R1 <: R](
     open: ZIO[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]]
@@ -35,51 +34,50 @@ private[gateway] final class SubscriptionControl[-R] private (
   )(implicit trace: Trace): ZStream[R1, Throwable, Response] =
     ZStream.unwrapScoped[R1] {
       for {
-        registration    <- ZIO.uninterruptible(register[R1])
-        (signal, reason) = registration
-        source          <- openSource[R1](open, signal, reason)
-        buffer          <- SubscriptionBuffer.make[Response](config.bufferSize)
-        _               <- forward(source, buffer, signal).forkScoped
-      } yield events(buffer, signal, reason)(process)
+        signal <- ZIO.uninterruptible(register[R1])
+        source <- openSource[R1](open, signal)
+        buffer <- TQueue.unbounded[Option[Response]].commit
+        _      <- forward(source, buffer, signal).forkScoped
+      } yield events(buffer, signal)(process)
     }
 
   private def register[R1 <: R](implicit
     trace: Trace
-  ): ZIO[R1 with Scope, CalibanError.ExecutionError, (Signal, Ref[String])] =
+  ): ZIO[R1 with Scope, CalibanError.ExecutionError, Signal] =
     for {
-      signal   <- Promise.make[Nothing, CalibanError.ExecutionError]
-      started  <- Clock.nanoTime
-      reason   <- Ref.make(CancelledReason)
-      rejected <- state.modify { current =>
-                    val rejection = current.stopped.orElse(
-                      if (current.active.size >= config.maxActive) Some(SubscriptionTermination.Capacity)
-                      else None
-                    )
-                    rejection -> (if (rejection.isEmpty) current.copy(active = current.active + signal) else current)
-                  }
-      _        <- ZIO.foreachDiscard(rejected)(error =>
-                    notify(Event.SubscriptionAdmission(false))(hooks.subscriptionAdmission) *> ZIO.fail(error)
-                  )
+      signal  <- Promise.make[CalibanError.ExecutionError, Unit]
+      started <- Clock.nanoTime
+      _       <- state.modify { current =>
+                   current.stopped.orElse(
+                     if (current.active.size >= config.maxActive) Some(SubscriptionTermination.Capacity) else None
+                   ) match {
+                     case Some(error) =>
+                       val rejected = notify(Event.SubscriptionAdmission(false))(hooks.subscriptionAdmission)
+                       (rejected *> ZIO.fail(error)) -> current
+                     case None        => ZIO.unit -> current.copy(active = current.active + signal)
+                   }
+                 }.commit.flatten
       // Registered before source resources, so the slot is released last.
-      _        <- ZIO.addFinalizer {
-                    Clock.nanoTime.flatMap { ended =>
-                      reason.get
-                        .flatMap(why =>
-                          notify(Event.SubscriptionTerminated(why, ended - started))(hooks.subscriptionTerminated)
-                        )
-                        .ensuring(state.modify { current =>
-                          val next = current.copy(active = current.active - signal)
-                          (next.stopped.nonEmpty && next.active.isEmpty) -> next
-                        }.flatMap(empty => drained.succeed(()).when(empty).unit))
-                    }
-                  }
-      _        <- notify(Event.SubscriptionAdmission(true))(hooks.subscriptionAdmission)
-    } yield (signal, reason)
+      _       <- ZIO.addFinalizer {
+                   Clock.nanoTime.flatMap { ended =>
+                     signal.poll
+                       .flatMap(
+                         _.fold[UIO[String]](Exit.succeed(CancelledReason))(
+                           _.fold(SubscriptionTermination.code, _ => CompleteReason)
+                         )
+                       )
+                       .flatMap(why =>
+                         notify(Event.SubscriptionTerminated(why, ended - started))(hooks.subscriptionTerminated)
+                       )
+                       .ensuring(state.update(current => current.copy(active = current.active - signal)).commit)
+                   }
+                 }
+      _       <- notify(Event.SubscriptionAdmission(true))(hooks.subscriptionAdmission)
+    } yield signal
 
   private def openSource[R1 <: R](
     open: ZIO[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]],
-    signal: Signal,
-    reason: Ref[String]
+    signal: Signal
   )(implicit trace: Trace): ZIO[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]] =
     ZIO.serviceWithZIO[Scope] { sourceScope =>
       hooks.subscriptionSetup
@@ -92,54 +90,50 @@ private[gateway] final class SubscriptionControl[-R] private (
           )
         )
         .timeoutFail(SubscriptionTermination.SetupTimeout)(config.setupTimeout)
-        .raceFirst(signal.await.flatMap(ZIO.fail(_)))
-        .onExit {
-          case Exit.Failure(cause) =>
-            reason.set(
-              if (cause.isInterrupted) CancelledReason
-              else terminationReason(cause.failureOption.getOrElse(SubscriptionTermination.Source))
-            )
-          case _                   => ZIO.unit
-        }
+        .raceFirst(signal.await *> ZIO.never)
+        .mapError(SubscriptionTermination.fromFailure)
+        .tapErrorCause(terminate(signal, _))
     }
 
-  private def forward(source: ZStream[Any, Throwable, Response], buffer: SubscriptionBuffer[Response], signal: Signal)(
+  /**
+   * Enqueuing an event never blocks the source reader. The end marker queues behind every event,
+   * so completion cannot overtake a buffered event.
+   */
+  private def forward(source: ZStream[Any, Throwable, Response], buffer: TQueue[Option[Response]], signal: Signal)(
     implicit trace: Trace
   ): URIO[R, Unit] =
-    source.runForeach { event =>
-      buffer.offer(event).flatMap {
-        case true  => ZIO.unit
-        case false => ZIO.fail(SubscriptionTermination.Overflow)
-      }
-    }.catchAllCause(cause =>
-      if (cause.isInterruptedOnly) ZIO.unit
-      else
-        signal
-          .succeed(cause.failureOption.fold(SubscriptionTermination.Source)(SubscriptionTermination.fromFailure))
-          .unit
-    ).ensuring(buffer.end)
-
-  private def events[R1 <: R](buffer: SubscriptionBuffer[Response], signal: Signal, reason: Ref[String])(
-    process: Response => URIO[R1, Response]
-  )(implicit trace: Trace): ZStream[R1, Throwable, Response] =
-    buffer.stream.mapZIO { event =>
-      hooks.subscriptionEvent
-        .run[R1, Nothing, Response](Event.SubscriptionEvent)(process(event))(
-          Result.classifyResponse(_)
-        )
-        .timeoutFail(SubscriptionTermination.EventTimeout)(config.eventTimeout)
-    }
-      .concat(
-        ZStream
-          .fromZIO(signal.poll.flatMap {
-            case Some(value) => value.flatMap(ZIO.fail(_))
-            case None        => reason.set(CompleteReason)
-          })
-          .drain
+    // buffer.offer(None) drains buffered events on success; only a source failure interrupts the consumer immediately.
+    source
+      .runForeach(event =>
+        buffer.size.flatMap { size =>
+          if (size < config.bufferSize) buffer.offer(Some(event)) else STM.fail(SubscriptionTermination.Overflow)
+        }.commit
       )
-      .interruptWhen(signal.await.flatMap(ZIO.fail(_)))
-      .tapError(error => reason.set(terminationReason(error)))
-      .ensuringWith(exit => if (exit.isInterrupted) reason.set(CancelledReason) else ZIO.unit)
+      .catchAllCause(terminate(signal, _))
+      .ensuring(buffer.offer(None).commit)
+
+  private def terminate(signal: Signal, cause: Cause[Throwable])(implicit trace: Trace): UIO[Unit] =
+    signal
+      .fail(cause.failureOption.map(SubscriptionTermination.fromFailure).getOrElse(SubscriptionTermination.Source))
+      .unless(cause.isInterruptedOnly)
+      .unit
+
+  private def events[R1 <: R](buffer: TQueue[Option[Response]], signal: Signal)(
+    process: Response => URIO[R1, Response]
+  )(implicit trace: Trace): ZStream[R1, CalibanError.ExecutionError, Response] =
+    ZStream
+      .fromTQueue(buffer)
+      .collectWhileSome
+      .mapZIO { event =>
+        hooks.subscriptionEvent
+          .run[R1, Nothing, Response](Event.SubscriptionEvent)(process(event))(
+            Result.classifyResponse(_)
+          )
+          .timeoutFail(SubscriptionTermination.EventTimeout)(config.eventTimeout)
+      }
+      .concat(ZStream.execute(signal.succeed(()) *> signal.await))
+      .interruptWhen(signal.await)
+      .tapError(signal.fail(_))
 
   private def notify[R1 <: R, Ev <: Event](event: Ev)(handler: PhaseHandler[R1, Ev, Nothing, Result])(implicit
     trace: Trace
@@ -152,20 +146,18 @@ private[gateway] object SubscriptionControl {
   def make[R](
     config: GatewaySubscriptionConfig,
     hooks: PhaseHooks[R]
-  )(implicit trace: Trace): UIO[SubscriptionControl[R]] =
-    for {
-      state   <- Ref.make(State(None, Set.empty))
-      drained <- Promise.make[Nothing, Unit]
-    } yield new SubscriptionControl(config, hooks, state, drained)
+  )(implicit trace: Trace): ZIO[Scope, Nothing, SubscriptionControl[R]] =
+    TRef
+      .make(State(None, Set.empty))
+      .commit
+      .map(new SubscriptionControl(config, hooks, _))
+      .tap(control => ZIO.addFinalizer(control.close))
 
   private type Response = GraphQLResponse[CalibanError]
-  private type Signal   = Promise[Nothing, CalibanError.ExecutionError]
+  private type Signal   = Promise[CalibanError.ExecutionError, Unit]
 
   private final val CancelledReason = "cancelled"
   private final val CompleteReason  = "complete"
 
-  private final case class State(stopped: Option[CalibanError.ExecutionError], active: Set[Signal])
-
-  private def terminationReason(error: Throwable): String =
-    SubscriptionTermination.code(SubscriptionTermination.fromFailure(error))
+  private final case class State(stopped: Option[SubscriptionTermination.Error], active: Set[Signal])
 }

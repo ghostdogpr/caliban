@@ -61,49 +61,50 @@ private[gateway] final class PlanExecutor[-R](
           }
     }
 
-  def forSubscription(
-    plan: OperationPlan
-  )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, PlanExecutor[R]] = {
-    val used = plan.roots.map(_.source.name).toSet ++ plan.entities.map(_.source.name)
-    ZIO
-      .foreach(subgraphExecutors) { case (name, executor) =>
-        (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
-      }
-      .map(new PlanExecutor(graph, _, hooks))
-  }
-
-  def subscribe(plan: OperationPlan, resolvedRequest: GraphQLRequest)(implicit
+  def subscription(plan: OperationPlan, resolvedRequest: GraphQLRequest)(implicit
     trace: Trace
-  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
-    val fetch                     = plan.roots.head
-    val executor                  = executorFor(fetch.source)
-    val (outgoing, restoreErrors) =
-      if (plan.passthroughSubgraph.nonEmpty)
-        resolvedRequest -> ((errors: List[CalibanError]) => executor.errorPolicy.forFetch(plan.fields, errors))
-      else {
-        val root = prepareRoot(plan, fetch)
-        root.request -> ((errors: List[CalibanError]) => root.restoreErrors(executor.errorPolicy, errors))
-      }
-    executor
-      .subscribe(outgoing)
-      .map(_.mapError {
-        case error: CalibanError.ExecutionError if SubscriptionTermination.isGatewayError(error) => error
-        case error: CalibanError.ExecutionError                                                  =>
-          restoreErrors(List(error)).collectFirst { case e: CalibanError.ExecutionError => e }.getOrElse(error)
-        case error                                                                               => error
-      })
-  }
+  ): ZIO[R, SubgraphExecutor.Failure, Subscription[R]] =
+    plan.roots match {
+      case Nil        => ZIO.fail(SubgraphExecutor.InvalidRequest)
+      case fetch :: _ =>
+        val used = plan.roots.map(_.source.name).toSet ++ plan.entities.map(_.source.name)
+        ZIO
+          .foreach(subgraphExecutors) { case (name, executor) =>
+            (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
+          }
+          .map(new PlanExecutor(graph, _, hooks).bind(plan, fetch, resolvedRequest))
+    }
 
-  def executeEvent(plan: OperationPlan, response: GraphQLResponse[CalibanError])(implicit
+  private def bind(plan: OperationPlan, fetch: RootFetch, resolvedRequest: GraphQLRequest)(implicit
     trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] = {
-    val root        = plan.roots.head
-    val errorPolicy = executorFor(root.source).errorPolicy
+  ): Subscription[R] = {
+    val executor = executorFor(fetch.source)
+    val policy   = executor.errorPolicy
+
+    def open(outgoing: GraphQLRequest)(restoreErrors: List[CalibanError] => List[CalibanError]) =
+      executor
+        .subscribe(outgoing)
+        .map(_.mapError {
+          case error: SubscriptionTermination.Error => error
+          case error: CalibanError.ExecutionError   =>
+            restoreErrors(List(error)).collectFirst { case e: CalibanError.ExecutionError => e }.getOrElse(error)
+          case error                                => error
+        })
+
     if (plan.passthroughSubgraph.nonEmpty)
-      ZIO.succeed(completePassthrough(plan, errorPolicy, response.copy(extensions = None)))
-    else
-      executeEntityFetches(plan, prepareRoot(plan, root).restore(errorPolicy, response) :: Nil)
-        .map(completeFetched(plan, _, NoLocalResponse))
+      Subscription[R](
+        open(resolvedRequest)(policy.forFetch(plan.fields, _)),
+        response => ZIO.succeed(completePassthrough(plan, policy, response.copy(extensions = None)))
+      )
+    else {
+      val root = prepareRoot(plan, fetch)
+      Subscription[R](
+        open(root.request)(root.restoreErrors(policy, _)),
+        response =>
+          executeEntityFetches(plan, root.restore(policy, response) :: Nil)
+            .map(completeFetched(plan, _, NoLocalResponse))
+      )
+    }
   }
 
   private lazy val introspection: RootSchema[Any] = Introspector.introspect[Any](graph.rootType)
@@ -129,7 +130,7 @@ private[gateway] final class PlanExecutor[-R](
   private def observeCompletion(response: => GraphQLResponse[CalibanError])(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
-    hooks.observeCompletion(ZIO.succeed(response))
+    hooks.completion.run(PhaseHooks.Event.Completion)(ZIO.succeed(response))(PhaseHooks.Result.classifyResponse(_))
 
   /**
    * Finish each root's dependent entity fetches and response completion before starting the next mutation root:
@@ -261,6 +262,11 @@ private[gateway] object PlanExecutor {
   private[execution] final case class RootResult(fetch: RootFetch, data: ResponseValue, errors: List[CalibanError])
 
   private val NoLocalResponse = GraphQLResponse(ObjectValue.empty, Nil)
+
+  final case class Subscription[-R](
+    open: ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]],
+    process: GraphQLResponse[CalibanError] => URIO[R, GraphQLResponse[CalibanError]]
+  )
 
   final case class PreparedRoot(fetch: RootFetch, request: GraphQLRequest, projection: ResponseProjection) {
     private[execution] def restore(

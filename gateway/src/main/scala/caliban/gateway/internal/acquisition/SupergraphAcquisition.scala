@@ -72,19 +72,22 @@ private[gateway] object SupergraphAcquisition {
           .flatMap { reply =>
             val unexpected = UnexpectedResponse(reply.status, reply.contentType)
 
-            if (reply.body.limitExceeded) ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
-            else if (reply.status == Status.NotModified) ZIO.fromOption(cached.map(_.document)).orElseFail(unexpected)
-            else if (reply.status.isRedirection && redirects < config.maxRedirects)
-              ZIO
-                .fromOption(reply.response.rawHeader(Header.Location).flatMap(resolveRedirect(url, _)))
-                .orElseFail(unexpected)
-                .flatMap(location => loop(location, redirects + 1, cached))
-            else if (!isSdlResponse(reply.status, reply.contentType))
-              ZIO.fail(unexpected)
-            else
-              // Save the tag only with a parsed document, so a later 304 can be answered.
-              parseRemote(new String(reply.body.bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
-                .tap(document => cache.set(reply.response.rawHeader(Header.ETag).map(Cached(_, document))))
+            reply.body match {
+              case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
+              case Some(bytes) =>
+                if (reply.status == Status.NotModified) ZIO.fromOption(cached.map(_.document)).orElseFail(unexpected)
+                else if (reply.status.isRedirection && redirects < config.maxRedirects)
+                  ZIO
+                    .fromOption(reply.headers.rawHeader(Header.Location).flatMap(resolveRedirect(url, _)))
+                    .orElseFail(unexpected)
+                    .flatMap(location => loop(location, redirects + 1, cached))
+                else if (!isSdlResponse(reply.status, reply.contentType))
+                  ZIO.fail(unexpected)
+                else
+                  // Save the tag only with a parsed document, so a later 304 can be answered.
+                  parseRemote(new String(bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
+                    .tap(document => cache.set(reply.headers.rawHeader(Header.ETag).map(Cached(_, document))))
+            }
           }
       }
 

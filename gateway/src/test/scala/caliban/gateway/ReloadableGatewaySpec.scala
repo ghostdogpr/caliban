@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban.{ graphQL, GraphQLRequest, QuickAdapter, RootResolver }
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ SchemaFingerprint, SubscriptionTermination }
+import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
@@ -73,7 +73,8 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
       }
     }
 
-  private def fingerprint(sdl: String): String = SchemaFingerprint(Parser.parseQuery(sdl).toOption.get)
+  private def fingerprint(sdl: String): List[String] =
+    Gateway.Snapshot(ZIO.never, Parser.parseQuery(sdl).toOption.toList).fingerprints
 
   def spec = suite("Reloadable gateway")(
     test("reload terminates active subscriptions promptly and unstarted streams use the new generation") {
@@ -516,6 +517,25 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         rejected.errors.exists(_.msg == "Gateway is shutting down."),
         check.isFailure,
         explain.isFailure
+      )
+    },
+    test("operation hooks observe requests rejected after shutdown") {
+      for {
+        remote   <- source()
+        observed <- Ref.make(Vector.empty[OperationEvent])
+        hooks     = PhaseHooks.operation(
+                      PhaseHandler.outgoing[Any, PhaseHooks.Event.Operation, OperationEvent]((_, event) =>
+                        observed.update(_ :+ event)
+                      )
+                    )
+        scope    <- Scope.make
+        runtime  <- scope.extend(Gateway.compose(remote.subgraph).withPhaseHooks(hooks).reloadableForTest)
+        _        <- scope.close(Exit.unit)
+        rejected <- runtime.execute("{ value }")
+        events   <- observed.get
+      } yield assertTrue(
+        rejected.errors.exists(_.msg == "Gateway is shutting down."),
+        events.map(_.outcome) == Vector(PhaseHooks.Outcome.RequestError)
       )
     },
     test("shutdown drains the active generation while an old generation remains stuck") {

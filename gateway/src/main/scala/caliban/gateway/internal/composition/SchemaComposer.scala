@@ -220,11 +220,10 @@ private[gateway] object SchemaComposer {
   private val ProgressiveOverridePattern = raw"percent\((\d{1,2}(?:\.\d{1,8})?|100)\)".r
   private val CustomOverrideLabelPattern = raw"[a-zA-Z][a-zA-Z0-9_\-:./]*".r
 
-  private def parseProgressiveOverrideLabel(label: String): Either[String, ProgressiveOverride] =
+  private def parseProgressiveOverrideLabel(label: String): Either[String, OverrideLabel] =
     label match {
-      case ProgressiveOverridePattern(value) =>
-        Right(ProgressiveOverride(OverrideLabel(label), Some(BigDecimal(value))))
-      case CustomOverrideLabelPattern()      => Right(ProgressiveOverride(OverrideLabel(label), None))
+      case ProgressiveOverridePattern(value) => Right(OverrideLabel.Percent(label, BigDecimal(value)))
+      case CustomOverrideLabelPattern()      => Right(OverrideLabel.Custom(label))
       case _                                 => Left(s"Invalid Federation @override label '$label'.")
     }
 

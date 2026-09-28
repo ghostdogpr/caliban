@@ -3,7 +3,7 @@ package caliban.gateway.internal.execution
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport, SubscriptionTermination }
+import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
 import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
@@ -72,7 +72,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
     ZIO.serviceWithZIO[Scope] { sourceScope =>
       def open(headers: List[Header]) =
-        encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source).flatMap { body =>
+        encode(request.copy(extensions = None)).flatMap { body =>
           val post = config.subscription.transport match {
             case RemoteSubscriptionConfig.Sse(useGet) => !useGet
             case RemoteSubscriptionConfig.WebSocket   => false
@@ -90,7 +90,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
           )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(subscriptionResult)
         }
 
-      resolveHeaders.mapError(_ => SubscriptionTermination.Source).flatMap { headers =>
+      resolveHeaders.flatMap { headers =>
         hooks.subgraphCall.runWith(Event.SubgraphCall(name, OperationType.Subscription, headers))(event =>
           open(event.headers)
         )(subscriptionResult)
@@ -181,13 +181,16 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       .mapError(error => AttemptFailure(SubgraphExecutor.TransportFailure(error), None, None))
 
     response.flatMap { value =>
-      val responseBytes = value.body.bytes.length.toLong
-      ZIO
-        .fromEither(decode(value))
-        .mapBoth(
-          AttemptFailure(_, Some(value.status.code), Some(responseBytes)),
-          AttemptResponse(_, value.status.code, responseBytes)
-        )
+      value.body match {
+        case None        => ZIO.fail(AttemptFailure(SubgraphExecutor.ResponseTooLarge, Some(value.status.code), None))
+        case Some(bytes) =>
+          ZIO
+            .fromEither(decode(value, bytes))
+            .mapBoth(
+              AttemptFailure(_, Some(value.status.code), Some(bytes.length.toLong)),
+              AttemptResponse(_, value.status.code, bytes.length.toLong)
+            )
+      }
     }
   }
 
@@ -238,12 +241,12 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     }
 
   private def decode(
-    response: GatewayHttpClient.Reply
+    response: GatewayHttpClient.Reply,
+    bytes: Array[Byte]
   ): Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-    if (response.body.limitExceeded) Left(SubgraphExecutor.ResponseTooLarge)
-    else if (response.status.isRedirection) Left(SubgraphExecutor.RedirectResponse)
+    if (response.status.isRedirection) Left(SubgraphExecutor.RedirectResponse)
     else if (RemoteTransport.isJsonResponse(response.status, response.contentType))
-      decodeBody(response.body.bytes) match {
+      decodeBody(bytes) match {
         case Left(_) if !response.status.isSuccess => Left(SubgraphExecutor.HttpFailure(response.status.code))
         case result                                => result
       }

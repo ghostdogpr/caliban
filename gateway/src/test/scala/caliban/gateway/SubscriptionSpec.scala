@@ -2,8 +2,8 @@ package caliban.gateway
 
 import caliban._
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ GatewayExecutionControl, SubscriptionTermination }
-import caliban.gateway.internal.execution.{ RemoteSubscription, SubgraphExecutor }
+import caliban.gateway.internal.{ SubscriptionControl, SubscriptionTermination }
+import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.schema.Schema.auto._
 import caliban.ws.{ Protocol, WebSocketHooks }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
@@ -52,7 +52,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         assertTrue(
           decoded.map(_.toResponseValue) == Chunk(event.toResponseValue),
           decoded.flatMap(_.errors).collect { case error: CalibanError.ExecutionError =>
-            SubscriptionTermination.isGatewayError(error)
+            error.isInstanceOf[SubscriptionTermination.Error]
           } == Chunk(false),
           failures.size == 1,
           failures.forall(_ eq failure)
@@ -81,13 +81,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
             opened     <- Promise.make[Nothing, Unit]
             closing    <- Promise.make[Nothing, Unit]
             release    <- Promise.make[Nothing, Unit]
-            work       <- GatewayExecutionControl.make(
-                            GatewaySubscriptionConfig.default.withMaxActive(1),
-                            PhaseHooks.empty,
-                            30.seconds,
-                            1.second
-                          )
-            control     = work.subscriptions
+            control    <- SubscriptionControl.make(GatewaySubscriptionConfig.default.withMaxActive(1), PhaseHooks.empty)
             open        = ZIO.addFinalizer(closing.succeed(()) *> release.await) *>
                             opened.succeed(()) *> (if (cancel) ZIO.never else ZIO.fail(SubscriptionTermination.Source))
             running    <- control.stream(open)(ZIO.succeed(_)).runDrain.exit.forkScoped
@@ -121,10 +115,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         recorded     <- recordEvents
         (seen, hooks) = recorded
-        work         <- GatewayExecutionControl.make(GatewaySubscriptionConfig.default, hooks, 30.seconds, 1.second)
-        _            <- ZIO.foreachDiscard(sources)(open => work.subscriptions.stream(open)(ZIO.succeed(_)).runDrain.exit)
+        control      <- SubscriptionControl.make(GatewaySubscriptionConfig.default, hooks)
+        exits        <- ZIO.foreach(sources)(open => control.stream(open)(ZIO.succeed(_)).runDrain.exit)
         observed     <- seen.get
       } yield assertTrue(
+        exits.headOption.flatMap(_.causeOption).flatMap(_.failureOption).contains(SubscriptionTermination.Source),
         observed.collect { case PhaseHooks.Event.SubscriptionTerminated(reason, _) => reason } ==
           Vector.fill(sources.size)("SUBSCRIPTION_SOURCE_ERROR")
       )
@@ -250,35 +245,25 @@ object SubscriptionSpec extends ZIOSpecDefault {
     },
     test("upstream buffer overflow keeps its code and reports the termination reason") {
       for {
-        closed       <- Promise.make[Nothing, Unit]
-        release      <- Promise.make[Nothing, Unit]
         recorded     <- recordEvents
         (seen, hooks) = recorded
+        stalled       = PhaseHooks.subscriptionEvent(PhaseHandler.incomingDiscard(_ => ZIO.never))
         endpoint     <- socketEndpoint("subscription-ws-overflow")(channel =>
-                          ZIO.scoped {
-                            channel.awaitShutdown.ensuring(closed.succeed(())).forkScoped *>
-                              acknowledgeThen(channel) { case "subscribe" =>
-                                ZIO.foreachDiscard(1 to 2 * RemoteSubscription.BufferSize)(value =>
-                                  channel.send(
-                                    ChannelEvent.Read(
-                                      WebSocketFrame.Text(
-                                        s"""{"type":"next","id":"1","payload":{"data":{"event":$value}}}"""
-                                      )
-                                    )
-                                  )
+                          acknowledgeThen(channel) { case "subscribe" =>
+                            ZIO.foreachDiscard(1 to 8)(value =>
+                              channel.send(
+                                ChannelEvent.Read(
+                                  WebSocketFrame.Text(s"""{"type":"next","id":"1","payload":{"data":{"event":$value}}}""")
                                 )
-                              }
+                              )
+                            )
                           }
                         )
         runtime      <- remoteGateway(endpoint, subscriptionSchema)
-                          .withPhaseHooks(
-                            hooks ++ PhaseHooks.subscriptionSetup(PhaseHandler.outgoing((_, _) => release.await))
-                          )
+                          .withConfig(_.withSubscriptions(_.withBufferSize(1)))
+                          .withPhaseHooks(hooks ++ stalled)
                           .interpreter
-        running      <- runtime.executeStream(request).runDrain.exit.forkScoped
-        _            <- closed.await
-        _            <- release.succeed(())
-        exit         <- running.join
+        exit         <- runtime.executeStream(request).runDrain.exit
         observations <- seen.get
       } yield assertTrue(
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Overflow),
@@ -398,6 +383,15 @@ object SubscriptionSpec extends ZIOSpecDefault {
                      .interpreter
         events  <- runtime.executeStream(request).runCollect
       } yield assertTrue(events.map(_.data.toString).toList == values.map(i => s"""{"event":$i}"""))
+    },
+    test("a subscription whose root field is skipped is rejected before any source opens") {
+      for {
+        runtime  <- subscriptionGateway(ZStream.die(new RuntimeException("opened"))).interpreter
+        response <- runtime.execute("subscription { event @skip(if: true) }")
+      } yield assertTrue(
+        response.data == Value.NullValue,
+        response.errors.map(_.msg) == List("Subscriptions require exactly one non-introspection root field.")
+      )
     },
     test("two subscriptions on one socket hold and release independent slots") {
       for {

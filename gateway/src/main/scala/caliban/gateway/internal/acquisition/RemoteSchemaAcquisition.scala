@@ -47,13 +47,15 @@ private[gateway] object RemoteSchemaAcquisition {
       .post(endpoint, writeToArray(request), config.headers, config.maxResponseBytes)
       .mapError[SchemaAcquisitionError](RequestFailed(_))
       .flatMap { reply =>
-        if (reply.body.limitExceeded)
-          ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
-        else if (!accepts(reply.status) || !RemoteTransport.isJsonResponse(reply.status, reply.contentType))
-          ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
-        else if (!RemoteTransport.withinJsonDepth(reply.body.bytes, config.maxParsingDepth))
-          ZIO.fail(ParsingDepthExceeded(config.maxParsingDepth))
-        else ZIO.attempt(readFromArray[ResponseValue](reply.body.bytes)).mapError(ResponseDecodingFailed(_))
+        reply.body match {
+          case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
+          case Some(bytes) =>
+            if (!accepts(reply.status) || !RemoteTransport.isJsonResponse(reply.status, reply.contentType))
+              ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
+            else if (!RemoteTransport.withinJsonDepth(bytes, config.maxParsingDepth))
+              ZIO.fail(ParsingDepthExceeded(config.maxParsingDepth))
+            else ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(ResponseDecodingFailed(_))
+        }
       }
       .flatMap { response =>
         ZIO.fromEither(for {

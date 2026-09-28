@@ -25,10 +25,7 @@ private[gateway] final class OperationPlanner(
 
   def hasProgressiveOverrides: Boolean = graph.hasProgressiveOverrides
 
-  def progressiveOverrides(
-    document: Document,
-    operationName: Option[String]
-  ): Map[OverrideLabel, Option[BigDecimal]] = {
+  def progressiveOverrides(document: Document, operationName: Option[String]): Set[OverrideLabel] = {
     val selected = Set.newBuilder[String]
     document.foreachSelection(operationName) {
       case Selection.Field(_, name, _, _, _, _) => selected += name
@@ -1136,7 +1133,7 @@ private[gateway] object OperationPlanner {
         existing.copy(alias = None).toSelection == field.copy(alias = None).toSelection
 
     private def privateTypename(base: String, parentType: __Type, used: Set[String]): Field =
-      Field(TypenameField, Types.string, Some(parentType), alias = Some(PrivateAliases.privateAlias(base, used)))
+      Field(TypenameField, Types.string, Some(parentType), alias = Some(new PrivateAliases(used).next(base)))
 
     private def runtimeTypename(
       path: Vector[String],

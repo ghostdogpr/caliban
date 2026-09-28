@@ -2,9 +2,9 @@ package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.PhaseHooks.Rejection
-import caliban.gateway.internal.OperationPreparation
-import caliban.{ CalibanError, GraphQLRequest, InputValue }
+import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
 import caliban.Value.StringValue
+import caliban.validation.Validator
 import zio._
 import zio.test._
 
@@ -176,6 +176,41 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         }
         .map(_.reduce(_ && _))
     },
+    test("validates the document before coercing variables, with or without caching") {
+      val invalid = "query Value($input: String!) { value(input: $input) unknown }"
+      ZIO
+        .foreach(List(true, false)) { cacheable =>
+          for {
+            remote   <- stub(okResponse)
+            runtime  <- remoteGateway(remote.endpoint)
+                          .withPhaseHooks(PhaseHooks.resolution[Any](_ => ZIO.succeed(invalid), cacheable))
+                          .interpreter
+            response <- runtime.executeRequest(GraphQLRequest(operationName = Some("Value")))
+          } yield response.errors.map(_.msg)
+        }
+        .map(errors => assertTrue(errors.distinct.size == 1, errors.flatten.exists(_.contains("unknown"))))
+    },
+    test("runs custom validations with the request variables when caching is disabled") {
+      val requireHello: Validator.QueryValidation                  = context =>
+        if (context.variables.get("input").contains(StringValue("hello"))) Right(())
+        else Left(CalibanError.ValidationError("Custom validation rejected.", ""))
+      def execute(runtime: GatewayInterpreter[Any], input: String) =
+        ZIO.scoped(
+          Configurator.setValidations(Validator.AllValidations :+ requireHello) *>
+            runtime.executeRequest(request.copy(variables = Some(Map("input" -> StringValue(input)))))
+        )
+      for {
+        remote   <- stub(okResponse)
+        runtime  <- remoteGateway(remote.endpoint)
+                      .withPhaseHooks(PhaseHooks.resolution[Any](_ => ZIO.succeed(query), cacheable = false))
+                      .interpreter
+        accepted <- execute(runtime, "hello")
+        rejected <- execute(runtime, "bye")
+      } yield assertTrue(
+        accepted.errors.isEmpty,
+        rejected.errors.map(_.msg) == List("Custom validation rejected.")
+      )
+    },
     test("exposes only explicit resolver rejections, never defects or arbitrary Caliban errors") {
       val rejection = Rejection("Safe public message.", "PERSISTED_QUERY_NOT_FOUND")
       val secret    = "resolver-secret"
@@ -190,33 +225,29 @@ object OperationResolutionSpec extends ZIOSpecDefault {
       )
 
       for {
-        remote  <- stub(okResponse)
-        results <- ZIO.foreach(resolvers) { resolver =>
-                     remoteGateway(remote.endpoint)
-                       .withPhaseHooks(resolver)
-                       .interpreter
-                       .flatMap(_.explain(request).either)
-                   }
-        errors   = results.flatMap(_.left.toOption)
-        failure  = errors.lastOption.collect { case error: CalibanError.ExecutionError => error }
-        cause    = failure.flatMap(_.innerThrowable)
+        remote             <- stub(okResponse)
+        recorded           <- recordEventsAndResults
+        (_, results, hooks) = recorded
+        responses          <- ZIO.foreach(resolvers) { resolver =>
+                                remoteGateway(remote.endpoint)
+                                  .withPhaseHooks(resolver ++ hooks)
+                                  .interpreter
+                                  .flatMap(_.executeRequest(request))
+                              }
+        outcomes           <- results.get.map(_.collect { case (PhaseHooks.Event.Preparation, result) => result.outcome })
+        errors              = responses.flatMap(_.errors)
+        failure             = errors.lastOption.collect { case error: CalibanError.ExecutionError => error }
+        cause               = failure.flatMap(_.innerThrowable)
       } yield assertTrue(
         errors.size == resolvers.size,
         errors.headOption.exists(_.msg == rejection.message),
         errors.headOption.flatMap(codeOf).contains(rejection.code),
-        errors.headOption.exists(!OperationPreparation.isInternalFailure(_)),
         errors.drop(1).forall(_.msg == "Operation resolution failed."),
         errors.drop(1).forall(codeOf(_).isEmpty),
-        errors.drop(1).forall(error => OperationPreparation.isInternalFailure(error)),
-        failure.map(_.copy(msg = "Changed diagnostic text.")).exists(OperationPreparation.isInternalFailure),
-        !OperationPreparation.isInternalFailure(
-          CalibanError.ExecutionError(
-            "Operation resolution failed.",
-            innerThrowable = Some(new RuntimeException("other"))
-          )
+        outcomes == PhaseHooks.Outcome.RequestError +: Vector.fill(resolvers.size - 1)(
+          PhaseHooks.Outcome.InternalError
         ),
         cause.exists(_.getMessage == secret),
-        cause.exists(_.getCause.getMessage == secret),
         !errors.exists(_.msg.contains(secret))
       )
     },

@@ -352,7 +352,7 @@ private[composition] object TypeComposition {
     case object Federation2 extends SubgraphMode
   }
 
-  final case class FieldOverride(from: String, progressive: Option[ComposedGraph.ProgressiveOverride])
+  final case class FieldOverride(from: String, progressive: Option[ComposedGraph.OverrideLabel])
 
   def rewriteType(tpe: __Type, types: => Map[String, __Type]): __Type =
     tpe.mapInnerType(named => named.name.flatMap(types.get).getOrElse(named))

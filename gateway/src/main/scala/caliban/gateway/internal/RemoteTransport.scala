@@ -3,12 +3,10 @@ package caliban.gateway.internal
 import zio.http.Status
 
 /**
- * Shared HTTP body limits and media-type handling for schema acquisition and remote execution.
+ * Shared media-type handling and JSON structure checks for schema acquisition and remote execution.
  * The structural scan bounds decoding work; the JSON decoder remains responsible for syntax validation.
  */
 private[gateway] object RemoteTransport {
-  final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
-
   final val GraphQLResponseJson = "application/graphql-response+json"
   final val Json                = "application/json"
 

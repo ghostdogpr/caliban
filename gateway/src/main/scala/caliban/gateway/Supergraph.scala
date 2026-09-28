@@ -1,7 +1,6 @@
 package caliban.gateway
 
-import caliban.gateway.GatewayBuildError.{ SupergraphAcquisitionFailed, SupergraphDecompositionFailed }
-import caliban.gateway.internal.SchemaFingerprint
+import caliban.gateway.GatewayBuildError.SupergraphDecompositionFailed
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.parsing.adt.Document
 import zio.{ IO, Trace, ZIO }
@@ -34,23 +33,20 @@ final class Supergraph[-R] private[gateway] (
    */
   def withSubgraphEndpoint(value: String => Option[URL]): Supergraph[R] = new Supergraph(source, config, value)
 
-  private[gateway] def load(
-    acquire: IO[SupergraphAcquisitionError, Document]
-  )(implicit trace: Trace): IO[GatewayBuildError, (List[Subgraph[R]], List[String])] =
-    for {
-      document    <- acquire.mapError(SupergraphAcquisitionFailed(_))
-      projections <- ZIO
-                       .fromEither(SupergraphDecomposition.decompose(document))
-                       .mapError(SupergraphDecompositionFailed(_))
-      subgraphs    = projections.map(projection =>
-                       Subgraph.federation(
-                         name = projection.graph.name,
-                         endpoint = endpoints(projection.graph.name).getOrElse(projection.graph.url),
-                         schema = projection.document,
-                         config = config(projection.graph.name)
-                       )
-                     )
-    } yield subgraphs -> List(SchemaFingerprint(document))
+  private[gateway] def load(document: Document)(implicit trace: Trace): IO[GatewayBuildError, List[Subgraph[R]]] =
+    ZIO
+      .fromEither(SupergraphDecomposition.decompose(document))
+      .mapBoth(
+        SupergraphDecompositionFailed(_),
+        _.map(projection =>
+          Subgraph.federation(
+            name = projection.graph.name,
+            endpoint = endpoints(projection.graph.name).getOrElse(projection.graph.url),
+            schema = projection.document,
+            config = config(projection.graph.name)
+          )
+        )
+      )
 }
 
 object Supergraph {

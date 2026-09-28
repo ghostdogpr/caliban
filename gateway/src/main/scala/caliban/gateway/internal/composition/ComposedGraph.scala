@@ -29,18 +29,15 @@ private[gateway] final case class ComposedGraph private[internal] (
   def resolveOverrides(activeOverrides: Set[OverrideLabel]): ComposedGraph =
     copy(
       fieldRoutes = fieldRoutes ++ progressiveRoutes.collect {
-        case (coordinate, route) if activeOverrides(route.progressive.label) => coordinate -> route.sources
+        case (coordinate, route) if activeOverrides(route.label) => coordinate -> route.sources
       },
       progressiveRoutes = Map.empty
     )
 
   def hasProgressiveOverrides: Boolean = progressiveRoutes.nonEmpty
 
-  def progressiveOverrides(fieldNames: Set[String]): Map[OverrideLabel, Option[BigDecimal]] =
-    progressiveRoutes.collect {
-      case (FieldCoordinate(_, field), route) if fieldNames(field) =>
-        route.progressive.label -> route.progressive.percentage
-    }
+  def progressiveOverrides(fieldNames: Set[String]): Set[OverrideLabel] =
+    progressiveRoutes.collect { case (FieldCoordinate(_, field), route) if fieldNames(field) => route.label }.toSet
 
   def operationRoot(operation: OperationType): Option[__Type] = rootType.types.get(rootName(operation))
 
@@ -272,12 +269,14 @@ private[gateway] object ComposedGraph {
 
   final case class ContextArgument(argument: String, context: ContextName, selections: List[Selection])
 
-  final case class OverrideLabel(value: String) extends AnyVal
-
-  final case class ProgressiveOverride(label: OverrideLabel, percentage: Option[BigDecimal])
+  sealed trait OverrideLabel { def value: String }
+  object OverrideLabel       {
+    final case class Percent(value: String, percentage: BigDecimal) extends OverrideLabel
+    final case class Custom(value: String)                          extends OverrideLabel
+  }
 
   // Sources of a field while its progressive override label is active.
-  final case class ProgressiveRoute(progressive: ProgressiveOverride, sources: List[Source])
+  final case class ProgressiveRoute(label: OverrideLabel, sources: List[Source])
 
   private[internal] final case class SecurityDirectiveApplication(
     source: String,

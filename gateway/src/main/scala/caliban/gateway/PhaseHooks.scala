@@ -4,9 +4,9 @@ import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.Document
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
+import caliban.{ GraphQLRequest, GraphQLResponse }
 import zio.http.Header
-import zio.{ Cause, Exit, Trace, ZIO }
+import zio.{ Cause, Exit, ZIO }
 
 import scala.util.control.NoStackTrace
 
@@ -35,21 +35,6 @@ final class PhaseHooks[-R] private (
   val subscriptionTerminated: PhaseHandler[R, Event.SubscriptionTerminated, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionTerminated]
 ) { self =>
-  private[gateway] val enabled: Boolean =
-    self.operation.enabled ||
-      self.preparation.enabled ||
-      self.resolution.enabled ||
-      self.overrideLabels.enabled ||
-      self.cacheAccess.enabled ||
-      self.authorization.enabled ||
-      self.execution.enabled ||
-      self.subgraphCall.enabled ||
-      self.attempt.enabled ||
-      self.completion.enabled ||
-      self.subscriptionAdmission.enabled ||
-      self.subscriptionSetup.enabled ||
-      self.subscriptionEvent.enabled ||
-      self.subscriptionTerminated.enabled
 
   /**
    * Combines two bundles phase by phase. For each phase, this bundle's handler runs its incoming side first.
@@ -71,11 +56,6 @@ final class PhaseHooks[-R] private (
       subscriptionEvent = self.subscriptionEvent ++ that.subscriptionEvent,
       subscriptionTerminated = self.subscriptionTerminated ++ that.subscriptionTerminated
     )
-
-  private[gateway] def observeCompletion[R0 <: R, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
-    trace: Trace
-  ): ZIO[R0, E, GraphQLResponse[CalibanError]] =
-    self.completion.run(Event.Completion)(effect)(Result.classifyResponse(_))
 }
 
 /**
@@ -357,6 +337,8 @@ object PhaseHooks {
 
     private[gateway] def fromResponse(response: GraphQLResponse[_]): Outcome =
       if (response.errors.isEmpty) Success else GraphQLError
+
+    private[gateway] def fromCause(cause: Cause[_]): Outcome = if (cause.isInterrupted) Cancelled else InternalError
   }
 
   /**
@@ -398,11 +380,8 @@ object PhaseHooks {
     private[gateway] def fromExit[E, A](exit: Exit[E, A])(success: A => Result, failure: E => Result): Result =
       exit match {
         case Exit.Success(value) => success(value)
-        case Exit.Failure(cause) => cause.failureOption.fold(fromCause(cause))(failure)
+        case Exit.Failure(cause) => cause.failureOption.fold(Result(Outcome.fromCause(cause)))(failure)
       }
-
-    private def fromCause(cause: Cause[_]): Result =
-      Result(if (cause.isInterrupted) Outcome.Cancelled else Outcome.InternalError)
   }
 
   /**

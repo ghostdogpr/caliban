@@ -4,7 +4,6 @@ import caliban.Value.StringValue
 import caliban.InputValue.ObjectValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.PhaseHooks.{ Denial, Rejection }
-import caliban.gateway.internal.OperationPreparation
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
 import zio.test._
@@ -149,16 +148,23 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
         PhaseHooks.authorization[Any](_ => ZIO.fail(Rejection("Private.", "PRIVATE")))
       )
       for {
-        remote  <- stub(okResponse)
-        results <- ZIO.foreach(hooks) { hook =>
-                     remoteGateway(remote.endpoint).withPhaseHooks(hook).interpreter.flatMap(_.executeRequest(request))
-                   }
-        sent    <- remote.requests.get
+        remote                 <- stub(okResponse)
+        recorded               <- recordEventsAndResults
+        (_, recordings, record) = recorded
+        results                <- ZIO.foreach(hooks) { hook =>
+                                    remoteGateway(remote.endpoint)
+                                      .withPhaseHooks(hook ++ record)
+                                      .interpreter
+                                      .flatMap(_.executeRequest(request))
+                                  }
+        outcomes               <-
+          recordings.get.map(_.collect { case (PhaseHooks.Event.Preparation, result) => result.outcome })
+        sent                   <- remote.requests.get
       } yield assertTrue(
         results.head.errors.map(_.msg) == List("Safe reason."),
         results.head.errors.forall(_.isInstanceOf[CalibanError.ValidationError]),
         results.tail.forall(_.errors.map(_.msg) == List("Operation authorization failed.")),
-        results.tail.forall(_.errors.forall(error => OperationPreparation.isInternalFailure(error))),
+        outcomes == PhaseHooks.Outcome.RequestError +: Vector.fill(hooks.size - 1)(PhaseHooks.Outcome.InternalError),
         results.tail.forall(_.errors.forall(codeOf(_).isEmpty)),
         sent.isEmpty
       )
@@ -180,7 +186,6 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         policyResult.errors.map(_.msg) == List("Operation authorization failed."),
         policyCause.exists(_.getMessage == secretPolicy),
-        policyCause.exists(_.getCause.getMessage == secretPolicy),
         !policyResult.errors.exists(_.msg.contains(secretPolicy)),
         sent.isEmpty
       )

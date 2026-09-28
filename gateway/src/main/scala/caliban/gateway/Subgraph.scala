@@ -161,10 +161,12 @@ object Subgraph {
   private[gateway] object Source {
     final case class Remote[R](endpoint: URL, schema: SchemaInput, federation: Boolean, config: RemoteGraphQLConfig[R])
         extends Source[R] {
-      def loadSchema(http: GatewayHttpClient)(implicit trace: Trace): IO[SubgraphBuildError, Document] = {
+      def loadSchema(http: GatewayHttpClient)(implicit trace: Trace): IO[SubgraphBuildError, Document] =
+        validate *> RemoteSchemaAcquisition.load(this, http)
+
+      def validate(implicit trace: Trace): IO[SubgraphBuildError, Unit] = {
         val diagnostics = config.diagnostics(includeAcquisition = schema == SchemaInput.Acquired)
-        ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-          RemoteSchemaAcquisition.load(this, http)
+        ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty).unit
       }
     }
     final case class Local[R](graph: GraphQL[R], federation: Boolean) extends Source[R]

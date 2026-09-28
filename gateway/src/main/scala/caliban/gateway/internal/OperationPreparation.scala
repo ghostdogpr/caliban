@@ -1,28 +1,27 @@
 package caliban.gateway.internal
 
+import caliban.GraphQLResponseContext.{ markRequestError, markServerError, ServerFailure }
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
-import caliban.gateway.PhaseHooks.{ Event, SecurityDirective }
+import caliban.gateway.PhaseHooks.{ Event, Outcome, SecurityDirective }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.{ OperationCost, OperationPlan, OperationPlanner, OperationSecurity }
-import caliban.gateway.{ errorCode, isInclusionDirective, PhaseHooks }
+import caliban.gateway.{ errorCode, isInclusionDirective, PhaseHandler, PhaseHooks }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
 import caliban._
+import zio.query.Cache
 import zio.{ Cause, Exit, IO, Random, Trace, UIO, ZIO }
-
-import scala.util.control.NoStackTrace
 
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
   security: OperationSecurity,
-  cost: OperationCost,
   cache: OperationCache[CacheKey, CalibanError, CachedOperation, R],
-  maxOperationCost: Option[Long],
+  costLimit: Option[(OperationCost, Long)],
   hooks: PhaseHooks[R]
 ) {
 
@@ -32,77 +31,51 @@ private[gateway] final class OperationPreparation[-R] private (
       _        <- Validator.validate(document, rootType)
     } yield ()
 
-  def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, ExecutableOperation] =
+  def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, Failure, ExecutableOperation] =
     for {
       resolved  <- resolveRequest(request)
-      query      = resolved.request.query.getOrElse("")
-      operation <- if (resolved.cacheable) withCache(resolved.request, query)
-                   else withoutCache(resolved.request, query)
-      _         <- enforceCost(operation)
+      operation <- prepareResolved(resolved.request, resolved.cacheable)
+      _         <- enforceCost(operation).mapError(Rejected(_))
       _         <- authorize(operation)
     } yield operation
 
   private def resolveRequest(
     request: GraphQLRequest
-  )(implicit trace: Trace): ZIO[R, CalibanError, Event.Resolution] = {
-    val event = Event.Resolution(request)
-    if (!hooks.resolution.enabled) Exit.succeed(event)
-    else
-      runHook(
-        hooks.resolution.runWith(event)(Exit.succeed)(_ => ()),
-        ResolutionFailure,
-        rejection = { case PhaseHooks.Rejection(message, code) =>
-          CalibanError.ExecutionError(message, extensions = errorCode(code))
-        }
-      )
-  }
-
-  private def authorize(operation: ExecutableOperation)(implicit trace: Trace): ZIO[R, CalibanError, Unit] = {
-    val requirements = security.requirements(operation.plan)
-    if (requirements.exists(_.directives.contains(SecurityDirective.UnsupportedPolicy)))
-      ZIO.fail(CalibanError.ValidationError("Operation selects fields guarded by unsupported @policy directives.", ""))
-    else if (!hooks.authorization.enabled) ZIO.unit
-    else
-      runHook(
-        hooks.authorization
-          .run(Event.Authorization(operation.request, operation.document, operation.executionRequest, requirements))(
-            ZIO.unit
-          )(_ => ()),
-        AuthorizationFailure,
-        rejection = { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }
-      )
-  }
-
-  private def selectCustomOverrides(
-    request: GraphQLRequest,
-    labels: Set[OverrideLabel]
-  )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] =
-    if (labels.isEmpty || !hooks.overrideLabels.enabled) ZIO.succeed(Set.empty)
-    else {
-      val reachedLabels = labels.map(_.value)
-      val hook          = hooks.overrideLabels
-        .runWith(Event.OverrideLabels(request, reachedLabels))(Exit.succeed)(_ => ())
-        .map(_.active)
-      runHook(hook, OverrideLabelResolutionFailure)
-        .map(_.intersect(reachedLabels).map(OverrideLabel.apply))
+  )(implicit trace: Trace): ZIO[R, Failure, Event.Resolution] =
+    runHook(hooks.resolution, Event.Resolution(request), ResolutionFailure) {
+      case PhaseHooks.Rejection(message, code) => CalibanError.ExecutionError(message, extensions = errorCode(code))
     }
 
-  private def withCache(
-    request: GraphQLRequest,
-    query: String
-  )(implicit trace: Trace): ZIO[R, CalibanError, ExecutableOperation] = Configurator.ref.get.flatMap { config =>
-    val preparation = PreparationConfig.from(config)
+  private def authorize(operation: ExecutableOperation)(implicit trace: Trace): ZIO[R, Failure, Unit] = {
+    val requirements = security.requirements(operation.plan)
+    if (requirements.exists(_.directives.contains(SecurityDirective.UnsupportedPolicy)))
+      ZIO.fail(Rejected(CalibanError.ValidationError(UnsupportedPolicyFailure, "")))
+    else
+      runHook(
+        hooks.authorization,
+        Event.Authorization(operation.request, operation.document, operation.executionRequest, requirements),
+        AuthorizationFailure
+      ) { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }.unit
+  }
 
-    def lookup(parse: => IO[CalibanError, Document], activeOverrides: Set[OverrideLabel]) =
-      cache
-        .getOrCompute(
-          CacheKey(query, request.operationName, request.isHttpGetRequest, preparation, activeOverrides)
-        )(parse.flatMap(buildCacheEntry(request, query, _, preparation, activeOverrides)))
-        .flatMap(bindCachedOperation(request, _, activeOverrides))
+  private def prepareResolved(
+    request: GraphQLRequest,
+    cacheable: Boolean
+  )(implicit trace: Trace): ZIO[R, Failure, ExecutableOperation] = Configurator.ref.get.flatMap { config =>
+    val query    = request.query.getOrElse("")
+    val template = request.copy(variables = None, extensions = None)
+
+    def lookup(parse: => IO[CalibanError, Document], activeOverrides: Set[OverrideLabel]) = {
+      val key                                                  = CacheKey(template, config.copy(queryCache = UnusedQueryCache), activeOverrides)
+      val operation: ZIO[R, CalibanError, ExecutableOperation] =
+        if (cacheable) cache.getOrCompute(key)(parse.flatMap(buildCacheEntry(key, _))).flatMap(_(request))
+        else prepareUncached(request, parse, activeOverrides)
+      operation.mapError(Rejected(_))
+    }
 
     if (planner.hasProgressiveOverrides)
       for {
-        document        <- RequestPreparation.parse(query)
+        document        <- RequestPreparation.parse(query).mapError(Rejected(_))
         activeOverrides <- selectOverrides(request, document)
         operation       <- lookup(Exit.succeed(document), activeOverrides)
       } yield operation
@@ -110,87 +83,82 @@ private[gateway] final class OperationPreparation[-R] private (
       lookup(RequestPreparation.parse(query), Set.empty)
   }
 
-  private def buildCacheEntry(
+  private def prepareUncached(
     request: GraphQLRequest,
-    query: String,
-    document: Document,
-    preparation: PreparationConfig,
-    activeOverrides: Set[OverrideLabel]
-  )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] =
-    for {
-      _      <- RequestPreparation.checkIntrospection(document, request.operationName)
-      _      <- Validator.validate(document, rootType).unless(preparation.skipValidation)
-      cached <- if (hasVariableInclusionDirective(document, request.operationName))
-                  ZIO.succeed(
-                    Weighted(
-                      CachedOperation.DocumentOnly(document),
-                      cacheWeight(query, None, request.operationName)
-                    )
-                  )
-                else {
-                  val variables = symbolicVariables(document, request.operationName)
-                  for {
-                    execution <-
-                      RequestPreparation.prepareParsed(request, document, variables, rootType, skipValidation = true)
-                    plan      <- buildPlan(document, execution, activeOverrides)
-                  } yield {
-                    val cached: CachedOperation =
-                      if (variables.isEmpty && !plan.hasVariableReferences)
-                        CachedOperation.Ready(document, execution, plan)
-                      else CachedOperation.Planned(document, plan)
-                    Weighted(cached, cacheWeight(query, Some(plan), request.operationName))
-                  }
-                }
-    } yield cached
-
-  private def withoutCache(
-    request: GraphQLRequest,
-    query: String
-  )(implicit trace: Trace): ZIO[R, CalibanError, ExecutableOperation] =
-    for {
-      document        <- RequestPreparation.parse(query)
-      activeOverrides <- selectOverrides(request, document)
-      operation       <-
-        buildOperation(request, document, None)((_, execution) => buildPlan(document, execution, activeOverrides))
-    } yield operation
-
-  private def bindCachedOperation(
-    request: GraphQLRequest,
-    cached: CachedOperation,
+    parse: IO[CalibanError, Document],
     activeOverrides: Set[OverrideLabel]
   )(implicit trace: Trace): IO[CalibanError, ExecutableOperation] =
-    cached match {
-      case CachedOperation.Ready(document, execution, plan) =>
-        Exit.succeed(ExecutableOperation(request, document, execution, plan))
-      case CachedOperation.Planned(document, plan)          =>
-        buildOperation(request, document, VariableValidation) { (variables, _) =>
-          Exit.succeed(plan.bind(variables))
-        }
-      case CachedOperation.DocumentOnly(document)           =>
-        buildOperation(request, document, VariableValidation) { (_, execution) =>
+    parse.flatMap { document =>
+      RequestPreparation.checkIntrospection(document, request.operationName) *>
+        buildOperation(request, document, documentValidated = false)((_, execution) =>
           buildPlan(document, execution, activeOverrides)
-        }
+        )
     }
 
-  private def buildOperation(
-    request: GraphQLRequest,
-    document: Document,
-    validations: Option[List[Validator.QueryValidation]]
-  )(
+  private def buildCacheEntry(key: CacheKey, document: Document)(implicit
+    trace: Trace
+  ): IO[CalibanError, Weighted[CachedOperation]] = {
+    val request = key.request
+    for {
+      _      <- RequestPreparation.checkIntrospection(document, request.operationName)
+      _      <- validateDocument(document)
+      cached <-
+        if (hasVariableInclusionDirective(document, request.operationName))
+          ZIO.succeed(
+            Weighted[CachedOperation](
+              incoming =>
+                buildOperation(incoming, document, documentValidated = true)((_, execution) =>
+                  buildPlan(document, execution, key.activeOverrides)
+                ),
+              cacheWeight(key)
+            )
+          )
+        else {
+          val variables = symbolicVariables(document, request.operationName)
+          for {
+            execution <-
+              RequestPreparation.prepareParsed(request, document, variables, rootType, skipValidation = true)
+            plan      <- buildPlan(document, execution, key.activeOverrides)
+          } yield {
+            val cached: CachedOperation =
+              if (variables.isEmpty && !plan.hasVariableReferences)
+                incoming => Exit.succeed(ExecutableOperation(incoming, document, execution, plan))
+              else
+                incoming =>
+                  buildOperation(incoming, document, documentValidated = true)((values, _) =>
+                    Exit.succeed(plan.bind(values))
+                  )
+            Weighted(cached, cacheWeight(key) + planWeight(plan))
+          }
+        }
+    } yield cached
+  }
+
+  /**
+   * Cached operations validated their document without variables, so binding checks only the variables. Otherwise the
+   * configured validations run once with the coerced variables, and document errors still take precedence over
+   * variable errors.
+   */
+  private def buildOperation(request: GraphQLRequest, document: Document, documentValidated: Boolean)(
     getPlan: (Map[String, InputValue], ExecutionRequest) => IO[CalibanError, OperationPlan]
   )(implicit trace: Trace): IO[CalibanError, ExecutableOperation] =
     for {
-      variables <- RequestPreparation.coerceVariables(document, request, rootType)
+      variables <- RequestPreparation
+                     .coerceVariables(document, request, rootType)
+                     .tapError(_ => validateDocument(document).unless(documentValidated))
       execution <- RequestPreparation.prepareParsed(
                      request,
                      document,
                      variables,
                      rootType,
                      skipValidation = false,
-                     validations = validations
+                     validations = if (documentValidated) VariableValidation else None
                    )
       plan      <- getPlan(variables, execution)
     } yield ExecutableOperation(request, document, execution, plan)
+
+  private def validateDocument(document: Document)(implicit trace: Trace): IO[CalibanError, Unit] =
+    Configurator.ref.getWith(config => if (config.skipValidation) Exit.unit else Validator.validate(document, rootType))
 
   private def buildPlan(document: Document, execution: ExecutionRequest, activeOverrides: Set[OverrideLabel])(implicit
     trace: Trace
@@ -202,59 +170,51 @@ private[gateway] final class OperationPreparation[-R] private (
   private def selectOverrides(
     request: GraphQLRequest,
     document: Document
-  )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] = {
-    val overrides = planner.progressiveOverrides(document, request.operationName).toList.sortBy(_._1.value)
-    val sampled   = overrides.collect { case (label, Some(percentage)) => label -> percentage }
-    val custom    = overrides.collect { case (label, None) => label }.toSet
+  )(implicit trace: Trace): ZIO[R, Failure, Set[OverrideLabel]] = {
+    val overrides = planner.progressiveOverrides(document, request.operationName).toList.sortBy(_.value)
+    val reached   = overrides.collect { case OverrideLabel.Custom(label) => label }.toSet
     for {
-      active   <- ZIO.filter(sampled) { case (_, percentage) =>
-                    if (percentage <= 0) ZIO.succeed(false)
-                    else if (percentage >= 100) ZIO.succeed(true)
-                    else Random.nextDouble.map(_ * 100d < percentage.toDouble)
-                  }
-      selected <- selectCustomOverrides(request, custom)
-    } yield active.map(_._1).toSet ++ selected
+      active <- ZIO.filter(overrides.collect { case label: OverrideLabel.Percent => label })(label =>
+                  Random.nextDouble.map(_ * 100d < label.percentage.toDouble)
+                )
+      custom <-
+        if (reached.isEmpty) Exit.succeed(Set.empty[String])
+        else
+          runHook(hooks.overrideLabels, Event.OverrideLabels(request, reached), OverrideLabelResolutionFailure)(
+            PartialFunction.empty
+          ).map(_.active.intersect(reached))
+    } yield active.toSet ++ custom.map(OverrideLabel.Custom(_))
   }
 
   private def enforceCost(operation: ExecutableOperation): IO[CalibanError.ValidationError, Unit] =
-    maxOperationCost match {
-      case Some(maximum) =>
-        def reject(message: String, code: String) =
-          ZIO.fail(CalibanError.ValidationError(message, "", extensions = errorCode(code)))
+    costLimit.fold[IO[CalibanError.ValidationError, Unit]](ZIO.unit) { case (cost, maximum) =>
+      def reject(message: String, code: String) =
+        ZIO.fail(CalibanError.ValidationError(message, "", extensions = errorCode(code)))
 
-        cost.estimate(operation.plan) match {
-          case Left(error)                             => reject(error, "COST_QUERY_PARSE_FAILURE")
-          case Right(estimated) if estimated > maximum =>
-            reject(
-              s"Operation cost $estimated exceeds the configured maximum of $maximum.",
-              "COST_ESTIMATED_TOO_EXPENSIVE"
-            )
-          case Right(_)                                => ZIO.unit
-        }
-      case None          => ZIO.unit
+      cost.estimate(operation.plan) match {
+        case Left(error)                             => reject(error, "COST_QUERY_PARSE_FAILURE")
+        case Right(estimated) if estimated > maximum =>
+          reject(
+            s"Operation cost $estimated exceeds the configured maximum of $maximum.",
+            "COST_ESTIMATED_TOO_EXPENSIVE"
+          )
+        case Right(_)                                => ZIO.unit
+      }
     }
 
-  private def cacheWeight(
-    query: String,
-    executionPlan: Option[OperationPlan],
-    operationName: Option[String]
-  ): Long = {
+  private def cacheWeight(key: CacheKey): Long =
+    key.request.query.fold(0)(_.length).toLong * 2L + key.request.operationName.fold(0)(_.length).toLong + 1L
+
+  private def planWeight(plan: OperationPlan): Long = {
     def fieldWeight(values: List[Field]): Long =
       values.foldLeft(0L)((count, value) =>
         count + 1L + value.arguments.valuesIterator.map(_.toInputString.length.toLong).sum + fieldWeight(value.fields)
       )
 
-    val planWeight = executionPlan
-      .fold(0L)(value =>
-        fieldWeight(value.fields) +
-          value.roots.foldLeft(0L)((count, fetch) =>
-            count + fieldWeight(fetch.client) + fieldWeight(fetch.downstream)
-          ) +
-          value.entities.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.fields)) +
-          value.typenameSelections.size.toLong
-      )
-
-    query.length.toLong * 2L + operationName.fold(0)(_.length).toLong + planWeight + 1L
+    fieldWeight(plan.fields) +
+      plan.roots.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.client) + fieldWeight(fetch.downstream)) +
+      plan.entities.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.fields)) +
+      plan.typenameSelections.size.toLong
   }
 
   private def symbolicVariables(document: Document, operationName: Option[String]): Map[String, InputValue] =
@@ -291,78 +251,52 @@ private[gateway] object OperationPreparation {
     rootType: RootType,
     planner: OperationPlanner,
     security: OperationSecurity,
-    cost: OperationCost,
     maxOperationCacheWeight: Long,
-    maxOperationCost: Option[Long],
+    costLimit: Option[(OperationCost, Long)],
     hooks: PhaseHooks[R]
   )(implicit trace: Trace): UIO[OperationPreparation[R]] =
     OperationCache
       .make[CacheKey, CalibanError, CachedOperation, R](maxOperationCacheWeight, hooks)
-      .map(new OperationPreparation(rootType, planner, security, cost, _, maxOperationCost, hooks))
+      .map(new OperationPreparation(rootType, planner, security, _, costLimit, hooks))
 
-  def isInternalFailure(error: CalibanError): Boolean =
-    error match {
-      case CalibanError.ExecutionError(_, _, _, Some(_: HookFailure), _) => true
-      case _                                                             => false
-    }
+  sealed abstract class Failure(val outcome: Outcome, val mark: UIO[Unit]) { def error: CalibanError }
+  final case class Rejected(error: CalibanError) extends Failure(Outcome.RequestError, markRequestError(error))
+  final case class Internal(error: CalibanError) extends Failure(Outcome.InternalError, InternalMark)
 
-  private final class HookFailure(cause: Throwable) extends Exception(cause.getMessage, cause) with NoStackTrace
+  private val InternalMark = markServerError(ServerFailure.Internal)
 
   private val ResolutionFailure              = "Operation resolution failed."
   private val AuthorizationFailure           = "Operation authorization failed."
   private val OverrideLabelResolutionFailure = "Progressive override label resolution failed."
+  private val UnsupportedPolicyFailure       = "Operation selects fields guarded by unsupported @policy directives."
 
-  private def runHook[R, A](
-    effect: => ZIO[R, Throwable, A],
-    failureMessage: String,
-    rejection: PartialFunction[Throwable, CalibanError] = PartialFunction.empty
-  )(implicit trace: Trace): ZIO[R, CalibanError, A] =
-    ZIO
-      .suspendSucceed(effect)
-      .mapErrorCause(cause =>
-        cause.interruptOption.fold[Cause[CalibanError]](
-          cause.failures match {
-            case failure :: Nil if cause.defects.isEmpty && rejection.isDefinedAt(failure) =>
-              Cause.fail(rejection(failure))
-            case _                                                                         =>
-              Cause
-                .fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(new HookFailure(cause.squash))))
-          }
-        )(fiberId => Cause.interrupt(fiberId))
-      )
+  private def runHook[R, Ev](handler: PhaseHandler[R, Ev, Throwable, Any], event: Ev, failureMessage: String)(
+    rejection: PartialFunction[Throwable, CalibanError]
+  )(implicit trace: Trace): ZIO[R, Failure, Ev] =
+    if (!handler.enabled) Exit.succeed(event)
+    else
+      ZIO
+        .suspendSucceed(handler.runWith(event)(Exit.succeed)(_ => ()))
+        .mapErrorCause { cause =>
+          def internal: Failure =
+            Internal(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+          cause.interruptOption.fold[Cause[Failure]](Cause.fail(cause.failures match {
+            case failure :: Nil if cause.defects.isEmpty =>
+              rejection.andThen(Rejected(_)).applyOrElse(failure, (_: Throwable) => internal)
+            case _                                       => internal
+          }))(Cause.interrupt(_))
+        }
 
-  private sealed trait CachedOperation
-
-  private object CachedOperation {
-    final case class DocumentOnly(document: Document)                                            extends CachedOperation
-    final case class Planned(document: Document, plan: OperationPlan)                            extends CachedOperation
-    final case class Ready(document: Document, execution: ExecutionRequest, plan: OperationPlan) extends CachedOperation
-  }
+  private type CachedOperation = GraphQLRequest => IO[CalibanError, ExecutableOperation]
 
   private final case class CacheKey(
-    query: String,
-    operationName: Option[String],
-    isHttpGetRequest: Boolean,
-    preparation: PreparationConfig,
+    request: GraphQLRequest,
+    // Reuse function instances across requests. Fresh lambdas cause misses; rebuilding only the list does not.
+    config: Configurator.ExecutionConfiguration,
     activeOverrides: Set[OverrideLabel]
   )
 
-  private final case class PreparationConfig(
-    skipValidation: Boolean,
-    enableIntrospection: Boolean,
-    allowMutationsOverGetRequests: Boolean,
-    // Reuse function instances across requests. Fresh lambdas cause misses; rebuilding only the list does not.
-    validations: List[Validator.QueryValidation]
-  )
-
-  private object PreparationConfig {
-    def from(config: Configurator.ExecutionConfiguration): PreparationConfig =
-      PreparationConfig(
-        config.skipValidation,
-        config.enableIntrospection,
-        config.allowMutationsOverGetRequests,
-        config.validations
-      )
-  }
+  // Cache entries never read the query cache, so the key does not depend on it.
+  private val UnusedQueryCache: UIO[Cache] = Cache.empty(Trace.empty)
 
 }

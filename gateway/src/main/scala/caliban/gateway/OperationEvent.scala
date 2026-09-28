@@ -7,14 +7,18 @@ import caliban.parsing.adt.{ Document, OperationType }
 /**
  * Everything observable about one operation, delivered to the `operation` phase once per request.
  *
- * `document` and `executionRequest` are absent whenever the request never reached execution: a preparation failure, a
+ * `prepared` is absent whenever the request never reached execution: a preparation failure, a
  * timeout, a shutdown, or an interruption. That traffic is still reported rather than dropped. A handler that needs
  * timing brackets it itself, keeping the start in its own `Ctx0`.
  */
 final case class OperationEvent(
-  document: Option[Document],
-  executionRequest: Option[ExecutionRequest],
-  operationType: Option[OperationType],
+  prepared: Option[OperationEvent.Prepared],
   errors: List[CalibanError],
   outcome: PhaseHooks.Outcome
-)
+) {
+  def operationType: Option[OperationType] = prepared.map(_.executionRequest.operationType)
+}
+
+object OperationEvent {
+  final case class Prepared(document: Document, executionRequest: ExecutionRequest)
+}

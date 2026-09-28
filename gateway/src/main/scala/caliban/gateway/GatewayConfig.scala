@@ -101,7 +101,10 @@ final class GatewayConfig private (
    * The fastest delay [[reloadPollInterval]] and [[reloadJitter]] can produce, which is what a source with a
    * published polling floor has to be checked against.
    */
-  private[gateway] def minimumReloadPollInterval: Duration = reloadPollInterval * (1.0 - reloadJitter)
+  private[gateway] def minimumReloadPollInterval: Duration = reloadDelay(0.0)
+
+  private[gateway] def reloadDelay(random: Double): Duration =
+    reloadPollInterval * (1.0 + (2.0 * random - 1.0) * reloadJitter)
 
   private[gateway] def diagnostics: List[String] =
     List(

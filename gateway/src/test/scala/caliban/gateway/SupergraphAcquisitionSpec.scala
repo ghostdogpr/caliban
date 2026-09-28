@@ -259,7 +259,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     //
     // Hive's CDN honours `ETag` / `If-None-Match` and answers `304` when the supergraph has not
     // changed, which is the common case on every poll. This is an optimization, not a correctness
-    // feature: fingerprint dedup in `ReloadableGatewayInterpreterImpl.cycle` already suppresses the
+    // feature: fingerprint dedup in `ReloadableGatewayInterpreterImpl.refresh` already suppresses the
     // swap. The risk being gated is therefore a silently-never-firing optimization, not a wrong
     // answer, which is exactly what a green suite hides if it only ever exercises `200`.
     // ---------------------------------------------------------------------------------------

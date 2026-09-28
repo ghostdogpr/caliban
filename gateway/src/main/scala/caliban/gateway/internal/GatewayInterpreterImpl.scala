@@ -1,111 +1,92 @@
 package caliban.gateway.internal
 
-import caliban.GraphQLResponseContext.ServerFailure
+import caliban.GraphQLResponseContext.{ markExecuted, markServerError, ServerFailure }
 import caliban.ResponseValue.StreamValue
 import caliban.Value.NullValue
-import caliban.execution.{ ExecutionRequest, Executor }
+import caliban.execution.Executor
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.gateway.internal.GatewayInterpreterImpl._
+import caliban.gateway.internal.OperationPreparation.ExecutableOperation
 import caliban.gateway.internal.execution.PlanExecutor
 import caliban.gateway.{ GatewayInterpreter, OperationEvent, PhaseHooks }
-import caliban.parsing.adt.{ Document, OperationType }
+import caliban.parsing.adt.OperationType
 import caliban._
+import zio.stm.USTM
 import zio.stream.ZStream
-import zio.{ Exit, IO, Trace, UIO, URIO, ZIO }
+import zio.{ Clock, Exit, IO, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class GatewayInterpreterImpl[-R](
   operations: OperationPreparation[R],
   executor: PlanExecutor[R],
-  control: GatewayExecutionControl[R],
-  hooks: PhaseHooks[R],
-  reservation: Option[GatewayExecutionControl.Lease] = None
-) extends GatewayInterpreter[R] {
+  control: GatewayExecutionControl,
+  subscriptions: SubscriptionControl[R],
+  hooks: PhaseHooks[R]
+) extends Admitting[R] {
+  def admit(startedAt: Long): USTM[View[R]] = control.reserve(startedAt).map(new Leased(_))
 
-  def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    runRequest(operations.check(query))
+  def rejected: View[R] = new Leased(None)
 
-  /**
-   * A single-use view. The caller must release it even if execution is interrupted before it starts.
-   */
-  def reserve(implicit trace: Trace): UIO[Option[GatewayInterpreterImpl[R]]] =
-    control.reserve.map(_.map(lease => new GatewayInterpreterImpl(operations, executor, control, hooks, Some(lease))))
+  def retireSubscriptions(implicit trace: Trace): UIO[Unit] = subscriptions.stop(SubscriptionTermination.Reload)
 
-  def retireSubscriptions(implicit trace: Trace): UIO[Unit] = control.subscriptions.stop(SubscriptionTermination.Reload)
+  private final class Leased(lease: Option[control.Lease]) extends View[R] {
+    def release(implicit trace: Trace): UIO[Unit] = ZIO.foreachDiscard(lease)(_.release)
 
-  def release(implicit trace: Trace): UIO[Unit] = ZIO.foreachDiscard(reservation)(_ => control.release)
+    def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
+      runRequest(operations.check(query))
 
-  def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
-    runRequest(operations.prepare(request).map(_.plan.render))
+    def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
+      runRequest(operations.prepare(request).mapBoth(_.error, _.plan.render))
 
-  def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
-    if (hooks.enabled) executeObservedRequest(request)
-    else
-      withLease[R, Nothing, GraphQLResponse[CalibanError]](shutdownResponse) { lease =>
-        control
-          .runWithin(lease)(operations.prepare(request).foldZIO(failPreparation, executeOperation))
-          .someOrElseZIO(timeoutResponse)
-      }
-
-  private def withLease[R1, E, A](onRejected: => ZIO[R1, E, A])(body: GatewayExecutionControl.Lease => ZIO[R1, E, A])(
-    implicit trace: Trace
-  ): ZIO[R1, E, A] =
-    reservation.fold(control.withLease(onRejected)(body))(body)
-
-  private def runRequest[R1, A](effect: ZIO[R1, CalibanError, A])(implicit trace: Trace): ZIO[R1, CalibanError, A] =
-    withLease[R1, CalibanError, A](ZIO.fail(requestShutdownError))(
-      control.runWithin(_)(effect).someOrFail(requestTimeoutError)
-    )
-
-  private def executeObservedRequest(request: GraphQLRequest)(implicit
-    trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] = {
-    def observe(effect: URIO[R, RequestResult]): URIO[R, RequestResult] =
-      hooks.execution.run(Event.Execution(request.operationName))(effect)(classifyRequestResult)
-
-    def completeFailure(response: UIO[GraphQLResponse[CalibanError]], outcome: Outcome): URIO[R, RequestResult] =
-      hooks.completion.run(Event.Completion)(response.map(RequestResult.NotExecuted(_, outcome)))(classifyRequestResult)
-
-    val timedOut = completeFailure(timeoutResponse, Outcome.Timeout)
-
-    val preparation = hooks.preparation
-      .run(Event.Preparation)(operations.prepare(request))(
-        Result.fromExit(_)(_ => Result(Outcome.Success), error => Result(preparationOutcome(error)))
-      )
-      .either
-
-    def execute(prepared: Either[CalibanError, OperationPreparation.ExecutableOperation]): URIO[R, RequestResult] =
-      prepared.fold(
-        error =>
-          hooks
-            .observeCompletion(failPreparation(error))
-            .map(RequestResult.NotExecuted(_, preparationOutcome(error))),
-        operation =>
-          executeOperation(operation).map { response =>
-            RequestResult.Executed(
-              response,
-              Outcome.fromResponse(response),
-              operation.plan.operationType,
-              operation.document,
-              operation.executionRequest
-            )
-          }
+    private def runRequest[R1, A](effect: ZIO[R1, CalibanError, A])(implicit trace: Trace): ZIO[R1, CalibanError, A] =
+      lease.fold[ZIO[R1, CalibanError, A]](ZIO.fail(requestShutdownError))(
+        _.runWithin(effect).someOrFail(requestTimeoutError)
       )
 
-    val execution = withLease(observe(completeFailure(shutdownResponse, Outcome.RequestError))) { lease =>
-      // Classify the resolved operation before opening finite-request metrics/spans, while one
-      // deadline and drain lease cover preparation and execution together.
-      control.runWithin(lease)(preparation).flatMap {
-        case None           => observe(timedOut)
-        case Some(prepared) =>
-          val response = control.runWithin(lease)(execute(prepared)).someOrElseZIO(timedOut)
-          if (prepared.fold(_ => true, _.plan.operationType != OperationType.Subscription)) observe(response)
-          else response
+    def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
+      hooks.operation.runWith(Event.Operation(request))(event => run(event.request))(operationEvent).map(_.response)
+
+    private def run(request: GraphQLRequest)(implicit trace: Trace): URIO[R, RequestResult] = {
+      def observe(effect: URIO[R, RequestResult]): URIO[R, RequestResult] =
+        hooks.execution.run(Event.Execution(request.operationName))(effect)(classifyRequestResult)
+
+      def failed(error: CalibanError, mark: UIO[Unit], outcome: Outcome): URIO[R, RequestResult] =
+        hooks.completion.run(Event.Completion)(
+          mark.as(RequestResult(GraphQLResponse(NullValue, error :: Nil), OperationEvent(None, error :: Nil, outcome)))
+        )(classifyRequestResult)
+
+      val timedOut = failed(requestTimeoutError, markServerError(ServerFailure.TimedOut), Outcome.Timeout)
+
+      def executed(operation: ExecutableOperation)(execute: URIO[R, GraphQLResponse[CalibanError]]) =
+        (markExecuted *> execute).map { response =>
+          val prepared = OperationEvent.Prepared(operation.document, operation.executionRequest)
+          RequestResult(response, OperationEvent(Some(prepared), response.errors, Outcome.fromResponse(response)))
+        }
+
+      val preparation = hooks.preparation
+        .run(Event.Preparation)(operations.prepare(request))(
+          Result.fromExit(_)(_ => Result(Outcome.Success), failure => Result(failure.outcome))
+        )
+        .either
+
+      val shutdown = failed(requestShutdownError, markServerError(ServerFailure.Unavailable), Outcome.RequestError)
+
+      lease.fold(observe(shutdown)) { lease =>
+        def within(effect: URIO[R, RequestResult]) = lease.runWithin(effect).someOrElseZIO(timedOut)
+        // Classify the resolved operation before opening finite-request metrics/spans, while one
+        // deadline and drain lease cover preparation and execution together.
+        lease.runWithin(preparation).flatMap {
+          case None                   => observe(timedOut)
+          case Some(Left(failure))    => observe(within(failed(failure.error, failure.mark, failure.outcome)))
+          case Some(Right(operation)) =>
+            operation.plan.operationType match {
+              case OperationType.Subscription => within(executed(operation)(subscribe(operation)))
+              case _                          =>
+                val execute = executor.execute(operation.plan, operation.executionRequest, operation.request)
+                observe(within(executed(operation)(execute)))
+            }
+        }
       }
     }
-
-    hooks.operation
-      .run(Event.Operation(request = request))(execution)(operationEvent)
-      .map(_.response)
   }
 
   /**
@@ -114,92 +95,59 @@ private[gateway] final class GatewayInterpreterImpl[-R](
    */
   private def operationEvent(exit: Exit[Nothing, RequestResult]): OperationEvent =
     exit match {
-      case Exit.Success(RequestResult.Executed(response, outcome, operation, document, execution)) =>
-        OperationEvent(Some(document), Some(execution), Some(operation), response.errors, outcome)
-      case Exit.Success(RequestResult.NotExecuted(response, outcome))                              =>
-        OperationEvent(None, None, None, response.errors, outcome)
-      case Exit.Failure(cause)                                                                     =>
-        OperationEvent(None, None, None, Nil, if (cause.isInterrupted) Outcome.Cancelled else Outcome.InternalError)
+      case Exit.Success(result) => result.event
+      case Exit.Failure(cause)  => OperationEvent(None, Nil, Outcome.fromCause(cause))
     }
 
-  private def failPreparation(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
-    (if (OperationPreparation.isInternalFailure(error))
-       GraphQLResponseContext.markServerError(ServerFailure.Internal)
-     else GraphQLResponseContext.markRequestError(error)) *> Executor.fail(error)
+  private def subscribe(operation: ExecutableOperation)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
+    (for {
+      subscription <- executor
+                        .subscription(operation.plan, operation.request)
+                        .mapError(_ => CalibanError.ExecutionError("Subscription headers could not be prepared."))
+      env          <- ZIO.environment[R]
+      headers      <- IncomingRequestHeaders.get
+    } yield {
+      val events = ZStream.unwrapScoped(
+        IncomingRequestHeaders
+          .locallyScoped(headers)
+          .as(subscriptions.stream(subscription.open)(subscription.process).provideEnvironment(env))
+      )
+      GraphQLResponse(StreamValue(events.map(_.toResponseValue)), Nil)
+    }).catchAll(Executor.fail)
 
-  private def executeOperation(operation: OperationPreparation.ExecutableOperation)(implicit
-    trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext.markExecuted *> (operation.plan.operationType match {
-      case OperationType.Subscription =>
-        (for {
-          frozen  <- executor
-                       .forSubscription(operation.plan)
-                       .mapError(_ => CalibanError.ExecutionError("Subscription headers could not be prepared."))
-          env     <- ZIO.environment[R]
-          headers <- IncomingRequestHeaders.get
-        } yield {
-          val events = ZStream.unwrapScoped(
-            IncomingRequestHeaders
-              .locallyScoped(headers)
-              .as(
-                control.subscriptions
-                  .stream(frozen.subscribe(operation.plan, operation.request))(response =>
-                    frozen.executeEvent(operation.plan, response)
-                  )
-                  .provideEnvironment(env)
-              )
-          )
-          GraphQLResponse(StreamValue(events.map(_.toResponseValue)), Nil)
-        }).catchAll(failPreparation)
-      case _                          =>
-        executor.execute(operation.plan, operation.executionRequest, operation.request)
-    })
-
-  private def preparationOutcome(error: CalibanError): Outcome =
-    if (OperationPreparation.isInternalFailure(error)) Outcome.InternalError else Outcome.RequestError
-
-  private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result =
-    Result.fromExit(exit)(
-      {
-        case RequestResult.Executed(response, outcome, operation, _, _) =>
-          Result(outcome, Some(operation), response.errors.size)
-        case RequestResult.NotExecuted(response, outcome)               => Result(outcome, None, response.errors.size)
-      },
-      _ => Result(Outcome.InternalError)
-    )
+  private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result = {
+    val event = operationEvent(exit)
+    Result(event.outcome, event.operationType, event.errors.size)
+  }
 
 }
 
 private[gateway] object GatewayInterpreterImpl {
   private val requestTimeoutError = CalibanError.ExecutionError("Gateway request timed out.")
 
-  val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
+  private val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
 
-  def timeoutResponse(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext
-      .markServerError(ServerFailure.TimedOut)
-      .as(GraphQLResponse(NullValue, requestTimeoutError :: Nil))
+  private final case class RequestResult(response: GraphQLResponse[CalibanError], event: OperationEvent)
 
-  def shutdownResponse(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext
-      .markServerError(ServerFailure.Unavailable)
-      .as(GraphQLResponse(NullValue, requestShutdownError :: Nil))
-
-  private sealed trait RequestResult {
-    def response: GraphQLResponse[CalibanError]
+  trait View[-R] extends GatewayInterpreter[R] {
+    def release(implicit trace: Trace): UIO[Unit]
   }
 
-  private object RequestResult {
-    final case class Executed(
-      response: GraphQLResponse[CalibanError],
-      outcome: Outcome,
-      operationType: OperationType,
-      document: Document,
-      executionRequest: ExecutionRequest
-    ) extends RequestResult
+  abstract class Admitting[-R] extends GatewayInterpreter[R] {
+    def admit(startedAt: Long): USTM[View[R]]
 
-    final case class NotExecuted(response: GraphQLResponse[CalibanError], outcome: Outcome) extends RequestResult
+    def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] = use(_.check(query))
+
+    def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] = use(_.explain(request))
+
+    def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
+      use(_.executeRequest(request))
+
+    /**
+     * A single-use view. It holds the lease only while `f` runs, so it must not escape `f`.
+     */
+    def use[R0, E, A](f: View[R] => ZIO[R0, E, A])(implicit trace: Trace): ZIO[R0, E, A] =
+      ZIO.acquireReleaseWith(Clock.nanoTime.flatMap(admit(_).commit))(_.release)(f)
   }
 
 }

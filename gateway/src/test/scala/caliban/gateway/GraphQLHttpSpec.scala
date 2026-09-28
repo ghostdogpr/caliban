@@ -32,7 +32,8 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
     http: GatewayHttpClient,
     config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
     maxResponseDepth: Int = RemoteSubgraphExecutor.DefaultMaxResponseDepth,
-    remoteErrorMessages: Boolean = false
+    remoteErrorMessages: Boolean = false,
+    hooks: PhaseHooks[R] = PhaseHooks.empty
   ): RemoteSubgraphExecutor[R] =
     new RemoteSubgraphExecutor(
       "remote",
@@ -41,7 +42,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       config,
       maxResponseDepth,
       None,
-      PhaseHooks.empty,
+      hooks,
       remoteErrorMessages
     )
 
@@ -211,6 +212,30 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         calls == 0
       )
     },
+    test("reports no response size for an oversized body, with or without Content-Length") {
+      val config = RemoteGraphQLConfig.default.withExecution(_.withMaxResponseBytes(32))
+      val body   = s"""{"data":{"value":"${"x" * 100}"}}"""
+      for {
+        http     <- GatewayHttpClient.make
+        sizes    <- Ref.make(Vector.empty[Option[Long]])
+        hooks     = PhaseHooks.attempt(
+                      PhaseHandler.outgoing[Any, PhaseHooks.Event.Attempt, PhaseHooks.Result]((_, result) =>
+                        sizes.update(_ :+ result.responseBytes)
+                      )
+                    )
+        known    <- fixed(Status.Ok, Some("application/graphql-response+json"), body)
+        chunked  <- streamingEndpoint(ZStream.fromIterable(body.getBytes("UTF-8")))
+        results  <- ZIO.foreach(List(known, chunked))(
+                      unmanagedRemoteSubgraphExecutor(_, http, config, hooks = hooks)
+                        .execute(request, OperationType.Query)
+                        .either
+                    )
+        observed <- sizes.get
+      } yield assertTrue(
+        results == List(Left(ResponseTooLarge), Left(ResponseTooLarge)),
+        observed == Vector(None, None)
+      )
+    },
     test("drops request extensions and masks protocol details through GatewayInterpreter") {
       for {
         captured <- Promise.make[Nothing, (GraphQLRequest, Headers)]
@@ -335,18 +360,18 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         )
 
       for {
-        remote <- stub(okResponse)
-        exit   <- Gateway
-                    .compose(
-                      Subgraph.graphql("first", remote.endpoint, firstPolicy),
-                      Subgraph.graphql("second", remote.endpoint, valueInputSchema, secondPolicy)
-                    )
-                    .interpreter
-                    .exit
-        sent   <- remote.requests.get
-        errors  = buildDiagnostics(exit)
+        remote    <- stub(okResponse)
+        gateway    = Gateway.compose(
+                       Subgraph.graphql("first", remote.endpoint, firstPolicy),
+                       Subgraph.graphql("second", remote.endpoint, valueInputSchema, secondPolicy)
+                     )
+        exit      <- gateway.interpreter.exit
+        reloading <- gateway.reloadable.exit
+        sent      <- remote.requests.get
+        errors     = buildDiagnostics(exit)
       } yield assertTrue(
         sent.isEmpty,
+        buildDiagnostics(reloading) == errors,
         errors.count(_.startsWith("[first]")) == 5,
         errors.count(_.startsWith("[second]")) == 3,
         errors.exists(_.contains("timeout must be finite and positive")),

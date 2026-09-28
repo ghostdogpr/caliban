@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.{ GraphQLRequest, GraphQLResponseContext }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext }
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
@@ -15,40 +15,46 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     scope: Scope.Closeable,
     requestTimeout: Duration = 1.second,
     drainTimeout: Duration = 1.second
-  ): UIO[GatewayExecutionControl[Any]] =
-    scope.extend(
-      GatewayExecutionControl.make(
-        GatewaySubscriptionConfig.default,
-        PhaseHooks.empty,
-        requestTimeout,
-        drainTimeout
-      )
+  ): UIO[GatewayExecutionControl] =
+    scope.extend(GatewayExecutionControl.make(requestTimeout, drainTimeout))
+
+  private def withLease[A](control: GatewayExecutionControl)(onRejected: UIO[A])(
+    body: control.Lease => UIO[A]
+  ): UIO[A] =
+    ZIO.acquireReleaseWith(Clock.nanoTime.flatMap(control.reserve(_).commit))(ZIO.foreachDiscard(_)(_.release))(
+      _.fold(onRejected)(body)
     )
 
-  private def runRequest[A](control: GatewayExecutionControl[Any])(effect: UIO[A])(onTimeout: UIO[A]): UIO[A] =
-    control.withLease[Any, Nothing, A](ZIO.interrupt)(control.runWithin(_)(effect).someOrElseZIO(onTimeout))
+  private def runRequest[A](control: GatewayExecutionControl)(effect: UIO[A])(onTimeout: UIO[A]): UIO[A] =
+    withLease(control)(ZIO.interrupt)(_.runWithin(effect).someOrElseZIO(onTimeout))
 
-  private def awaitDrain(control: GatewayExecutionControl[Any]): UIO[Unit] =
-    control.reserve.flatMap {
-      case Some(_) => control.release.as(false)
-      case None    => ZIO.succeed(true)
-    }.repeatUntil(identity).unit
+  private def awaitDrain(control: GatewayExecutionControl): UIO[Unit] =
+    withLease(control)(ZIO.succeed(true))(_ => ZIO.succeed(false)).repeatUntil(identity).unit
+
+  private def withReservation[A](runtime: GatewayInterpreterImpl[Any])(f: GatewayInterpreter[Any] => UIO[A]): UIO[A] =
+    runtime.use(f)
+
+  private def isRejected(runtime: GatewayInterpreterImpl[Any]): UIO[Boolean] =
+    runtime.check("{ value }").either.map(_.left.exists(_.getMessage.contains("Gateway is shutting down.")))
 
   private def awaitDrain(runtime: GatewayInterpreterImpl[Any]): UIO[Unit] =
-    runtime.reserve.flatMap {
-      case Some(lease) => lease.release.as(false)
-      case None        => ZIO.succeed(true)
-    }.repeatUntil(identity).unit
+    isRejected(runtime).repeatUntil(identity).unit
 
   def spec = suite("RuntimeLifecycleSpec")(
     test("executes a reserved request when draining starts before execution") {
       for {
         scope   <- Scope.make
         runtime <- scope.extend(localGateway(ZIO.succeed("accepted")).build)
-        request <- runtime.reserve.someOrFailException
+        leased  <- Promise.make[Nothing, Unit]
+        proceed <- Promise.make[Nothing, Unit]
+        request <- withReservation[GraphQLResponse[CalibanError]](runtime)(view =>
+                     leased.succeed(()) *> proceed.await *> view.execute("{ value }")
+                   ).fork
+        _       <- leased.await
         closing <- scope.close(Exit.unit).fork
         _       <- awaitDrain(runtime)
-        result  <- request.execute("{ value }").ensuring(request.release)
+        _       <- proceed.succeed(())
+        result  <- request.join
         _       <- closing.join
       } yield assertTrue(
         result.errors.isEmpty,
@@ -59,13 +65,15 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       for {
         scope    <- Scope.make
         runtime  <- scope.extend(localGateway(ZIO.never).build)
-        request  <- runtime.reserve.someOrFailException
+        leased   <- Promise.make[Nothing, Unit]
+        request  <- withReservation(runtime)(_ => leased.succeed(()) *> ZIO.never).fork
+        _        <- leased.await
         closing  <- scope.close(Exit.unit).fork
         _        <- awaitDrain(runtime)
-        _        <- request.release
+        _        <- request.interrupt
         _        <- closing.join
-        rejected <- runtime.reserve
-      } yield assertTrue(rejected.isEmpty)
+        rejected <- isRejected(runtime)
+      } yield assertTrue(rejected)
     },
     test("applies one deadline to operation resolution before source execution") {
       for {

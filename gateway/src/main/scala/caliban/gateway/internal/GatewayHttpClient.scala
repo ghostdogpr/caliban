@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import caliban.gateway.RemoteGraphQLConfig
-import caliban.gateway.internal.RemoteTransport.{ BoundedBody, GraphQLResponseJson, Json }
+import caliban.gateway.internal.RemoteTransport.{ GraphQLResponseJson, Json }
 import zio.{ durationInt, Scope, Task, Trace, ZIO, ZLayer }
 import zio.http._
 import zio.http.netty.NettyConfig
@@ -20,7 +20,7 @@ private[gateway] final class GatewayHttpClient(client: Client) {
     send(Request.get(url), headers, maxResponseBytes)
 
   def stream(request: Request, headers: List[Header])(implicit trace: Trace): ZIO[Scope, Throwable, Response] =
-    client(withHeaders(request, headers))
+    client(request.addHeaders(joinDuplicates(headers)))
 
   def socket(url: URL, headers: List[Header], app: WebSocketApp[Any])(implicit
     trace: Trace
@@ -29,17 +29,16 @@ private[gateway] final class GatewayHttpClient(client: Client) {
 
   private def send(request: Request, headers: List[Header], maxResponseBytes: Int)(implicit trace: Trace): Task[Reply] =
     ZIO.scoped {
-      client(withHeaders(request, headers)).flatMap { response =>
+      client(request.addHeaders(joinDuplicates(headers))).flatMap { response =>
+        def reply(body: Option[Array[Byte]]) = Reply(response.status, response.headers, body)
         response.header(Header.ContentLength).map(_.length) match {
-          case Some(length) if length > maxResponseBytes =>
-            ZIO.succeed(Reply(response, BoundedBody(Array.empty, limitExceeded = true)))
-          case Some(_)                                   =>
-            response.body.asArray.map(bytes => Reply(response, BoundedBody(bytes, limitExceeded = false)))
+          case Some(length) if length > maxResponseBytes => ZIO.succeed(reply(None))
+          case Some(_)                                   => response.body.asArray.map(bytes => reply(Some(bytes)))
           case None                                      =>
             response.body.asStream
               .take(maxResponseBytes.toLong + 1L)
               .runCollect
-              .map(bytes => Reply(response, BoundedBody(bytes.toArray, bytes.length > maxResponseBytes)))
+              .map(bytes => reply(if (bytes.length > maxResponseBytes) None else Some(bytes.toArray)))
         }
       }
     }
@@ -49,9 +48,9 @@ private[gateway] object GatewayHttpClient {
   def make(implicit trace: Trace): ZIO[Scope, Throwable, GatewayHttpClient] =
     layer.build.map(env => new GatewayHttpClient(env.get[Client]))
 
-  final case class Reply(response: Response, body: BoundedBody) {
-    def status: Status              = response.status
-    def contentType: Option[String] = response.rawHeader(Header.ContentType)
+  // `body` is None when the response exceeds maxResponseBytes.
+  final case class Reply(status: Status, headers: Headers, body: Option[Array[Byte]]) {
+    def contentType: Option[String] = headers.rawHeader(Header.ContentType)
   }
 
   val jsonContentType =
@@ -62,26 +61,20 @@ private[gateway] object GatewayHttpClient {
     Header.Custom("Accept", s"$GraphQLResponseJson, $Json;q=0.9")
   )
 
-  private def withHeaders(request: Request, headers: List[Header]): Request =
-    if (headers.isEmpty) request else request.addHeaders(joinDuplicates(headers))
-
   // The zio-http client keeps only the last line of a repeated request header name.
-  private def joinDuplicates(headers: List[Header]): Headers =
-    headers match {
-      case Nil | _ :: Nil => Headers.fromIterable(headers)
-      case _              =>
-        val joined = new java.util.LinkedHashMap[String, (String, java.lang.StringBuilder)]
-        headers.foreach { header =>
-          val key   = RemoteGraphQLConfig.lowercaseHeaderName(header.headerName)
-          val known = joined.get(key)
-          if (known eq null)
-            joined.put(key, (RemoteGraphQLConfig.headerName(header), new java.lang.StringBuilder(header.renderedValue)))
-          else known._2.append(if (key == "cookie") "; " else ", ").append(header.renderedValue)
-        }
-        val result = List.newBuilder[Header]
-        joined.values.forEach { case (name, value) => result += Header.Custom(name, value.toString) }
-        Headers.fromIterable(result.result())
+  private def joinDuplicates(headers: List[Header]): Headers = {
+    val joined = new java.util.LinkedHashMap[String, (String, java.lang.StringBuilder)]
+    headers.foreach { header =>
+      val key   = RemoteGraphQLConfig.lowercaseHeaderName(header.headerName)
+      val known = joined.get(key)
+      if (known eq null)
+        joined.put(key, (RemoteGraphQLConfig.headerName(header), new java.lang.StringBuilder(header.renderedValue)))
+      else known._2.append(if (key == "cookie") "; " else ", ").append(header.renderedValue)
     }
+    val result = List.newBuilder[Header]
+    joined.values.forEach { case (name, value) => result += Header.Custom(name, value.toString) }
+    Headers.fromIterable(result.result())
+  }
 
   private val layer: ZLayer[Any, Throwable, Client] = {
     val config = ZClient.Config.default.copy(

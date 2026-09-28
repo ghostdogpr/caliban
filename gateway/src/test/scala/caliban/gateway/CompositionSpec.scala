@@ -255,7 +255,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
         assertTrue(result.toOption.exists { graph =>
-          val labels = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).keysIterator.next())
+          val labels = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).iterator.next())
           (0 until 64).forall { mask =>
             val selected = graph.resolveOverrides(
               labels.zipWithIndex.collect { case (label, bit) if (mask & (1 << bit)) != 0 => label }.toSet

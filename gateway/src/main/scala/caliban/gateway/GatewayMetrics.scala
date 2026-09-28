@@ -74,7 +74,7 @@ object GatewayMetrics {
             .tagged("reason", reason)
             .increment *>
             subscriptionLifetime.update(seconds(duration)) *>
-            subscriptionOverflow.increment.whenDiscard(reason == "SUBSCRIPTION_OVERFLOW")
+            subscriptionOverflow.increment.whenDiscard(reason == internal.SubscriptionTermination.Overflow.code)
         }) ++
       PhaseHooks.subscriptionSetup(trackPhaseDuration(subscriptionSetup)) ++
       PhaseHooks

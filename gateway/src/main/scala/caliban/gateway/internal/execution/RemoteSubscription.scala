@@ -2,7 +2,7 @@ package caliban.gateway.internal.execution
 
 import caliban._
 import caliban.gateway.{ traverseOption, RemoteSubscriptionConfig }
-import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport, SubscriptionBuffer, SubscriptionTermination }
+import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport, SubscriptionTermination }
 import caliban.ResponseValue.ListValue
 import caliban.ws.Protocol.GraphQLWS
 import caliban.ws.Protocol.GraphQLWS.Ops
@@ -32,47 +32,26 @@ private[gateway] final class RemoteSubscription(
   def open(headers: List[Header], request: GraphQLRequest, body: Array[Byte])(implicit
     trace: Trace
   ): ZIO[Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
-    for {
-      queue    <- SubscriptionBuffer.make[GraphQLResponse[CalibanError]](BufferSize)
-      finished <- Promise.make[Throwable, Nothing]
-      ready    <- Promise.make[Throwable, Unit]
-      emit      = (response: GraphQLResponse[CalibanError]) =>
-                    queue
-                      .offer(response)
-                      .flatMap(offered => ZIO.fail(SubscriptionTermination.Overflow).unless(offered).unit)
-      run       = config.transport match {
-                    case RemoteSubscriptionConfig.WebSocket =>
-                      val wsTarget = target.scheme match {
-                        case Some(Scheme.HTTPS) => target.scheme(Scheme.WSS)
-                        case Some(Scheme.HTTP)  => target.scheme(Scheme.WS)
-                        case _                  => target
-                      }
-                      runWebSocket(wsTarget, headers, body, ready, emit)
-                    case RemoteSubscriptionConfig.Sse(get)  =>
-                      runSse(target, headers, request, body, get, ready, emit)
-                  }
-      _        <- run
-                    .mapError(SubscriptionTermination.fromFailure)
-                    .exit
-                    .flatMap {
-                      case Exit.Success(_)     => queue.end
-                      case Exit.Failure(cause) => ready.failCause(cause) *> finished.failCause(cause).unit
-                    }
-                    .forkScoped
-      _        <- ready.await.timeoutFail(SubscriptionTermination.SetupTimeout)(config.connectionTimeout)
-    } yield
-    // queue.end drains buffered events on success; only a source failure interrupts the consumer immediately.
-    queue.stream.interruptWhen(finished.await)
+    (config.transport match {
+      case RemoteSubscriptionConfig.WebSocket =>
+        val wsTarget = target.scheme match {
+          case Some(Scheme.HTTPS) => target.scheme(Scheme.WSS)
+          case Some(Scheme.HTTP)  => target.scheme(Scheme.WS)
+          case _                  => target
+        }
+        openWebSocket(wsTarget, headers, body)
+      case RemoteSubscriptionConfig.Sse(get)  =>
+        openSse(target, headers, request, body, get)
+    })
+      .timeoutFail(SubscriptionTermination.SetupTimeout)(config.connectionTimeout)
 
-  private def runSse(
+  private def openSse(
     target: URL,
     headers: List[Header],
     request: GraphQLRequest,
     body: Array[Byte],
-    get: Boolean,
-    ready: Promise[Throwable, Unit],
-    emit: GraphQLResponse[CalibanError] => Task[Unit]
-  )(implicit trace: Trace): Task[Unit] = {
+    get: Boolean
+  )(implicit trace: Trace): ZIO[Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
     val httpRequest =
       if (get) {
         val params =
@@ -83,39 +62,32 @@ private[gateway] final class RemoteSubscription(
         Request.get(target.addQueryParams(QueryParams("query" -> request.query.getOrElse(""), params: _*)))
       } else
         Request.post(target, Body.fromArray(body)).addHeader(GatewayHttpClient.jsonContentType)
-    ZIO.scoped {
-      http
-        .stream(httpRequest.addHeader(Header.Accept(MediaType.text.`event-stream`)), headers)
-        .flatMap { response =>
-          val mediaType = RemoteTransport.mediaType(response.rawHeader(Header.ContentType))
-          if (!response.status.isSuccess || !mediaType.contains("text/event-stream"))
-            ZIO.fail(SubscriptionTermination.Source)
-          else {
-            val parser = new SseDecoder
-            ready.succeed(()) *> response.body.asStream
+    http
+      .stream(httpRequest.addHeader(Header.Accept(MediaType.text.`event-stream`)), headers)
+      .flatMap { response =>
+        val mediaType = RemoteTransport.mediaType(response.rawHeader(Header.ContentType))
+        if (!response.status.isSuccess || !mediaType.contains("text/event-stream"))
+          ZIO.fail(SubscriptionTermination.Source)
+        else {
+          val parser = new SseDecoder
+          ZIO.succeed(
+            response.body.asStream
               .mapChunks(parser.feedAll)
               .mapZIO(ZIO.fromEither(_))
               .takeWhile(_.name != SseEvent.Complete)
-              .runForeach {
+              .mapZIO {
                 case SseEvent(SseEvent.Next, value) =>
-                  ZIO
-                    .fromEither(decode(value.getBytes(UTF_8)))
-                    .mapError(_ => SubscriptionTermination.Source)
-                    .flatMap(emit)
+                  ZIO.fromEither(decode(value.getBytes(UTF_8))).mapError(_ => SubscriptionTermination.Source)
                 case _                              => ZIO.fail(SubscriptionTermination.Source)
-              } *> ZIO.fail(SubscriptionTermination.Source).unless(parser.isComplete).unit
-          }
+              } ++ ZStream.execute(ZIO.fail(SubscriptionTermination.Source).unless(parser.isComplete))
+          )
         }
-    }
+      }
   }
 
-  private def runWebSocket(
-    endpoint: URL,
-    headers: List[Header],
-    body: Array[Byte],
-    ready: Promise[Throwable, Unit],
-    emit: GraphQLResponse[CalibanError] => Task[Unit]
-  )(implicit trace: Trace): Task[Unit] = ZIO.scoped {
+  private def openWebSocket(endpoint: URL, headers: List[Header], body: Array[Byte])(implicit
+    trace: Trace
+  ): ZIO[Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
     for {
       connected <- Promise.make[Nothing, WebSocketChannel]
       app        = Handler
@@ -153,44 +125,39 @@ private[gateway] final class RemoteSubscription(
       payload   <- ZIO.attempt(readFromArray[InputValue](body))
       _         <- send(GraphQLWSInput(Ops.Subscribe, Some(SubscriptionId), Some(payload)))
       _         <- ZIO.addFinalizer(send(GraphQLWSInput(Ops.Complete, Some(SubscriptionId), None)).ignore)
-      _         <- ready.succeed(())
       heartbeat  = (Clock.sleep(config.keepAliveInterval) *> Promise.make[Nothing, Unit].flatMap { received =>
                      pong.set(Some(received)) *> send(GraphQLWSInput(Ops.Ping, None, None)) *>
                        received.await.timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout) *> pong
                          .set(None)
                    }).forever
-      receive    = read.flatMap { message =>
-                     if (message.`type` == Ops.Ping || message.`type` == Ops.Pong)
-                       control(message).as(true)
-                     else if (!message.id.contains(SubscriptionId)) ZIO.fail(SubscriptionTermination.Source)
-                     else
-                       message.`type` match {
-                         case Ops.Next     =>
-                           message.payload match {
-                             case Some(value) =>
-                               ZIO
-                                 .fromEither(decodeValue(value))
-                                 .mapError(_ => SubscriptionTermination.Source)
-                                 .flatMap(emit)
-                                 .as(true)
-                             case None        => ZIO.fail(SubscriptionTermination.Source)
-                           }
-                         case Ops.Complete => ZIO.succeed(false)
-                         case Ops.Error    =>
-                           message.payload match {
-                             case Some(ListValue(values)) if values.nonEmpty =>
-                               traverseOption(values)(CalibanError.fromResponseValue) match {
-                                 case Some(errors) => ZIO.fail(RemoteError.sanitize(errors.head, remoteErrorMessages))
-                                 case None         => ZIO.fail(SubscriptionTermination.Source)
-                               }
-                             case _                                          => ZIO.fail(SubscriptionTermination.Source)
-                           }
-                         case _            => ZIO.fail(SubscriptionTermination.Source)
-                       }
-                   }.repeatWhile(identity).unit
-      _         <- receive.raceFirst(heartbeat)
-    } yield ()
-  }
+    } yield ZStream
+      .repeatZIO(read)
+      .takeWhile(message => message.`type` != Ops.Complete || !message.id.contains(SubscriptionId))
+      .mapZIO[Any, Throwable, Option[GraphQLResponse[CalibanError]]] { message =>
+        if (message.`type` == Ops.Ping || message.`type` == Ops.Pong) control(message).as(None)
+        else if (!message.id.contains(SubscriptionId)) ZIO.fail(SubscriptionTermination.Source)
+        else
+          message.`type` match {
+            case Ops.Next  =>
+              message.payload match {
+                case Some(value) =>
+                  ZIO.fromEither(decodeValue(value)).mapBoth(_ => SubscriptionTermination.Source, Some(_))
+                case None        => ZIO.fail(SubscriptionTermination.Source)
+              }
+            case Ops.Error =>
+              message.payload match {
+                case Some(ListValue(values)) =>
+                  traverseOption(values)(CalibanError.fromResponseValue) match {
+                    case Some(error :: _) => ZIO.fail(RemoteError.sanitize(error, remoteErrorMessages))
+                    case _                => ZIO.fail(SubscriptionTermination.Source)
+                  }
+                case _                       => ZIO.fail(SubscriptionTermination.Source)
+              }
+            case _         => ZIO.fail(SubscriptionTermination.Source)
+          }
+      }
+      .collectSome
+      .interruptWhen(heartbeat)
 
   private def awaitHandshake(socket: WebSocketChannel)(implicit trace: Trace): Task[Unit] =
     socket.receive.flatMap {
@@ -316,9 +283,8 @@ private[gateway] object RemoteSubscription {
 
   private val NoEvent: Either[Throwable, Option[SseEvent]] = Right(None)
 
-  private[gateway] final val BufferSize = 32
-  private final val SubscriptionId      = "1"
-  private final val LineFeed            = '\n'
-  private final val CarriageReturn      = '\r'
-  private final val ByteOrderMark       = "\uFEFF"
+  private final val SubscriptionId = "1"
+  private final val LineFeed       = '\n'
+  private final val CarriageReturn = '\r'
+  private final val ByteOrderMark  = "\uFEFF"
 }

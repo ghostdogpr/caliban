@@ -183,11 +183,10 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
           def active(field: String) =
             graph.progressiveRoutes
               .get(FieldCoordinate("Widget", field))
-              .map(r => r.progressive -> r.sources.map(_.name))
+              .map(r => r.label -> r.sources.map(_.name))
 
-          val percent =
-            ComposedGraph.ProgressiveOverride(ComposedGraph.OverrideLabel("percent(25)"), Some(BigDecimal(25)))
-          val flag    = ComposedGraph.ProgressiveOverride(ComposedGraph.OverrideLabel("myFlag"), None)
+          val percent = ComposedGraph.OverrideLabel.Percent("percent(25)", BigDecimal(25))
+          val flag    = ComposedGraph.OverrideLabel.Custom("myFlag")
 
           assertTrue(
             owners("price").contains(List("b")),
@@ -199,8 +198,7 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
             // declares the field and the route is unconditional.
             owners("weight").contains(List("a")),
             active("weight").isEmpty,
-            graph.progressiveOverrides(Set("price", "colour")) ==
-              Map(percent.label -> Some(BigDecimal(25)), flag.label -> None)
+            graph.progressiveOverrides(Set("price", "colour")) == Set[ComposedGraph.OverrideLabel](percent, flag)
           )
         }
       }

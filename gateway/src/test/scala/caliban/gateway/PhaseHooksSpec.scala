@@ -210,12 +210,15 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.errors.map(_.msg) == List("Not found."),
         preparation == Vector(PhaseHooks.Outcome.RequestError),
+        completed.collect { case (Event.Completion, result) => result.outcome } == Vector(
+          PhaseHooks.Outcome.RequestError
+        ),
         completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.RequestError),
         !completed.exists(_._2.outcome == PhaseHooks.Outcome.InternalError),
         after == before + 1L,
         events.map(_.outcome) == Vector(PhaseHooks.Outcome.RequestError),
         events.flatMap(_.errors.map(_.msg)) == Vector("Not found."),
-        events.forall(event => event.document.isEmpty && event.executionRequest.isEmpty && event.operationType.isEmpty),
+        events.forall(event => event.prepared.isEmpty && event.operationType.isEmpty),
         sequence == Vector("direct-in", "direct-out"),
         sent.isEmpty
       )
@@ -248,7 +251,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         observed.lastOption.contains(Event.Completion),
         completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.Timeout),
         observations.map(_.outcome) == Vector(PhaseHooks.Outcome.Timeout),
-        observations.forall(event => event.document.isEmpty && event.executionRequest.isEmpty),
+        observations.forall(_.prepared.isEmpty),
         observations.forall(_.operationType.isEmpty),
         sequence == Vector("direct-in", "direct-out")
       )
@@ -321,7 +324,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         response.errors.isEmpty,
         observed.map(event => event.operationType -> event.outcome) ==
           Vector(Some(OperationType.Query) -> PhaseHooks.Outcome.Success),
-        observed.forall(event => event.document.isDefined && event.executionRequest.isDefined),
+        observed.forall(_.prepared.isDefined),
         scoped == observed,
         //  "scoped-out" precedes "scope-closed", i.e. the scope outlives the handler's own outgoing side.
         // "direct-out" precedes "scoped-out" for the same reason: a scoped handler nests the ones combined after it.
@@ -343,9 +346,20 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         sequence <- order.get
       } yield assertTrue(
         events.map(_.outcome) == Vector(PhaseHooks.Outcome.Cancelled),
-        events.forall(_.document.isEmpty),
+        events.forall(_.prepared.isEmpty),
         sequence == Vector("direct-in", "direct-out")
       )
+    },
+    test("runs the request an operation hook's incoming side produces") {
+      val rewriting = PhaseHooks.operation(
+        PhaseHandler.incoming[Any, Event.Operation, Nothing](event =>
+          ZIO.succeed(event.copy(request = event.request.copy(query = Some("{ value }"))))
+        )
+      )
+      for {
+        runtime  <- localGateway(ZIO.succeed("rewritten")).withPhaseHooks(rewriting).interpreter
+        response <- runtime.execute("{ missing }")
+      } yield assertTrue(response.errors.isEmpty, response.data.toString == """{"value":"rewritten"}""")
     },
     test("executes the outgoing phase on interrupt of effect") {
       for {

@@ -10,6 +10,7 @@ import caliban.gateway.internal.planning.{ CandidateSearch, OperationCost, Opera
 import caliban.gateway.Subgraph.{ SchemaInput, Source }
 import caliban.introspection.Introspector
 import caliban.parsing.adt.Document
+import caliban.rendering.DocumentRenderer
 import zio._
 
 /**
@@ -35,27 +36,11 @@ final class Gateway[-R] private[gateway] (
    * Pinned schemas and local graphs remain fixed. Configured limits apply separately to each generation.
    */
   def reloadable(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
-    validate(config.diagnostics ::: reloadDiagnostics) *>
+    validate(config.diagnostics ::: buildDiagnostics ::: reloadDiagnostics) *>
       buildInChildScope(
-        openHttpClient.flatMap { http =>
-          val acquire = origin match {
-            case Origin.Composed(subgraphs)        => Exit.succeed(acquireSubgraphSnapshot(subgraphs, http))
-            case Origin.FromSupergraph(supergraph) =>
-              SupergraphAcquisition
-                .make(supergraph.source, http)
-                .map(acquireSupergraphSnapshot(supergraph, _))
-          }
-
-          acquire.flatMap(
-            ReloadableGatewayInterpreterImpl.make(
-              _,
-              config.reloadPollInterval,
-              config.reloadJitter,
-              config.drainTimeout,
-              http
-            )
-          )
-        }
+        openHttpClient
+          .flatMap(acquisition)
+          .flatMap(ReloadableGatewayInterpreterImpl.make(_, config.reloadDelay, config.drainTimeout))
       )
 
   /**
@@ -77,16 +62,25 @@ final class Gateway[-R] private[gateway] (
   def @@[R1 <: R](hooks: PhaseHooks[R1]): Gateway[R1] =
     withPhaseHooks(hooks)
 
-  private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
-    val originDiagnostics = origin match {
+  private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
+    validate(config.diagnostics ::: buildDiagnostics) *>
+      buildInChildScope(openHttpClient.flatMap(acquisition).flatten.flatMap(_.build))
+
+  private def acquisition(
+    http: GatewayHttpClient
+  )(implicit trace: Trace): UIO[IO[GatewayBuildError, Gateway.Snapshot[R]]] =
+    origin match {
+      case Origin.Composed(subgraphs)        => Exit.succeed(acquireSubgraphSnapshot(subgraphs, http))
+      case Origin.FromSupergraph(supergraph) =>
+        SupergraphAcquisition.make(supergraph.source, http).map(acquireSupergraphSnapshot(supergraph, _, http))
+    }
+
+  private def buildDiagnostics: List[String] =
+    origin match {
       case Origin.Composed(subgraphs)        => Gateway.nameDiagnostics(subgraphs)
       // Subgraph names come from the supergraph's graph registry, which the decomposition validates.
       case Origin.FromSupergraph(supergraph) => supergraph.source.diagnostics
     }
-
-    validate(config.diagnostics ::: originDiagnostics) *>
-      buildInChildScope(openHttpClient.flatMap(buildInterpreter))
-  }
 
   private def reloadDiagnostics: List[String] =
     origin match {
@@ -103,15 +97,13 @@ final class Gateway[-R] private[gateway] (
           case _                           => Nil
         }
 
-        check(supergraph.source.refreshable, "Gateway reload from supergraph requires a remote source.") :::
-          supergraph.source.diagnostics ::: uplink
+        check(supergraph.source.refreshable, "Gateway reload from supergraph requires a remote source.") ::: uplink
       case Origin.Composed(subgraphs)        =>
         val acquired = subgraphs.exists(_.source match {
           case Source.Remote(_, SchemaInput.Acquired, _, _) => true
           case _                                            => false
         })
-        Gateway.nameDiagnostics(subgraphs) :::
-          check(acquired, "Gateway reload requires at least one acquired remote schema.")
+        check(acquired, "Gateway reload requires at least one acquired remote schema.")
     }
 
   private def validate(diagnostics: List[String])(implicit trace: Trace): IO[GatewayBuildError, Unit] =
@@ -120,30 +112,16 @@ final class Gateway[-R] private[gateway] (
   private def openHttpClient(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayHttpClient] =
     GatewayHttpClient.make.mapError(TransportInitializationFailed(_))
 
-  private[gateway] def buildInterpreter(http: GatewayHttpClient)(implicit
+  private def buildInterpreter[R1 <: R](subgraphs: List[Subgraph[R1]], http: GatewayHttpClient)(implicit
     trace: Trace
-  ): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
+  ): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R1]] =
     for {
-      subgraphs   <- origin match {
-                       case Origin.Composed(subgraphs)        => Exit.succeed(subgraphs)
-                       case Origin.FromSupergraph(supergraph) =>
-                         SupergraphAcquisition
-                           .make(supergraph.source, http)
-                           .flatMap(supergraph.load(_))
-                           .map(_._1)
-                     }
       executables <- loadAll(subgraphs)(_.load(http, config.remoteErrorMessages, hooks))
       graph       <- ZIO.fromEither(SchemaComposer.compose(executables.map(value => value.subgraph -> value.document)))
       security     = new OperationSecurity(graph.possibleTypesByName, graph.securityApplications)
       _           <- ZIO
                        .fail(GatewayBuildError.InvalidConfiguration(security.diagnostics))
                        .when(!hooks.authorization.hasIncoming && security.diagnostics.nonEmpty)
-      control     <- GatewayExecutionControl.make(
-                       config.subscriptions,
-                       hooks,
-                       config.requestTimeout,
-                       config.drainTimeout
-                     )
       executors    = executables.map(value => value.subgraph.name -> value.executor).toMap
       requestRoot  = Introspector.withIntrospection(graph.rootType)
       operations  <- OperationPreparation.make(
@@ -157,17 +135,22 @@ final class Gateway[-R] private[gateway] (
                          )
                        ),
                        security,
-                       new OperationCost(graph.rootType.types, graph.possibleTypesByName, graph.costMetadata),
                        config.maxOperationCacheWeight,
-                       config.maxOperationCost,
+                       config.maxOperationCost.map(
+                         new OperationCost(graph.rootType.types, graph.possibleTypesByName, graph.costMetadata) -> _
+                       ),
                        hooks
                      )
-    } yield new GatewayInterpreterImpl[R](
-      operations,
-      new PlanExecutor(graph, executors, hooks),
-      control,
-      hooks
-    )
+      // Shut down requests and subscriptions in parallel so each starts its drain timeout immediately.
+      interpreter <-
+        ZIO.parallelFinalizers(
+          GatewayExecutionControl
+            .make(config.requestTimeout, config.drainTimeout)
+            .zipWith(SubscriptionControl.make(config.subscriptions, hooks))(
+              new GatewayInterpreterImpl[R1](operations, new PlanExecutor(graph, executors, hooks), _, _, hooks)
+            )
+        )
+    } yield interpreter
 
   private def buildInChildScope[A](effect: => ZIO[Scope, GatewayBuildError, A])(implicit
     trace: Trace
@@ -180,10 +163,13 @@ final class Gateway[-R] private[gateway] (
 
   private def acquireSupergraphSnapshot[R1 <: R](
     supergraph: Supergraph[R1],
-    acquire: IO[SupergraphAcquisitionError, Document]
+    acquire: IO[SupergraphAcquisitionError, Document],
+    http: GatewayHttpClient
   )(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
-    supergraph.load(acquire).map { case (subgraphs, fingerprint) =>
-      Gateway.Snapshot(new Gateway(Origin.Composed(subgraphs), config, hooks), fingerprint)
+    acquire.mapError(SupergraphAcquisitionFailed(_)).flatMap { document =>
+      supergraph.load(document).map { subgraphs =>
+        Gateway.Snapshot(buildInterpreter(subgraphs, http), List(document))
+      }
     }
 
   private def acquireSubgraphSnapshot[R1 <: R](
@@ -192,10 +178,7 @@ final class Gateway[-R] private[gateway] (
   )(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
     for {
       pinned <- loadAll(subgraphs)(Gateway.pinAcquiredSchema(_, http))
-    } yield Gateway.Snapshot(
-      new Gateway(Origin.Composed(pinned.map(_._1)), config, hooks),
-      pinned.flatMap(_._2)
-    )
+    } yield Gateway.Snapshot(buildInterpreter(pinned.map(_._1), http), pinned.flatMap(_._2))
 
   private def loadAll[R0, R1, A](subgraphs: List[Subgraph[R1]])(
     load: Subgraph[R1] => ZIO[R0, SubgraphBuildError, A]
@@ -225,7 +208,17 @@ object Gateway {
   def fromSupergraph[R](supergraph: Supergraph[R]): Gateway[R] =
     new Gateway[R](Origin.FromSupergraph(supergraph), GatewayConfig.default, PhaseHooks.empty)
 
-  private[gateway] final case class Snapshot[-R](gateway: Gateway[R], fingerprints: List[String])
+  private[gateway] final case class Snapshot[-R](
+    build: ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]],
+    documents: List[Document]
+  ) {
+
+    /**
+     * Fingerprints the rendered schema, so source locations and formatting do not change it.
+     * The original document is never modified.
+     */
+    lazy val fingerprints: List[String] = documents.map(DocumentRenderer.render(_))
+  }
 
   private[gateway] sealed trait Origin[-R]
 
@@ -243,7 +236,7 @@ object Gateway {
 
   private def pinAcquiredSchema[R](subgraph: Subgraph[R], http: GatewayHttpClient)(implicit
     trace: Trace
-  ): IO[SubgraphBuildError, (Subgraph[R], Option[String])] =
+  ): IO[SubgraphBuildError, (Subgraph[R], Option[Document])] =
     subgraph.source match {
       case remote @ Source.Remote(_, SchemaInput.Acquired, _, _) =>
         for {
@@ -251,10 +244,10 @@ object Gateway {
           pinned    = remote.copy(schema = SchemaInput.Parsed(document))
         } yield (
           new Subgraph[R](subgraph.name, pinned, subgraph.lookups, subgraph.transformations),
-          Some(SchemaFingerprint(document))
+          Some(document)
         )
-      case _                                                     =>
-        ZIO.succeed(subgraph -> None)
+      case remote @ Source.Remote(_, _, _, _)                    => remote.validate.as(subgraph -> None)
+      case _                                                     => ZIO.succeed(subgraph -> None)
     }
 
   private def nameDiagnostics[R](subgraphs: List[Subgraph[R]]): List[String] = {
