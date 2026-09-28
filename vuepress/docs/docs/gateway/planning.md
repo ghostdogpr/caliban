@@ -98,7 +98,7 @@ Use `Lookup.single` when the subgraph fetches one object at a time. Use `Lookup.
 - The correlation map maps returned fields to key fields. `Map("id" -> "id")` matches a returned product's `id` to the requested key. Results can arrive in any order. Return non-null objects and omit missing ones.
 - `Argument.key("id")` reads the `id` from the object that the gateway is fetching.
 - `Argument.obj(...)` builds an input object for the subgraph.
-- `Argument.batch(...)` builds one argument value for each requested object.
+- `Argument.batch(...)` builds one argument value for each requested object. `Lookup.list` reads keys only inside `Argument.batch`, and `Lookup.single` does not accept it. The compiler rejects both mistakes.
 
 For a service that exposes `productById(id: ID!): Product`, use:
 

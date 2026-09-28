@@ -2,7 +2,7 @@ package caliban.gateway.internal.planning
 
 import caliban.{ Hash, InputValue }
 import caliban.execution.{ isIntrospectionField, isMetaField, Field, Fragment }
-import caliban.gateway.internal.composition.ComposedGraph
+import caliban.gateway.internal.composition.{ ComposedGraph, DirectiveComposition }
 import caliban.gateway.internal.execution.{ PlanExecutionCache, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
@@ -24,12 +24,12 @@ private[gateway] final case class OperationPlan(
   roots: List[RootFetch],
   entityWaves: List[List[EntityFetch]],
   typenameSelections: List[TypenameSelection],
-  passthroughSubgraph: Option[String]
+  passthroughSubgraph: Option[ComposedGraph.Source]
 ) {
 
   def render: String = OperationPlan.render(this)
 
-  def rootName: String = OperationPlan.rootName(operationType)
+  def rootName: String = ComposedGraph.rootName(operationType)
 
   lazy val entities: List[EntityFetch] = entityWaves.flatten
 
@@ -50,13 +50,6 @@ private[gateway] final case class OperationPlan(
 private[gateway] object OperationPlan {
   final case class FetchId(value: Int) extends AnyVal
 
-  def rootName(operation: OperationType): String =
-    operation match {
-      case OperationType.Query        => "Query"
-      case OperationType.Mutation     => "Mutation"
-      case OperationType.Subscription => "Subscription"
-    }
-
   final case class RequiredSelection(
     field: String,
     responseName: String,
@@ -67,7 +60,7 @@ private[gateway] object OperationPlan {
 
   final case class RootFetch(
     id: FetchId,
-    source: String,
+    source: ComposedGraph.Source,
     client: List[Field],
     downstream: List[Field]
   )
@@ -81,7 +74,8 @@ private[gateway] object OperationPlan {
     sourceType: String,
     projection: ContextProjection
   ) {
-    def fieldArgument: ComposedGraph.FieldArgument = ComposedGraph.FieldArgument(parentType, field, argument)
+    def fieldArgument: DirectiveComposition.ArgumentCoordinate =
+      DirectiveComposition.ArgumentCoordinate(parentType, field, argument)
   }
 
   sealed trait ContextProjection {
@@ -106,7 +100,7 @@ private[gateway] object OperationPlan {
   final case class EntityFetch(
     id: FetchId,
     root: FetchId,
-    source: String,
+    source: ComposedGraph.Source,
     dependencies: Set[FetchId],
     mergePath: Vector[String],
     entityType: String,
@@ -134,7 +128,7 @@ private[gateway] object OperationPlan {
   }
 
   private[internal] final case class EntityGroupKey(
-    source: String,
+    source: ComposedGraph.Source,
     entityType: String,
     lookup: ComposedGraph.EntityLookup,
     keys: List[RequiredSelection],

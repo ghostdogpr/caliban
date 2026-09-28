@@ -5,14 +5,15 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.Parser
-import caliban.parsing.adt.{ Directive, OperationType, Selection }
+import caliban.parsing.adt.{ Directive, Selection }
 
 package object gateway {
-  private[gateway] final val TypenameField = "__typename"
-  private[gateway] final val EntitiesField = "_entities"
-  private[gateway] final val ServiceField  = "_service"
-  private[gateway] final val ServiceType   = "_Service"
-  private[gateway] final val AnyType       = "_Any"
+  private[gateway] final val TypenameField   = "__typename"
+  private[gateway] final val EntitiesField   = "_entities"
+  private[gateway] final val ServiceField    = "_service"
+  private[gateway] final val TransportFields = Set(EntitiesField, ServiceField)
+  private[gateway] final val ServiceType     = "_Service"
+  private[gateway] final val AnyType         = "_Any"
 
   private[gateway] final val RepresentationsArgument = "representations"
 
@@ -26,25 +27,6 @@ package object gateway {
   private[gateway] final val ContextIdentity        = "https://specs.apollo.dev/context"
   private[gateway] final val InaccessibleIdentity   = "https://specs.apollo.dev/inaccessible"
   private[gateway] final val TagIdentity            = "https://specs.apollo.dev/tag"
-
-  private[gateway] val FederationDirectives = List(
-    "key",
-    "shareable",
-    "external",
-    "requires",
-    "provides",
-    "tag",
-    "override",
-    "inaccessible",
-    "interfaceObject",
-    "authenticated",
-    "requiresScopes",
-    "policy",
-    "context",
-    "fromContext",
-    "cost",
-    "listSize"
-  )
 
   private[gateway] def isInclusionDirective(directive: Directive): Boolean =
     directive.name == "skip" || directive.name == "include"
@@ -79,6 +61,13 @@ package object gateway {
 
   private[gateway] def nullableType(tpe: __Type): __Type =
     if (tpe.kind == __TypeKind.NON_NULL) tpe.ofType.map(nullableType).getOrElse(tpe) else tpe
+
+  private[gateway] def compatibleValueType(left: __Type, right: __Type): Boolean = {
+    val (a, b) = (nullableType(left), nullableType(right))
+    if (a.kind == __TypeKind.LIST && b.kind == __TypeKind.LIST)
+      a.ofType.exists(item => b.ofType.exists(compatibleValueType(item, _)))
+    else a.kind == b.kind && a.name == b.name
+  }
 
   private[gateway] def isRequiredInput(input: __InputValue): Boolean =
     !input._type.isNullable && input.defaultValue.isEmpty
@@ -116,18 +105,34 @@ package object gateway {
   private[gateway] def check(valid: Boolean, message: String): List[String] =
     if (valid) Nil else message :: Nil
 
-  private[gateway] def validateAll[A](results: List[Either[String, A]]): Either[List[String], List[A]] = {
-    val errors = results.collect { case Left(error) => error }
+  private[gateway] def validateAll[A](results: List[Either[String, A]]): Either[List[String], List[A]] =
+    collectErrors(results.map(_.left.map(List(_))))
+
+  private[gateway] def collectErrors[A](results: List[Either[List[String], A]]): Either[List[String], List[A]] = {
+    val errors = results.flatMap(_.left.getOrElse(Nil))
     if (errors.nonEmpty) Left(errors) else Right(results.collect { case Right(value) => value })
   }
+
+  private[gateway] def validated[A](errors: List[String], result: Either[List[String], A]): Either[List[String], A] =
+    result match {
+      case Right(value) if errors.isEmpty => Right(value)
+      case _                              => Left(errors ::: result.left.getOrElse(Nil))
+    }
+
+  // GraphQL input coercion: a single value given for a list argument is a one-element list.
+  private[gateway] def coercedList(value: InputValue): List[InputValue] =
+    value match {
+      case InputValue.ListValue(values) => values
+      case single                       => single :: Nil
+    }
 
   private[gateway] def stringArgument(arguments: Map[String, InputValue], name: String): Option[String] =
     arguments.get(name).collect { case StringValue(value) => value }
 
-  private[gateway] def stringValues(values: List[InputValue]): Option[List[String]] =
-    traverseOption(values) {
-      case StringValue(value) => Some(value)
-      case _                  => None
+  private[gateway] def groupNonEmpty[K, A](values: List[A])(key: A => K): Map[K, ::[A]] =
+    values.foldRight(Map.empty[K, ::[A]]) { (value, groups) =>
+      val group = key(value)
+      groups.updated(group, ::(value, groups.getOrElse(group, Nil)))
     }
 
   private[gateway] def duplicates(names: List[String]): List[String] =
@@ -136,19 +141,9 @@ package object gateway {
   private[gateway] def formatSources(sources: Iterable[String]): String =
     sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
 
-  private[gateway] def fieldCoordinate(operation: Option[OperationType], typeName: String, fieldName: String): String =
-    operation.fold(s"$typeName.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
-
-  private[gateway] def fieldDiagnosticPrefix(
-    operation: Option[OperationType],
-    typeName: String,
-    fieldName: String
-  ): String =
-    s"[${operation.fold("type ")(_ => "")}${fieldCoordinate(operation, typeName, fieldName)}]"
-
   private[gateway] def parseFieldSet(value: String): Option[List[Selection]] =
     parseSelectionSet(s"{ $value }")
 
   private[gateway] def parseSelectionSet(query: String): Option[List[Selection]] =
-    Parser.parseQuery(query).toOption.flatMap(_.operationDefinition(None)).map(_.selectionSet)
+    Parser.parseQuery(query).toOption.flatMap(_.operationDefinition(None)).map(_.selectionSet).filter(_.nonEmpty)
 }

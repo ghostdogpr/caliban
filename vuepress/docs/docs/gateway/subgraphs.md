@@ -66,7 +66,7 @@ The gateway combines root fields into one public schema and merges types by name
 - Ordinary services cannot both own the same root field, such as `Query.product`. Rename or hide one field with a [schema transformation](#shaping-the-public-schema).
 - Object types can contribute different fields. Shared fields need compatible output types and arguments. For example, `Product.price: Int` and `Product.price: String` conflict. Output nullability can differ. The composed field is nullable if a contributing source allows null.
 - Input fields must agree on their types and defaults. A required input field must exist in every service that declares that input type.
-- Federation 2 fields with multiple owners need compatible `@shareable` declarations or an applicable `@override`. Subscription root fields always need one owner. Interface fields cannot declare `@override`.
+- Federation 2 fields with multiple owners need compatible `@shareable` declarations or an applicable `@override`. A subgraph whose `@interfaceObject` declares a field owns that field on every implementing type. Subscription root fields always need one owner. Interface and `@interfaceObject` fields cannot declare `@override`, and `@override` cannot take a field from a subgraph that resolves it through an `@interfaceObject`.
 
 Merging types does not tell the gateway how to retrieve an object from another service. Ordinary services need a [lookup](planning.md#connecting-objects-across-ordinary-services) for that step. Federation schemas supply entity keys and routing information themselves.
 

@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban.{ CalibanError, GraphQLRequest, InputValue, PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
-import caliban.execution.Field
+import caliban.execution.{ Field, RequestPreparation }
 import caliban.gateway.internal.PrivateAliases
 import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.execution._
@@ -224,23 +224,24 @@ object ExecutionModelSpec extends ZIOSpecDefault {
       for {
         graph <- composeSingle("details", schema)
         node   = graph.rootType.types("Node")
-        fields = graph.prepareEntityFields(
-                   "details",
-                   "Node",
-                   List(
-                     Field(
-                       "label",
-                       Types.string.nonNull,
-                       Some(node),
-                       alias = Some("entity_key"),
-                       targets = Some(Set("User"))
-                     ),
-                     Field(
-                       "label",
-                       Types.string,
-                       Some(node),
-                       alias = Some("entity_key"),
-                       targets = Some(Set("Admin"))
+        fields = graph.sources.flatMap(
+                   _.prepareEntityFields(
+                     "Node",
+                     List(
+                       Field(
+                         "label",
+                         Types.string.nonNull,
+                         Some(node),
+                         alias = Some("entity_key"),
+                         targets = Some(Set("User"))
+                       ),
+                       Field(
+                         "label",
+                         Types.string,
+                         Some(node),
+                         alias = Some("entity_key"),
+                         targets = Some(Set("Admin"))
+                       )
                      )
                    )
                  )
@@ -250,29 +251,61 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         new PrivateAliases(names).next("_caliban_gateway_entity_key") == "_caliban_gateway_entity_key_3"
       )
     },
-    test("execution artifacts are reused but variable binding gets an independent cache") {
-      val field        = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
-      val fetch        = RootFetch(FetchId(0), "products", List(field), List(field))
-      val plan         = OperationPlan(OperationType.Query, None, List(field), List(fetch), Nil, Nil, None)
-      val cache        = plan.executionCache
-      val completion   = plan.completion
-      val bound        = plan.bind(Map("id" -> StringValue("p1")))
-      val projection   = ResponseProjection.compile(Nil, Nil, Map.empty)
-      val originalRoot = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("original")), projection)
-      val boundRoot    = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("bound")), projection)
-      val cachedRoot   = cache.root(fetch.id)(originalRoot)
-      assertTrue(
-        cache eq plan.executionCache,
-        completion eq plan.completion,
-        plan.executionCache ne bound.executionCache,
-        plan.completion ne bound.completion,
-        bound.bind(Map("id" -> StringValue("p2"))) eq bound,
-        cachedRoot eq originalRoot,
-        cache.root(fetch.id)(boundRoot) eq originalRoot,
-        bound.executionCache.root(fetch.id)(boundRoot) eq boundRoot,
-        bound.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
-        plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
+    test("reports a subgraph with no executor by name in the response") {
+      val query = "{ name }"
+      for {
+        graph       <- composeSingle("products", "type Query { name: String }")
+        document    <- RequestPreparation.parse(query)
+        execution   <-
+          RequestPreparation
+            .prepareParsed(GraphQLRequest(query = Some(query)), document, Map.empty, graph.rootType, false)
+        fields       = execution.field.fields
+        executor     = new PlanExecutor[Any](graph, Map.empty, PhaseHooks.empty)
+        roots        = graph.sources.map(RootFetch(FetchId(0), _, fields, fields))
+        fetched     <- executor.execute(
+                         OperationPlan(OperationType.Query, None, fields, roots, Nil, Nil, None),
+                         execution,
+                         GraphQLRequest()
+                       )
+        passthrough <- executor.execute(
+                         OperationPlan(OperationType.Query, None, fields, Nil, Nil, Nil, graph.sources.headOption),
+                         execution,
+                         GraphQLRequest()
+                       )
+      } yield assertTrue(
+        fetched.data == ObjectValue(List("name" -> NullValue)),
+        List(fetched, passthrough).forall(
+          _.errors.collect { case error: CalibanError.ExecutionError => error.msg } ==
+            List("No executor is configured for subgraph 'products'.")
+        )
       )
+    },
+    test("execution artifacts are reused but variable binding gets an independent cache") {
+      val field = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
+      composeSingle("products", "type Query { product(id: ID): String }").map { graph =>
+        val fetches      = graph.sources.map(RootFetch(FetchId(0), _, List(field), List(field)))
+        val plan         = OperationPlan(OperationType.Query, None, List(field), fetches, Nil, Nil, None)
+        val fetch        = plan.roots.head
+        val cache        = plan.executionCache
+        val completion   = plan.completion
+        val bound        = plan.bind(Map("id" -> StringValue("p1")))
+        val projection   = ResponseProjection.compile(Nil, Nil, Map.empty)
+        val originalRoot = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("original")), projection)
+        val boundRoot    = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("bound")), projection)
+        val cachedRoot   = cache.root(fetch.id)(originalRoot)
+        assertTrue(
+          cache eq plan.executionCache,
+          completion eq plan.completion,
+          plan.executionCache ne bound.executionCache,
+          plan.completion ne bound.completion,
+          bound.bind(Map("id" -> StringValue("p2"))) eq bound,
+          cachedRoot eq originalRoot,
+          cache.root(fetch.id)(boundRoot) eq originalRoot,
+          bound.executionCache.root(fetch.id)(boundRoot) eq boundRoot,
+          bound.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
+          plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
+        )
+      }
     }
   )
 }

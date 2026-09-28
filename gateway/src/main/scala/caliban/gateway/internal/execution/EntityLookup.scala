@@ -4,6 +4,7 @@ import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, Path
 import caliban.execution.Field
 import caliban.gateway.internal.PrivateAliases
 import caliban.gateway.internal.composition.{ ComposedGraph, SchemaMapping }
+import caliban.gateway.internal.composition.ComposedGraph.Source
 import caliban.gateway.internal.execution.EntityExecutor._
 import caliban.gateway.internal.execution.EntityLookup._
 import caliban.gateway.internal.execution.PlanExecutor.renderOperation
@@ -23,10 +24,10 @@ import caliban.Value.{ EnumValue, NullValue, StringValue }
  * Builds entity lookup requests together with the rules for translating and correlating their responses.
  * Generated aliases and correlation selections stay private to each call.
  */
-private[execution] final class EntityLookup(graph: ComposedGraph) {
+private[execution] object EntityLookup {
   def prepare(batch: EntityBatch, cache: PlanExecutionCache): Option[(GraphQLRequest, Call)] = {
     val fetch   = batch.fetch
-    val mapping = graph.schemaMapping(fetch.source)
+    val mapping = fetch.source.mapping
     fetch.lookup.operation match {
       case ComposedGraph.LookupOperation.FederationEntities                                                  =>
         val variant = cache.federationLookup(batch)(federationVariant)
@@ -55,18 +56,20 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
 
   def preparePart(batch: EntityBatch, cache: PlanExecutionCache, slot: Int): (CallPart, Call) = {
     val fetch   = batch.fetch
-    val mapping = graph.schemaMapping(fetch.source)
+    val mapping = fetch.source.mapping
     val variant = cache.federationLookup(batch)(federationVariant)
     val part    = CallPart(slot, variant.selections, representations(fetch, mapping, batch))
     part -> new Call(batch, variant.projection, ResponseShape.Ordered(part.alias))
   }
 
-  private def representations(fetch: EntityFetch, mapping: SchemaMapping, batch: EntityBatch): InputValue =
+  private def representations(fetch: EntityFetch, mapping: SchemaMapping, batch: EntityBatch): InputValue = {
+    val typename = if (fetch.source.isInterfaceObject(fetch.entityType)) Some(fetch.entityType) else None
     InputListValue(
       batch.entries
-        .map(entry => mapping.representationToSource(fetch.entityType, federationRepresentation(fetch, entry)))
+        .map(entry => mapping.representationToSource(fetch.entityType, federationRepresentation(typename, entry)))
         .toList
     )
+  }
 
   private def lookupField(
     mapping: SchemaMapping,
@@ -210,7 +213,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
     fetch: EntityFetch,
     contexts: Map[ContextualArgument, InputValue]
   ): FederationVariant = {
-    val mapping          = graph.schemaMapping(fetch.source)
+    val mapping          = fetch.source.mapping
     val executableFields = executableEntityFields(fetch, contexts)
     val fragments        = federationFragments(fetch, mapping, sourceSelections(mapping, executableFields))
     FederationVariant(
@@ -220,17 +223,16 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   }
 
   private def graphqlVariant(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): GraphQLVariant = {
-    val mapping               = graph.schemaMapping(fetch.source)
+    val mapping               = fetch.source.mapping
     val executableFields      = executableEntityFields(fetch, contexts)
     val (keys, keySelections) = fetch.lookup.operation match {
       case ComposedGraph.LookupOperation.GraphQLQuery(_, _, result: ComposedGraph.LookupResult.ByKey) =>
         val aliases = new PrivateAliases(responseNames(executableFields))
         val keys    = fetch.keys.map(key => RequiredSelection(key.field, aliases.next(LookupKeyAliasBase)))
-        keys -> keys.map(key =>
-          requiredSelection(
-            mapping.requiredSelectionToSource(fetch.entityType, key.copy(field = result.fields(key.field)))
-          )
-        )
+        keys -> keys.map { key =>
+          val field = result.fields.getOrElse(key.field, key.field)
+          requiredSelection(mapping.requiredSelectionToSource(fetch.entityType, key.copy(field = field)))
+        }
       case _                                                                                          => Nil -> Nil
     }
     GraphQLVariant(
@@ -241,11 +243,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   }
 
   private def executableEntityFields(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): List[Field] =
-    graph.prepareEntityFields(
-      fetch.source,
-      fetch.entityType,
-      injectContextArguments(fetch.source, fetch.fields, contexts)
-    )
+    fetch.source.prepareEntityFields(fetch.entityType, injectContextArguments(fetch.source, fetch.fields, contexts))
 
   private def sourceSelections(mapping: SchemaMapping, executableFields: List[Field]): List[Selection] =
     executableFields.flatMap(field => targetedSelections(mapping.fieldToSource(field)))
@@ -277,7 +275,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
     )
 
   private def injectContextArguments(
-    source: String,
+    source: Source,
     fields: List[Field],
     values: Map[ContextualArgument, InputValue]
   ): List[Field] =
@@ -287,8 +285,8 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
         val parent = parentTypeName(field)
         val added  = values.iterator.collect {
           case (context, value) if context.parentType == parent && context.field == field.name =>
-            val expected = graph
-              .sourceField(source, parent, field.name)
+            val expected = source
+              .sourceField(parent, field.name)
               .flatMap(_.allArgs.find(_.name == context.argument))
               .map(_._type)
             val input    = expected.fold(value)(coerceInput(value, _))
@@ -314,10 +312,10 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
       case _                   => value
     }
 
-  private def federationRepresentation(fetch: EntityFetch, entry: EntityBatchEntry): InputObjectValue =
+  private def federationRepresentation(typename: Option[String], entry: EntityBatchEntry): InputObjectValue =
     InputObjectValue(
       entry.identity.keys.toMap ++ entry.requirements +
-        (TypenameField -> StringValue(fetch.lookup.representationType.getOrElse(entry.identity.typename)))
+        (TypenameField -> StringValue(typename.getOrElse(entry.identity.typename)))
     )
 
   private def evaluateArguments(
@@ -372,9 +370,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
     path: List[PathValue]
   ): CalibanError.ExecutionError =
     CalibanError.ExecutionError(s"Entity lookup response $detail for '${entityKey(fetch)}'.", path = path)
-}
 
-private[execution] object EntityLookup {
   def combine(parts: List[CallPart]): GraphQLRequest =
     GraphQLRequest(
       query = Some(entitiesQuery(parts.map(part => part.variable -> part.field))),

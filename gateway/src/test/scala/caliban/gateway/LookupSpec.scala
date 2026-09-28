@@ -408,13 +408,7 @@ object LookupSpec extends ZIOSpecDefault {
         "refs" -> Lookup.Argument.batch(Lookup.Argument.obj("productId" -> Lookup.Argument.key("missing")))
       )
       val wrongShape         = Lookup.single("Product", keyFields, "productsByRefs", "refs" -> refArgument)
-      val missingBatch       = Lookup.list(
-        "Product",
-        keyFields,
-        "productsByRefs",
-        Map("id" -> "id", "region" -> "region"),
-        "refs" -> refArgument
-      )
+      val missingBatch       = Lookup.list("Product", keyFields, "productsByRefs", Map("id" -> "id", "region" -> "region"))
       val badCorrelation     = Lookup.list(
         "Product",
         keyFields,
@@ -428,22 +422,6 @@ object LookupSpec extends ZIOSpecDefault {
         "productByRef",
         "missing" -> refArgument
       )
-      val singleBatch        = Lookup.single(
-        "Product",
-        keyFields,
-        "productByRef",
-        "ref" -> Lookup.Argument.batch(refArgument)
-      )
-      val keyOutsideBatch    = Lookup.list(
-        "Product",
-        keyFields,
-        "productsByRefs",
-        Map("id" -> "id", "region" -> "region"),
-        "refs" -> Lookup.Argument.obj(
-          "productId"  -> Lookup.Argument.key("id"),
-          "regionCode" -> Lookup.Argument.batch(Lookup.Argument.key("region"))
-        )
-      )
       val wrongTypes         = Lookup.single(
         "Product",
         keyFields,
@@ -452,13 +430,6 @@ object LookupSpec extends ZIOSpecDefault {
           "productId"  -> Lookup.Argument.key("region"),
           "regionCode" -> Lookup.Argument.key("id")
         )
-      )
-      val nestedBatch        = Lookup.list(
-        "Product",
-        keyFields,
-        "productsByRefs",
-        Map("id" -> "id", "region" -> "region"),
-        "refs" -> Lookup.Argument.batch(Lookup.Argument.batch(refArgument))
       )
       val partialKeys        = Lookup.single(
         "Product",
@@ -492,10 +463,7 @@ object LookupSpec extends ZIOSpecDefault {
         correlation <- lookupDiagnostics(badCorrelation)
         nullable    <- lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("[Product!]!", "[Product]!"))
         unknown     <- lookupDiagnostics(unknownArgument)
-        single      <- lookupDiagnostics(singleBatch)
-        outside     <- lookupDiagnostics(keyOutsideBatch)
         types       <- lookupDiagnostics(wrongTypes)
-        nested      <- lookupDiagnostics(nestedBatch)
         coverage    <- lookupDiagnostics(partialKeys)
         repeated    <- lookupDiagnostics(duplicateArguments)
         nonScalar   <-
@@ -521,16 +489,14 @@ object LookupSpec extends ZIOSpecDefault {
                        )
       } yield assertTrue(
         key.exists(_.contains("[reviews] Lookup key field 'Product.missing' does not exist")),
+        !key.exists(_.contains("'refs.productId' references undeclared key field")),
         shape.exists(_.contains("[reviews] Lookup field 'Query.productsByRefs' must return 'Product'")),
-        batch.exists(_.contains("[reviews] List lookup argument mappings must contain a batch mapping")),
+        batch.exists(_.contains("[reviews] Lookup argument mappings must use every declared key field")),
         correlation.exists(_.contains("[reviews] Lookup correlation field 'Product.missing' does not exist")),
         nullable.exists(_.contains("[reviews] By-key lookup field 'Query.productsByRefs' must return non-null items")),
         unknown.exists(_.contains("[reviews] Lookup field 'Query.productByRef' has no argument 'missing'")),
         unknown.exists(_.contains("[reviews] Required lookup argument 'productByRef.ref' has no mapping")),
-        single.exists(_.contains("[reviews] Single lookup argument mappings cannot contain a batch mapping")),
-        outside.exists(_.contains("[reviews] List lookup key mappings must be nested inside a batch mapping")),
         types.count(_.contains("is incompatible with key field")) == 2,
-        nested.exists(_.contains("[reviews] Lookup argument 'refs' cannot nest a batch mapping")),
         coverage.exists(_.contains("[reviews] Lookup argument mappings must use every declared key field")),
         repeated.exists(_.contains("Lookup argument 'productByRef.ref' is mapped more than once")),
         nonScalar.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
@@ -538,6 +504,27 @@ object LookupSpec extends ZIOSpecDefault {
         duplicate.exists(_.contains("[reviews] More than one lookup is declared for type 'Product'")),
         federation.exists(_.contains("[reviews] Ordinary GraphQL lookups cannot be declared on a Federation subgraph"))
       )
+    },
+    test("rejects misplaced batch mappings at compile time") {
+      for {
+        single  <-
+          typeCheck(
+            """Lookup.single("Product", List("id"), "product", "ref" -> Lookup.Argument.batch(Lookup.Argument.key("id")))"""
+          )
+        outside <-
+          typeCheck(
+            """Lookup.list("Product", List("id"), "products", Map("id" -> "id"), "id" -> Lookup.Argument.key("id"))"""
+          )
+        mixed   <-
+          typeCheck(
+            """Lookup.list("Product", List("id"), "products", Map("id" -> "id"), "ref" -> Lookup.Argument.obj("id" -> Lookup.Argument.key("id"), "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))))"""
+          )
+        nested  <- typeCheck("""Lookup.Argument.batch(Lookup.Argument.batch(Lookup.Argument.key("id")))""")
+        valid   <-
+          typeCheck(
+            """Lookup.list("Product", List("id"), "products", Map("id" -> "id"), "ref" -> Lookup.Argument.obj("ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))))"""
+          )
+      } yield assertTrue(single.isLeft, outside.isLeft, mixed.isLeft, nested.isLeft, valid.isRight)
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 

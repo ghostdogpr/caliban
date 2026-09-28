@@ -723,6 +723,22 @@ object GatewaySpec extends ZIOSpecDefault {
           sent.isEmpty
         )
       },
+      test("routes fields selected through a custom root type referenced by a field") {
+        val customRootSchema = "schema { query: RootQuery } type RootQuery { viewer: RootQuery name: String }"
+
+        for {
+          products <- stub("""{"data":{"viewer":{"name":"root"}}}""")
+          runtime  <- remoteGateway(products.endpoint, customRootSchema).interpreter
+          response <- runtime.execute("{ viewer { name } }")
+          sent     <- products.requests.get
+          valid    <- ZIO.foreach(sent)(validateRequest(customRootSchema, _).exit)
+        } yield assertTrue(
+          response.errors.isEmpty,
+          response.data.toString == """{"viewer":{"name":"root"}}""",
+          sent.size == 1,
+          valid.forall(_.isSuccess)
+        )
+      },
       test("keeps single-subgraph meta fields local for a custom remote root") {
         val customRootSchema =
           "schema { query: RootQuery } type RootQuery { product(id: ID!): Product } type Product { id: ID! }"

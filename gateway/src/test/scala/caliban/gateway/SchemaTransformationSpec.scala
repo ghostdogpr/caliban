@@ -4,7 +4,7 @@ import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObj
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.composition.SchemaMapping
+import caliban.gateway.internal.composition.{ FederationCompilation, SchemaMapping }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
@@ -67,17 +67,12 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     for {
       document   <- parseSdl(schema)
       normalized <- ZIO.fromEither(RemoteSchema.normalize(document, extensionsCanDefineTypes = true))
+      names       = FederationCompilation.federationDirectiveNames(normalized.document, federation = true)
       mapping    <- ZIO.fromEither(
-                      SchemaMapping.compile(
-                        "contexts",
-                        normalized.rootType,
-                        normalized.document,
-                        federation = true,
-                        transformations
-                      )
+                      SchemaMapping.compile("contexts", normalized.rootType, names, transformations)
                     )
     } yield mapping
-      .transform(normalized.document)
+      .transform(normalized.document, names)
       .objectTypeDefinitions
       .flatMap(_.fields)
       .flatMap(_.args)
@@ -391,16 +386,11 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       for {
         document   <- parseSdl(schema)
         rootType   <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
+        names       = FederationCompilation.federationDirectiveNames(document, federation = false)
         mapping    <- ZIO.fromEither(
-                        SchemaMapping.compile(
-                          "products",
-                          rootType,
-                          document,
-                          federation = false,
-                          transformations = transformations
-                        )
+                        SchemaMapping.compile("products", rootType, names, transformations = transformations)
                       )
-        transformed = mapping.transform(document)
+        transformed = mapping.transform(document, names)
         directives  = transformed.objectTypeDefinitions
                         .find(_.name == "Query")
                         .flatMap(_.fields.find(_.name == "product"))
@@ -588,8 +578,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                       SchemaMapping.compile(
                         "products",
                         rootType,
-                        document,
-                        false,
+                        FederationCompilation.federationDirectiveNames(document, federation = false),
                         List(
                           SchemaTransformation.renameType("Product", "Item"),
                           SchemaTransformation.renameType("Details", "Info"),
@@ -756,22 +745,30 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       } yield assertTrue(result.errors.isEmpty)
     },
     test("rejects hidden input fields referenced by directives or defaults") {
-      val schema =
-        "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String @flag(filter: { hidden: \"applied\" }) }"
+      val directives =
+        "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION input Filter { visible: String hidden: String } type Query { value(filter: Filter): String @flag(filter: { hidden: \"applied\" }) }"
+      val defaults   =
+        "input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String }"
 
-      compositionDiagnostics(
-        Gateway.compose(
-          Subgraph
-            .graphql("products", unreachableEndpoint, schema)
-            .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
-        )
-      ).map { diagnostics =>
-        assertTrue(
-          diagnostics.exists(
-            _.contains("Hidden input field 'Filter.hidden' is referenced by a directive or default value")
+      def diagnostics(schema: String) =
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph
+              .graphql("products", unreachableEndpoint, schema)
+              .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
           )
         )
-      }
+
+      for {
+        directiveDiagnostics <- diagnostics(directives)
+        defaultDiagnostics   <- diagnostics(defaults)
+      } yield assertTrue(
+        directiveDiagnostics.sorted == List(
+          "[products] Composed directive '@flag' at '@flag(filter:)' references non-visible input field 'Filter.hidden'.",
+          "[products] Composed directive '@flag' at 'Query.value' references non-visible input field 'Filter.hidden'."
+        ),
+        defaultDiagnostics == List("[composition] Input field 'hidden' is not defined on type 'Filter'.")
+      )
     },
     test("rejects invalid and colliding transformations with source diagnostics") {
       val subgraph = Subgraph

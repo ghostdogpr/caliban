@@ -238,33 +238,7 @@ object CompositionSpec extends ZIOSpecDefault {
           sent._2.isEmpty
         )
       },
-      test("caches graphs by active overrides during concurrent lookups") {
-        val result = compose(
-          CompositionInput("original", progressiveSchema("type Query { value: String }")),
-          CompositionInput(
-            "replacement",
-            progressiveSchema(
-              """type Query {
-                |  value: String @override(from: "original", label: "percent(50)")
-                |}""".stripMargin
-            )
-          )
-        )
-
-        for {
-          graph    <- ZIO.fromEither(result).orDieWith(errors => new AssertionError(errors.mkString("; ")))
-          label     = graph.progressiveOverrides(Set("value")).keysIterator.next()
-          variants <- ZIO.foreachPar((0 until 64).toList) { index =>
-                        ZIO.succeed(graph.resolveOverrides(if (index % 2 == 0) Set.empty else Set(label)))
-                      }
-          inactive  = graph.resolveOverrides(Set.empty)
-          active    = graph.resolveOverrides(Set(label))
-        } yield assertTrue(
-          (inactive ne active),
-          variants.zipWithIndex.forall { case (graph, index) => graph eq (if (index % 2 == 0) inactive else active) }
-        )
-      },
-      test("evicts old override graphs while retaining newly cached graphs") {
+      test("routes each active override set to its replacement subgraph") {
         val fields = (0 until 6).toList
         val result = compose(
           CompositionInput(
@@ -281,17 +255,39 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
         assertTrue(result.toOption.exists { graph =>
-          val labels         = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).keysIterator.next())
-          val first          = graph.resolveOverrides(Set.empty)
-          val variants       = (1 until 64).map { mask =>
-            val active = labels.zipWithIndex.collect { case (label, bit) if (mask & (1 << bit)) != 0 => label }.toSet
-            active -> graph.resolveOverrides(active)
+          val labels = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).keysIterator.next())
+          (0 until 64).forall { mask =>
+            val selected = graph.resolveOverrides(
+              labels.zipWithIndex.collect { case (label, bit) if (mask & (1 << bit)) != 0 => label }.toSet
+            )
+            fields.forall { i =>
+              val expected = if ((mask & (1 << i)) != 0) "replacement" else "original"
+              selected.rootFieldSources(OperationType.Query, s"f$i").map(_.name) == List(expected)
+            }
           }
-          val (active, last) = variants.last
-          val selected       = graph.resolveOverrides(active)
-          (last eq selected) && (first ne graph.resolveOverrides(Set.empty)) &&
-          fields.forall(i => selected.rootFieldSources(OperationType.Query, s"f$i") == List("replacement"))
         })
+      },
+      test("coerces a single @link import to a list") {
+        val keyed = schema("type Query { product: Product } type Product @key(fields: \"id\") { id: ID! }", "@key")
+          .replace("import: [\"@key\"]", "import: \"@key\"")
+        val graph = compose(CompositionInput("alpha", keyed))
+
+        assertTrue(
+          graph.exists(_.sources.exists(source => source.name == "alpha" && source.entityLookups("Product").nonEmpty))
+        )
+      },
+      test("ignores a @link whose version does not fit a number, like any unrecognized link URL") {
+        ZIO
+          .attempt(
+            compose(
+              CompositionInput(
+                "alpha",
+                progressiveSchema("type Query { value: String }")
+                  .replace("federation/v2.7", "federation/v2.99999999999")
+              )
+            )
+          )
+          .map(result => assertTrue(result.isRight))
       },
       test("validates progressive override labels and linked versions") {
         def result(version: String, label: String) =
@@ -401,6 +397,68 @@ object CompositionSpec extends ZIOSpecDefault {
           external.exists(_.contains("requires its 'from' subgraph 'original' to own the field")),
           inherited.isEmpty,
           direct.contains("[replacement] Federation @override is not supported at 'Named.name'.")
+        )
+      },
+      test("rejects @override on an @external field or of a field with @requires or @provides, as Apollo does") {
+        def diagnostics(original: String, replacement: String) =
+          compose(
+            CompositionInput("original", progressiveSchema(original, "@key", "@external", "@requires", "@provides")),
+            CompositionInput("replacement", progressiveSchema(replacement, "@key", "@external"))
+          ).left.toOption.getOrElse(Nil)
+
+        val entity   = "type Product @key(fields: \"id\") { id: ID!"
+        val external = diagnostics(
+          s"type Query { product: Product } $entity name: String }",
+          s"""type Query { products: Product } $entity name: String @external @override(from: "original") }"""
+        )
+        val requires = diagnostics(
+          s"""type Query { product: Product } $entity weight: Int @external name: String @requires(fields: "weight") }""",
+          s"""type Query { products: Product } $entity weight: Int name: String @override(from: "original") }"""
+        )
+        val provides = diagnostics(
+          s"""type Query { product: Product @provides(fields: "weight") } $entity weight: Int @external }""",
+          s"""type Query { product: Product @override(from: "original") } $entity weight: Int }"""
+        )
+        assertTrue(
+          external.contains(
+            "[type Product.name] @override from 'original' conflicts with @external on the field in 'replacement'."
+          ),
+          requires.contains(
+            "[type Product.name] @override from 'original' conflicts with @requires on the field in 'original'."
+          ),
+          provides.contains(
+            "[query.product] @override from 'original' conflicts with @provides on the field in 'original'."
+          )
+        )
+      },
+      test("checks @interfaceObject fields for sharing and @override, as Apollo does") {
+        def diagnostics(original: String, replacement: String) =
+          compose(
+            CompositionInput("original", progressiveSchema(original, "@key", "@interfaceObject")),
+            CompositionInput("replacement", progressiveSchema(replacement, "@key", "@interfaceObject"))
+          ).left.toOption.getOrElse(Nil)
+
+        val interface = """interface I @key(fields: "k") { k: ID a: Int } type Query { i1: I }"""
+        val onObject  = diagnostics(
+          s"""$interface type A implements I @key(fields: "k") { k: ID a: Int }""",
+          """type Query { i2: I } type I @interfaceObject @key(fields: "k") { k: ID a: Int @override(from: "original") }"""
+        )
+        val ofObject  = diagnostics(
+          """type Query { i2: I } type I @interfaceObject @key(fields: "k") { k: ID a: Int }""",
+          s"""$interface type A implements I @key(fields: "k") { k: ID a: Int @override(from: "original") }"""
+        )
+        val shared    = diagnostics(
+          """type Query { i2: I } type I @interfaceObject @key(fields: "k") { k: ID a: Int }""",
+          s"""$interface type A implements I @key(fields: "k") { k: ID a: Int }"""
+        )
+        assertTrue(
+          shared == List(
+            "[type A.a] Field is resolved by multiple subgraphs without compatible @shareable declarations: 'original', 'replacement'."
+          ),
+          onObject.contains("[replacement] Federation @override is not supported at 'I.a'."),
+          ofObject.contains(
+            "[type A.a] @override from 'original' conflicts with @interfaceObject on the field in 'original'."
+          )
         )
       },
       test("routes a shareable root field deterministically") {
@@ -1136,20 +1194,25 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("Input/output enum"))))
       },
-      test("ignores input enum usage from unreachable types") {
-        val alphaSchema =
-          "type Query { alpha: State } enum State { ACTIVE HIDDEN } input Orphan { state: State }"
-        val betaSchema  =
-          "type Query { beta: State } enum State { ACTIVE }"
+      test("composes unreachable types and checks their enum usage, as Apollo does") {
+        val orphans = composeGraphQL(
+          "type Query { alpha: Int } type Orphan { value: Int } input OrphanInput { value: Int } enum OrphanEnum { ONE }"
+        )
+        val enums   = compose(
+          CompositionInput(
+            "alpha",
+            "type Query { alpha: State } enum State { ACTIVE HIDDEN } input Orphan { state: State }"
+          ),
+          CompositionInput("beta", "type Query { beta: State } enum State { ACTIVE }")
+        )
 
-        Gateway
-          .compose(
-            Subgraph.graphql("alpha", unreachableEndpoint, alphaSchema),
-            Subgraph.graphql("beta", unreachableEndpoint, betaSchema)
+        assertTrue(
+          orphans.map(_.rootType.types.keySet.filter(_.startsWith("Orphan"))) ==
+            Right(Set("Orphan", "OrphanInput", "OrphanEnum")),
+          enums == Left(
+            List("[type State] Input/output enum values are incompatible between subgraphs: 'alpha', 'beta'.")
           )
-          .interpreter
-          .exit
-          .map(exit => assertTrue(exit.isSuccess))
+        )
       },
       test("ignores inaccessible arguments when comparing field definitions") {
         val withoutArgument = schema("type Query { search: String @shareable }", "@shareable", "@inaccessible")
@@ -1185,6 +1248,19 @@ object CompositionSpec extends ZIOSpecDefault {
             diagnostics.exists(_.startsWith("[type Filter.limit]"))
           )
         }
+      },
+      test("accepts argument and input-field defaults that are equal as values") {
+        val alphaSchema =
+          "type Query { alpha: Item } type Item { value(ratio: Float = 1, range: Range = { min: 1, max: 2 }): Int } input Range { min: Int max: Int ratio: Float = 1 }"
+        val betaSchema  =
+          "type Query { beta: Item } type Item { value(ratio: Float = 1.0, range: Range = { max: 2, min: 1 }): Int } input Range { min: Int max: Int ratio: Float = 1.0 }"
+
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.graphql("alpha", unreachableEndpoint, alphaSchema),
+            Subgraph.graphql("beta", unreachableEndpoint, betaSchema)
+          )
+        ).map(diagnostics => assertTrue(diagnostics.isEmpty))
       }
     ),
     suite("directive metadata")(
@@ -1202,6 +1278,101 @@ object CompositionSpec extends ZIOSpecDefault {
           result.exists(graph =>
             graph.rootType.mutationType.exists(tpe => directives(tpe.directives).exists(_._1 == "mark"))
           )
+        )
+      },
+      test("drops applications of directives their subgraph does not define") {
+        val result = for {
+          alpha <- Parser
+                     .parseQuery("""
+                                   |directive @foo(level: Int!) on FIELD_DEFINITION
+                                   |type Query { alpha: String @foo(level: 1) }
+                                   |""".stripMargin)
+                     .left
+                     .map(error => List(error.getMessage))
+          beta  <- Parser
+                     .parseQuery("type Query { other: Other } type Other @foo { x: Int }")
+                     .left
+                     .map(error => List(error.getMessage))
+          graph <- composeDocuments(List("alpha" -> alpha, "beta" -> beta), federation = false)
+        } yield graph
+
+        assertTrue(
+          result.exists(graph => graph.rootType.types.get("Other").exists(tpe => directives(tpe.directives).isEmpty)),
+          result.exists(graph =>
+            directives(fieldDefinition(graph.rootType.queryType, "alpha").flatMap(_.directives)).map(_._1) ==
+              List("foo")
+          )
+        )
+      },
+      test("ignores linked Federation directives on ordinary subgraphs") {
+        val result = composeGraphQL(
+          """
+            |schema
+            |  @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@inaccessible", "@context"])
+            |{ query: Query }
+            |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+            |directive @inaccessible on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+            |directive @context(name: String!) repeatable on OBJECT
+            |scalar link__Import
+            |type Query @context(name: "root") { search(filter: Filter): String @inaccessible }
+            |input Filter { term: String @inaccessible other: String }
+            |""".stripMargin
+        )
+
+        assertTrue(
+          result.exists(graph => fieldDefinition(graph.rootType.queryType, "search").nonEmpty),
+          result.exists(graph =>
+            graph.rootType.types.get("Filter").exists(_.allInputFields.map(_.name) == List("other", "term"))
+          )
+        )
+      },
+      test("validates Federation directive applications against their spec definitions") {
+        val result = compose(
+          CompositionInput(
+            "products",
+            progressiveSchema(
+              """type Query { product: Product value: String @override }
+                |type Product @key(fields: "id", resolvable: "false") {
+                |  id: ID!
+                |  name: String @key(fields: "id")
+                |}""".stripMargin,
+              "@key"
+            )
+          )
+        ).left.toOption.getOrElse(Nil)
+
+        assertTrue(
+          result.contains("[products] Federation @key is not supported at 'Product.name'."),
+          result.contains("[products] Required argument 'from' is missing on Federation @override at 'Query.value'."),
+          result.exists(_.contains("Argument 'resolvable' of directive '@key'"))
+        )
+      },
+      test("rejects repeated non-repeatable Federation directives") {
+        val result = compose(
+          CompositionInput(
+            "products",
+            progressiveSchema(
+              """type Query { product: Product value: String @override(from: "a") @override(from: "b") }
+                |type Product @key(fields: "id") @key(fields: "sku") { id: ID! sku: ID! }""".stripMargin,
+              "@key"
+            )
+          )
+        ).left.toOption.getOrElse(Nil)
+
+        assertTrue(
+          result == List("[products] Non-repeatable directive '@override' is applied more than once at 'Query.value'.")
+        )
+      },
+      test("hides @inaccessible mutation roots and rejects an @inaccessible query root") {
+        def rootSchema(query: String) =
+          schema(s"type Query $query{ value: String } type Mutation @inaccessible { update: Int }", "@inaccessible")
+            .replace("{ query: Query }", "{ query: Query mutation: Mutation }")
+        val hidden                    = compose(CompositionInput("products", rootSchema("")))
+        val query                     = compose(CompositionInput("products", rootSchema("@inaccessible "))).left.toOption.getOrElse(Nil)
+
+        assertTrue(
+          hidden.exists(_.rootType.mutationType.isEmpty),
+          query == List("[type Query] The query root type cannot be @inaccessible.")
         )
       },
       test("rejects a source type used for multiple operation roots") {
@@ -1383,6 +1554,32 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
       },
+      test("removes @inaccessible arguments from composed directive definitions") {
+        val result = compose(
+          CompositionInput(
+            "secret",
+            directiveSchema(
+              "type Query { value: String @audit(level: \"a\") }",
+              "directive @audit(level: String, secret: String = \"x\" @inaccessible) on FIELD_DEFINITION"
+            ).replace("ENUM_VALUE\nscalar link__Import", "ENUM_VALUE | ARGUMENT_DEFINITION\nscalar link__Import")
+          )
+        )
+
+        assertTrue(
+          result.exists(
+            _.rootType.additionalDirectives.find(_.name == "audit").exists(_.allArgs.map(_.name) == List("level"))
+          ),
+          result.exists(
+            _.rootType.queryType.allFields
+              .find(_.name == "value")
+              .exists(field =>
+                directives(field.directives).collect { case ("audit", arguments) => arguments.keySet } == List(
+                  Set("level")
+                )
+              )
+          )
+        )
+      },
       test("merges repeatable applications from every subgraph") {
         def shared(source: String)                                   = directiveSchema(
           s"""type Query { value: String @shareable @label(name: "$source") @audit(level: "$source") }""",
@@ -1446,6 +1643,34 @@ object CompositionSpec extends ZIOSpecDefault {
           collision.left.exists(
             _.exists(message => message.contains("first") && message.contains("second") && message.contains("audit"))
           )
+        )
+      },
+      test("names an unlinked directive colliding with a linked one") {
+        val linked   = directiveSchema(
+          "type Query { value: String @audit(label: \"linked\") }",
+          "directive @audit(label: String!) repeatable on FIELD_DEFINITION"
+        )
+        val unlinked =
+          """directive @audit(label: String!) repeatable on FIELD_DEFINITION
+            |type Query { other: String @audit(label: "local") }""".stripMargin
+        val result   = for {
+          linkedDocument   <- Parser.parseQuery(linked)
+          unlinkedDocument <- Parser.parseQuery(unlinked)
+        } yield caliban.gateway.internal.composition.SchemaComposer.compose(
+          List(
+            Subgraph.federation("alpha", unreachableEndpoint, linkedDocument) -> linkedDocument,
+            Subgraph.graphql("beta", unreachableEndpoint, unlinkedDocument)   -> unlinkedDocument
+          )
+        )
+
+        assertTrue(
+          result.toOption
+            .flatMap(_.left.toOption)
+            .exists(
+              _.diagnostics.contains(
+                "[directive @audit] Linked directive identities collide: 'https://example.com/audit' and an unlinked definition."
+              )
+            )
         )
       },
       test("keeps each distinct repeatable directive application once, in subgraph order") {
@@ -1582,7 +1807,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("retains selected schema-coordinate applications as composed metadata") {
+      test("composes selected schema-coordinate applications") {
         val result = compose(
           CompositionInput(
             "schema-metadata",
@@ -1594,14 +1819,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
 
-        assertTrue(
-          result.isRight,
-          result.exists(graph =>
-            directives(Some(graph.schemaDirectives)).exists { case (name, arguments) =>
-              name == "audit" && arguments.get("label").contains(StringValue("schema"))
-            }
-          )
-        )
+        assertTrue(result.isRight)
       },
       test("requires Federation 2.1 for composeDirective") {
         val sdl    = directiveSchema(

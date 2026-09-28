@@ -19,8 +19,8 @@ private[gateway] final class SubscriptionControl[-R] private (
 
   def stop(reason: CalibanError.ExecutionError)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
-      val next = current.copy(stopped = current.stopped.orElse(Some(reason)))
-      (next.active.toList, next.stopped.get) -> next
+      val stopped = current.stopped.getOrElse(reason)
+      (current.active.toList, stopped) -> current.copy(stopped = Some(stopped))
     }.flatMap { case (signals, stopped) =>
       ZIO.foreachDiscard(signals)(_.succeed(stopped)) *> drained.succeed(()).when(signals.isEmpty).unit
     }

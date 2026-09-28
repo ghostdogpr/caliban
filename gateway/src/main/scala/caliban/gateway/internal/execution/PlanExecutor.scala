@@ -36,15 +36,15 @@ private[gateway] final class PlanExecutor[-R](
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
     plan.passthroughSubgraph match {
-      case Some(subgraphName) =>
-        val executor = subgraphExecutors(subgraphName)
+      case Some(source) =>
+        val executor = executorFor(source)
         executor
           .execute(resolvedRequest, plan.operationType)
           .catchAll(_ =>
             ZIO.succeed(GraphQLResponse(RemoteError.nullObject(plan.fields), RemoteError.forFields(plan.fields)))
           )
           .flatMap(response => observeCompletion(completePassthrough(plan, executor.errorPolicy, response)))
-      case None               =>
+      case None         =>
         val remote: URIO[R, GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError]] =
           if (plan.operationType == OperationType.Mutation)
             executeMutations(plan, plan.roots).map(mutations => completeMutations(plan, mutations, _))
@@ -64,7 +64,7 @@ private[gateway] final class PlanExecutor[-R](
   def forSubscription(
     plan: OperationPlan
   )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, PlanExecutor[R]] = {
-    val used = plan.roots.map(_.source).toSet ++ plan.entities.map(_.source)
+    val used = plan.roots.map(_.source.name).toSet ++ plan.entities.map(_.source.name)
     ZIO
       .foreach(subgraphExecutors) { case (name, executor) =>
         (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
@@ -76,7 +76,7 @@ private[gateway] final class PlanExecutor[-R](
     trace: Trace
   ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
     val fetch                     = plan.roots.head
-    val executor                  = subgraphExecutors(fetch.source)
+    val executor                  = executorFor(fetch.source)
     val (outgoing, restoreErrors) =
       if (plan.passthroughSubgraph.nonEmpty)
         resolvedRequest -> ((errors: List[CalibanError]) => executor.errorPolicy.forFetch(plan.fields, errors))
@@ -98,7 +98,7 @@ private[gateway] final class PlanExecutor[-R](
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] = {
     val root        = plan.roots.head
-    val errorPolicy = subgraphExecutors(root.source).errorPolicy
+    val errorPolicy = executorFor(root.source).errorPolicy
     if (plan.passthroughSubgraph.nonEmpty)
       ZIO.succeed(completePassthrough(plan, errorPolicy, response.copy(extensions = None)))
     else
@@ -107,12 +107,15 @@ private[gateway] final class PlanExecutor[-R](
   }
 
   private lazy val introspection: RootSchema[Any] = Introspector.introspect[Any](graph.rootType)
-  private val entityExecutor                      = new EntityExecutor[R](graph, subgraphExecutors)
+  private val entityExecutor                      = new EntityExecutor[R](graph, executorFor)
+
+  private def executorFor(source: ComposedGraph.Source): SubgraphExecutor[R] =
+    subgraphExecutors.getOrElse(source.name, new SubgraphExecutor.Unavailable(source.name))
 
   private def prepareRoot(plan: OperationPlan, fetch: RootFetch): PreparedRoot =
     plan.executionCache.root(fetch.id) {
-      val mapping    = graph.schemaMapping(fetch.source)
-      val executable = fetch.downstream.map(graph.prepareField(fetch.source, _))
+      val mapping    = fetch.source.mapping
+      val executable = fetch.downstream.map(fetch.source.prepareField(_))
       val downstream = executable.map(mapping.fieldToSource)
       val operation  =
         OperationDefinition(plan.operationType, plan.operationName, Nil, Nil, downstream.map(_.toSelection))
@@ -179,7 +182,7 @@ private[gateway] final class PlanExecutor[-R](
 
   private def executeRoot(plan: OperationPlan, fetch: RootFetch)(implicit trace: Trace): URIO[R, RootResult] = {
     val prepared = prepareRoot(plan, fetch)
-    val executor = subgraphExecutors(fetch.source)
+    val executor = executorFor(fetch.source)
     executor
       .execute(prepared.request, plan.operationType)
       .map(prepared.restore(executor.errorPolicy, _))

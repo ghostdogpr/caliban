@@ -5,7 +5,7 @@ import caliban.{ CalibanError, GraphQLRequest, InputValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.internal.composition.ComposedGraph
-import caliban.gateway.internal.composition.ComposedGraph.TypeField
+import caliban.gateway.internal.composition.DirectiveComposition.{ Coordinate, FieldCoordinate }
 import caliban.gateway.internal.planning.{ OperationCost, OperationPlan }
 import caliban.schema.RootType
 import caliban.parsing.adt.OperationType
@@ -15,11 +15,11 @@ import zio.test._
 
 object OperationCostSpec extends ZIOSpecDefault {
 
-  private final class CountingCosts(values: Map[TypeField, BigInt])
-      extends Map.WithDefault[TypeField, BigInt](values, values.default) {
+  private final class CountingCosts(values: Map[Coordinate, BigInt])
+      extends Map.WithDefault[Coordinate, BigInt](values, values.default) {
     var lookups = 0
 
-    override def get(key: TypeField): Option[BigInt] = {
+    override def get(key: Coordinate): Option[BigInt] = {
       lookups += 1
       values.get(key)
     }
@@ -63,7 +63,20 @@ object OperationCostSpec extends ZIOSpecDefault {
       operation <- RequestPreparation.parse(query)
       request   <-
         RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
-    } yield request -> OperationPlan(OperationType.Query, None, request.field.fields, Nil, Nil, Nil, Some("nodes"))
+      graph     <- parseSdl("type Query { ok: Int }").flatMap(document =>
+                     ZIO
+                       .fromEither(composeDocuments(List("nodes" -> document), federation = false))
+                       .orDieWith(errors => new AssertionError(errors.mkString))
+                   )
+    } yield request -> OperationPlan(
+      OperationType.Query,
+      None,
+      request.field.fields,
+      Nil,
+      Nil,
+      Nil,
+      graph.sources.headOption
+    )
 
   private def costLimitedGateway(maxCost: Long)(first: Subgraph[Any], rest: Subgraph[Any]*): Gateway[Any] =
     Gateway.compose(first, rest: _*).withConfig(_.withMaxOperationCost(maxCost))
@@ -83,9 +96,9 @@ object OperationCostSpec extends ZIOSpecDefault {
         prepared       <- prepare(root, query)
         (request, plan) = prepared
         weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                            TypeField(name, "value") -> BigInt(index + 1)
+                            FieldCoordinate(name, "value") -> BigInt(index + 1)
                           }.toMap)
-        metadata        = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
+        metadata        = ComposedGraph.CostMetadata(weights = weights)
         costs           = new OperationCost(root.types, Map("Node" -> names.toSet), metadata)
         estimated       = costs.estimate(plan)
       } yield assertTrue(
@@ -109,9 +122,9 @@ object OperationCostSpec extends ZIOSpecDefault {
         prepared       <- prepare(root, query)
         (request, plan) = prepared
         weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                            TypeField(name, "value") -> BigInt(index + 1)
+                            FieldCoordinate(name, "value") -> BigInt(index + 1)
                           }.toMap)
-        metadata        = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
+        metadata        = ComposedGraph.CostMetadata(weights = weights)
         costs           = new OperationCost(root.types, Map("Node" -> names.toSet, "Entity" -> names.toSet), metadata)
         estimated       = costs.estimate(plan)
       } yield assertTrue(
@@ -134,13 +147,10 @@ object OperationCostSpec extends ZIOSpecDefault {
       )
       for {
         root    <- rootType(schema)
-        metadata = ComposedGraph.CostMetadata(
-                     Map.empty,
-                     Map(TypeField("Child", "cheap") -> BigInt(1), TypeField("Child", "expensive") -> BigInt(100)),
-                     Map.empty,
-                     Map.empty,
-                     Map.empty
-                   )
+        metadata =
+          ComposedGraph.CostMetadata(weights =
+            Map(FieldCoordinate("Child", "cheap") -> BigInt(1), FieldCoordinate("Child", "expensive") -> BigInt(100))
+          )
         costs    = new OperationCost(root.types, Map("Node" -> Set("A", "B")), metadata)
         results <- ZIO.foreach(queries) { case (query, expected) =>
                      prepare(root, query).map { case (_, plan) =>
@@ -758,6 +768,7 @@ object OperationCostSpec extends ZIOSpecDefault {
                        )
         sizedErrors <-
           diagnostics("bad-sized", invalid("v2.9", "@listSize(assumedSize: 2, sizedFields: [\"unknown\"])"))
+        emptyErrors <- diagnostics("empty-sized", invalid("v2.9", "@listSize(assumedSize: 2, sizedFields: [\"\"])"))
         listErrors  <- diagnostics(
                          "list-input",
                          invalid("v2.9", "@listSize(slicingArguments: [\"filters.first\"], sizedFields: [\"page\"])")
@@ -787,6 +798,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         oldErrors.exists(_.contains("@listSize requires Federation v2.9 or cost spec v0.1")),
         pathErrors.exists(_.contains("slicing argument 'missing' must resolve to an Int or list argument")),
         sizedErrors.exists(_.contains("sized field 'unknown' must exist and return a list")),
+        emptyErrors.exists(_.contains("sized field '' is not a valid field path")),
         listErrors.exists(_.contains("slicing argument 'filters.first' must resolve to an Int or list argument")),
         leafErrors.exists(_.contains("sized field 'page recent' must not select sibling leaf fields")),
         linkErrors.exists(_.contains("@cost requires Federation v2.9 or cost spec v0.1"))
@@ -807,11 +819,23 @@ object OperationCostSpec extends ZIOSpecDefault {
         diagnostics =>
           assertTrue(
             diagnostics == List(
-              "[locations] Invalid Federation @cost application at 'Node.id': @cost cannot be applied to an interface field.",
-              "[locations] Invalid Federation @cost application at 'Status.ACTIVE': @cost is not supported at this location.",
-              "[locations] Invalid Federation @listSize application at 'Query.status(limit:)': @listSize is only supported on fields."
+              "[locations] Federation @cost is not supported at 'Status.ACTIVE'.",
+              "[locations] Federation @listSize is not supported at 'Query.status(limit:)'.",
+              "[locations] Invalid Federation @cost application at 'Node.id': @cost cannot be applied to an interface field."
             )
           )
+      }
+    },
+    test("accepts @cost on a directive definition argument, as Apollo composition does") {
+      val schema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@cost"]) { query: Query }
+           |$directives
+           |directive @limited(max: Int @cost(weight: 3)) on FIELD_DEFINITION
+           |type Query { items: [String] @limited(max: 1) }
+           |""".stripMargin
+      compositionDiagnostics(Gateway.compose(Subgraph.federation("directives", unreachableEndpoint, schema))).map {
+        diagnostics => assertTrue(diagnostics.isEmpty)
       }
     },
     test("counts injected key selections once across planned federation requests") {

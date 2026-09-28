@@ -111,6 +111,21 @@ private[gateway] object SubgraphExecutor {
     }
   }
 
+  final class Unavailable(name: String) extends SubgraphExecutor[Any] {
+    private val error            = CalibanError.ExecutionError(s"No executor is configured for subgraph '$name'.")
+    val errorPolicy: ErrorPolicy = ErrorPolicy.Local
+
+    def execute(request: GraphQLRequest, operationType: OperationType)(implicit
+      trace: Trace
+    ): ZIO[Any, Failure, GraphQLResponse[CalibanError]] =
+      ZIO.succeed(GraphQLResponse(Value.NullValue, List(error)))
+
+    def subscribe(request: GraphQLRequest)(implicit
+      trace: Trace
+    ): ZIO[Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
+      ZIO.fail(error)
+  }
+
   sealed trait Failure                                extends NoStackTrace
   final case class TransportFailure(error: Throwable) extends Failure {
     override def getCause: Throwable = error

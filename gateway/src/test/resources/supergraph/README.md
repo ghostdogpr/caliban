@@ -45,14 +45,13 @@ rover supergraph compose --config ./context-supergraph.yaml --elv2-license accep
 diff /tmp/composed.graphql context-supergraph.graphql
 ```
 
-Two constraints shape those subgraphs, and both fail confusingly if broken:
+One constraint shapes those subgraphs, and it fails confusingly if broken: a context field must be
+reachable only *through* its context type. `Ship` is reachable solely via `Character.ship`, and
+adding a `Query.ships` root makes rover reject the whole composition with
+`SATISFIABILITY_ERROR: could not find a match for required context`.
 
-- **A context field must be reachable only *through* its context type.** `Ship` is reachable solely
-  via `Character.ship`, and adding a `Query.ships` root makes rover reject the whole composition
-  with `SATISFIABILITY_ERROR: could not find a match for required context`.
-- **Every subgraph needs a query root.** `Query.shipCount` exists only so the `episodes` projection
-  has one; `RemoteSchema.normalize` refuses a document without it, so the round trip dies with
-  `[episodes] The query root operation is missing.` rather than reporting anything about contexts.
+`Query.shipCount` is optional. `SchemaComposer` gives a Federation subgraph without a query root a
+synthetic one, so the `episodes` projection also composes without it.
 
 No Hive counterpart is checked in. Composing the same subgraphs with
 `@theguild/federation-composition` 0.26.0 produces the same encoding of both halves: the same

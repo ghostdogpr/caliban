@@ -20,7 +20,7 @@ import scala.collection.mutable
  */
 private[gateway] final class EntityExecutor[-R](
   graph: ComposedGraph,
-  subgraphExecutors: Map[String, SubgraphExecutor[R]]
+  executorFor: ComposedGraph.Source => SubgraphExecutor[R]
 ) {
   def execute(
     fetches: List[EntityFetch],
@@ -39,9 +39,10 @@ private[gateway] final class EntityExecutor[-R](
     val batches                = groups.flatMap { case (index, group) => group.batches.map(index -> _) }
     val (combinable, separate) = batches.partition { case (_, batch) => canCombine(batch.fetch) }
     val tasks                  =
-      (separate.map(_ :: Nil) ::: combinable.groupBy { case (_, batch) => batch.fetch.source }.values.toList).map {
-        case (index, batch) :: Nil => executeBatch(batch, cache).map(result => List(index -> result))
-        case parts                 => executeParts(parts, cache)
+      (separate
+        .map(part => part._2.fetch.source -> (part :: Nil)) ::: combinable.groupBy(_._2.fetch.source).toList).map {
+        case (_, (index, batch) :: Nil) => executeBatch(batch, cache).map(result => List(index -> result))
+        case (source, parts)            => executeParts(source, parts, cache)
       }
     ZIO.collectAllPar(tasks).map { results =>
       val prepared = groups.map { case (index, group) => index -> group.result }
@@ -49,17 +50,17 @@ private[gateway] final class EntityExecutor[-R](
     }
   }
 
-  private val lookups = new EntityLookup(graph)
-
   private def canCombine(fetch: EntityFetch): Boolean =
     fetch.lookup.operation == ComposedGraph.LookupOperation.FederationEntities
 
-  private def executeParts[K](batches: List[(K, EntityBatch)], cache: PlanExecutionCache)(implicit
-    trace: Trace
+  private def executeParts[K](source: ComposedGraph.Source, batches: List[(K, EntityBatch)], cache: PlanExecutionCache)(
+    implicit trace: Trace
   ): URIO[R, List[(K, EntityResult)]] = {
-    val parts    = batches.zipWithIndex.map { case ((key, batch), slot) => key -> lookups.preparePart(batch, cache, slot) }
+    val parts    = batches.zipWithIndex.map { case ((key, batch), slot) =>
+      key -> EntityLookup.preparePart(batch, cache, slot)
+    }
     val aliases  = parts.iterator.map { case (_, (part, _)) => part.alias }.toSet
-    val executor = subgraphExecutors(batches.head._2.fetch.source)
+    val executor = executorFor(source)
     executor
       .execute(EntityLookup.combine(parts.map { case (_, (part, _)) => part }), OperationType.Query)
       .map { response =>
@@ -78,9 +79,9 @@ private[gateway] final class EntityExecutor[-R](
   private def executeBatch(batch: EntityBatch, cache: PlanExecutionCache)(implicit
     trace: Trace
   ): URIO[R, EntityResult] =
-    lookups.prepare(batch, cache) match {
+    EntityLookup.prepare(batch, cache) match {
       case Some((request, call)) =>
-        val executor = subgraphExecutors(batch.fetch.source)
+        val executor = executorFor(batch.fetch.source)
         executor
           .execute(request, OperationType.Query)
           .map(call.complete(_, executor.errorPolicy))

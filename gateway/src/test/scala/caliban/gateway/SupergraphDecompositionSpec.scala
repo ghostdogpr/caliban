@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.gateway.GatewayTestSupport.{ parseSdl, supergraphResource }
+import caliban.gateway.GatewayTestSupport.{ composeDocuments, parseSdl, supergraphResource }
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.gateway.internal.composition.SupergraphDecomposition.Graph
 import caliban.InputValue
@@ -571,6 +571,25 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             result.map(values(_, "b")) == Right(Some(List("EARTH", "MARS")))
           )
         }
+      },
+      test("keeps an unmarked enum value in every graph when other values are marked") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |enum Origin @join__type(graph: A) @join__type(graph: B) {
+               |  EARTH @join__enumValue(graph: A)
+               |  MARS
+               |}""".stripMargin
+          )
+        ).map { result =>
+          def values(graphs: Map[String, Document], graph: String) =
+            graphs(graph).enumTypeDefinitions.find(_.name == "Origin").map(_.enumValuesDefinition.map(_.enumValue))
+
+          assertTrue(
+            result.map(values(_, "a")) == Right(Some(List("EARTH", "MARS"))),
+            result.map(values(_, "b")) == Right(Some(List("MARS")))
+          )
+        }
       }
     ),
     suite("projection: federation link")(
@@ -673,20 +692,15 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           shareable(plain, "b") == Right(true)
         )
       },
-      test("rejects a subscription root field resolved by more than one graph") {
-        // The composer fails these with "Subscription fields require one effective owner and
-        // cannot be @shareable"; naming the field here is more useful than that.
+      test("leaves a subscription root field resolved by more than one graph to composition") {
         decompose(
           subscriptionSupergraph(
             "type Subscription @join__type(graph: A) @join__type(graph: B) { ticks: Int! }"
           )
         ).map(result =>
           assertTrue(
-            result == Left(
-              List(
-                "[supergraph] Subscription field 'Subscription.ticks' is resolved by more than one graph, " +
-                  "which the gateway cannot route."
-              )
+            result.flatMap(graphs => composeDocuments(graphs.toList)).left.toOption == Some(
+              List("[subscription.ticks] Subscription fields require one effective owner and cannot be @shareable.")
             )
           )
         )
@@ -973,6 +987,42 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           assertTrue(
             result.map(implemented(_, "a")) == Right(Some(List("Node"))),
             result.map(implemented(_, "b")) == Right(Some(Nil))
+          )
+        }
+      },
+      test("drops an interface that no @join__implements lists") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |interface Node @join__type(graph: A) { id: ID! }
+               |type Widget implements Node @join__type(graph: A) @join__type(graph: B) { id: ID! }""".stripMargin
+          )
+        ).map { result =>
+          def implemented(graphs: Map[String, Document], graph: String) =
+            graphs(graph).objectTypeDefinitions.find(_.name == "Widget").map(_.implements.map(_.name))
+
+          assertTrue(
+            result.map(implemented(_, "a")) == Right(Some(Nil)),
+            result.map(implemented(_, "b")) == Right(Some(Nil))
+          )
+        }
+      },
+      test("keeps only the union members a graph defines when @join__unionMember is absent") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |type Captain @join__type(graph: A) { rank: String! }
+               |type Pilot @join__type(graph: B) { hours: Int! }
+               |union Role @join__type(graph: A) @join__type(graph: B) = Captain | Pilot""".stripMargin,
+            join = "https://specs.apollo.dev/join/v0.2"
+          )
+        ).map { result =>
+          def members(graphs: Map[String, Document], graph: String) =
+            graphs(graph).unionTypeDefinitions.find(_.name == "Role").map(_.memberTypes)
+
+          assertTrue(
+            result.map(members(_, "a")) == Right(Some(List("Captain"))),
+            result.map(members(_, "b")) == Right(Some(List("Pilot")))
           )
         }
       },
