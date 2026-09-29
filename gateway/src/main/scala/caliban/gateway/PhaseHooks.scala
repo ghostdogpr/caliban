@@ -5,7 +5,7 @@ import caliban.parsing.adt.Document
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import caliban.{ GraphQLRequest, GraphQLResponse }
-import zio.http.Header
+import zio.http.{ Header, URL }
 import zio.{ Cause, Exit, ZIO }
 
 import scala.util.control.NoStackTrace
@@ -405,8 +405,7 @@ object PhaseHooks {
       subgraph: String,
       number: Int,
       requestBytes: Long,
-      serverAddress: Option[String],
-      serverPort: Option[Int],
+      endpoint: URL,
       headers: List[Header],
       method: String = "POST"
     ) extends Event

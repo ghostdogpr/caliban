@@ -1,22 +1,13 @@
 package example.gateway
 
 import caliban.gateway.{ Gateway, Subgraph }
-import caliban.schema.GenericSchema
-import caliban.{ graphQL, QuickAdapter, RootResolver }
-import zio._
+import caliban.schema.Schema.auto._
+import caliban.{ graphQL, RootResolver }
 
-object LocalGatewayApp extends ZIOAppDefault with GenericSchema[Any] {
-  import auto._
-
+object LocalGatewayApp extends ExampleApp("Local gateway", 8080) {
   final case class Query(greeting: String)
 
-  private val localApi = graphQL(RootResolver(Query("Hello from a local subgraph")))
-  private val gateway  = Gateway.compose(Subgraph.graphql("local", localApi))
+  val localApi = graphQL(RootResolver(Query("Hello from a local subgraph")))
 
-  def run =
-    for {
-      interpreter <- gateway.interpreter
-      _           <- Console.printLine("Local gateway: http://localhost:8080/graphiql")
-      _           <- QuickAdapter(interpreter).runServer(8080, "/graphql", graphiqlPath = Some("/graphiql"))
-    } yield ()
+  def interpreter = Gateway.compose(Subgraph.graphql("local", localApi)).interpreter
 }

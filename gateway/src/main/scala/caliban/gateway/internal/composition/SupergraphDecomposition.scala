@@ -11,7 +11,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, Document, Type }
 import caliban.parsing.{ Parser, SourceMapper }
-import zio.http.{ Scheme, URL }
+import zio.http.URL
 
 /**
  * Decomposes an Apollo Federation supergraph into the subgraph documents it was composed from.
@@ -80,23 +80,14 @@ private[gateway] object SupergraphDecomposition {
           .filter(_.trim.nonEmpty)
           .toRight(List(s"$prefix must declare a non-empty 'name' argument."))
 
-        // Parsing alone is not validation: "foo" decodes into a relative URL. Require an absolute
-        // http(s) endpoint rather than let an unusable URL fail later at request time.
         val url = stringArgument(directive.arguments, "url") match {
           case None        => Left(List(s"$prefix must declare a 'url' argument."))
           case Some(value) =>
-            URL
-              .decode(value)
-              .toOption
-              .filter(isHttpEndpoint)
-              .toRight(List(s"$prefix must declare an absolute http or https 'url'."))
+            URL.decode(value).left.map(_ => List(s"$prefix must declare an absolute http or https 'url'."))
         }
 
         validated(name.left.getOrElse(Nil), url).flatMap(url => name.map(Graph(value.enumValue, _, url)))
     }
-
-  private def isHttpEndpoint(url: URL): Boolean =
-    url.scheme.exists(scheme => scheme == Scheme.HTTP || scheme == Scheme.HTTPS) && url.host.exists(_.nonEmpty)
 
   private def projectionContext(document: Document): Either[List[String], ProjectionContext] = {
     val features = DirectiveComposition.linkedFeatures(document)

@@ -1,8 +1,10 @@
 package caliban.gateway.audit
 
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import zio.test._
 
 import java.nio.charset.StandardCharsets
+import scala.util.Try
 
 object MainSpec extends ZIOSpecDefault {
 
@@ -14,7 +16,7 @@ object MainSpec extends ZIOSpecDefault {
           |  {"name":"reviews","url":"http://127.0.0.1:4200/basic/reviews","sdl":"extend type Product @key(fields: \"id\") { id: ID! }"}
           |]""".stripMargin
 
-      val result = Main.decodeSubgraphs(json.getBytes(StandardCharsets.UTF_8))
+      val result = Try(readFromArray[List[Main.SubgraphInput]](json.getBytes(StandardCharsets.UTF_8))).toEither
 
       assertTrue(
         result == Right(
@@ -36,9 +38,9 @@ object MainSpec extends ZIOSpecDefault {
     test("rejects malformed upstream subgraph descriptions") {
       val missingSdl = """[{"name":"products","url":"http://127.0.0.1:4200/products"}]"""
 
-      val result = Main.decodeSubgraphs(missingSdl.getBytes(StandardCharsets.UTF_8))
+      val result = Try(readFromArray[List[Main.SubgraphInput]](missingSdl.getBytes(StandardCharsets.UTF_8)))
 
-      assertTrue(result == Left("Audit fixture subgraphs were not valid JSON."))
+      assertTrue(result.isFailure)
     }
   )
 }

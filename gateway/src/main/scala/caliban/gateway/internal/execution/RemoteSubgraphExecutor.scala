@@ -82,8 +82,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
               name,
               0,
               if (post) body.length.toLong else 0L,
-              subscription.target.host,
-              subscription.target.port,
+              subscription.target,
               headers,
               if (post) "POST" else "GET"
             )
@@ -143,17 +142,14 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
     val response =
-      hooks.attempt.runWith(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port, headers))(
-        event => send(body, event.headers)
+      hooks.attempt.runWith(Event.Attempt(name, attempt, body.length.toLong, endpoint, headers))(event =>
+        send(body, event.headers)
       )(
         Result.fromExit(_)(
           value =>
-            Result(
-              Outcome.fromResponse(value.response),
-              errorCount = value.response.errors.size,
-              statusCode = Some(value.statusCode),
-              responseBytes = Some(value.responseBytes)
-            ),
+            Result
+              .fromResponse(value.response)
+              .copy(statusCode = Some(value.statusCode), responseBytes = Some(value.responseBytes)),
           failure =>
             Result(
               SubgraphExecutor.failureOutcome(failure.failure),

@@ -52,7 +52,7 @@ jobs:
             --run-script ./run.sh \
             --reporter dot \
             --graphql http://127.0.0.1:4000/graphql \
-            --healthcheck http://127.0.0.1:4000/health \
+            --healthcheck 'http://127.0.0.1:4000/graphql?query=%7B__typename%7D' \
             --write "$GITHUB_WORKSPACE/gateway-audit/results.txt" \
             --junit
       - name: Verify 100% compatibility

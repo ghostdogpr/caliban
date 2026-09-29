@@ -6,6 +6,7 @@ import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Directive, Selection }
+import zio.http.{ Scheme, URL }
 
 package object gateway {
   private[gateway] final val TypenameField   = "__typename"
@@ -98,6 +99,9 @@ package object gateway {
 
   private[gateway] def check(valid: Boolean, message: String): List[String] =
     if (valid) Nil else message :: Nil
+
+  private[gateway] def checkAbsolute(url: URL, schemes: Scheme => Boolean, message: String): List[String] =
+    check(url.scheme.exists(schemes) && url.host.exists(_.nonEmpty), message)
 
   private[gateway] def validateAll[A](results: List[Either[String, A]]): Either[List[String], List[A]] =
     collectErrors(results.map(_.left.map(List(_))))

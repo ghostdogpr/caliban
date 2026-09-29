@@ -29,15 +29,11 @@ npm start -- test \
   --cwd "$CALIBAN_ROOT/gateway-audit" \
   --run-script ./run.sh \
   --graphql http://127.0.0.1:4000/graphql \
-  --healthcheck http://127.0.0.1:4000/health \
+  --healthcheck 'http://127.0.0.1:4000/graphql?query=%7B__typename%7D' \
   --write "$CALIBAN_ROOT/gateway-audit/results.txt"
 "$CALIBAN_ROOT/gateway-audit/verify-results.sh" "$CALIBAN_ROOT/gateway-audit/results.txt"
 ```
 
-## Adapter settings
+## Ports
 
-The adapter serves `/graphql` and `/health` on port 4000.
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `FEDERATION_GATEWAY_AUDIT_URL` | `http://127.0.0.1:4200` | Where the adapter fetches each suite's subgraph descriptions |
+The adapter serves `/graphql` on port 4000 and fetches each suite's subgraph descriptions from the audit on port 4200.

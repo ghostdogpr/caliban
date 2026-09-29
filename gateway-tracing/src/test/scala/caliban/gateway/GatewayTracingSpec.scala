@@ -6,7 +6,8 @@ import caliban.gateway.tracing.GatewayTracing
 import caliban.tracing.TracingMock
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.{ SpanId, SpanKind, StatusCode }
-import zio.http.{ Header, Status }
+import io.opentelemetry.sdk.trace.data.SpanData
+import zio.http.{ Header, Status, URL }
 import zio.stream.ZStream
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.{ Duration, Promise, Scope, ZIO }
@@ -70,12 +71,13 @@ object GatewayTracingSpec extends ZIOSpecDefault {
             events.size == 2,
             observed.count(_.getName == "caliban.gateway.subscription.setup") == 1,
             eventSpans.size == 2,
+            observed.forall(_.getAttributes.get(AttributeKey.stringKey("graphql.operation.type")) == "subscription"),
             attempts.size == 1,
             subgraph.exists(span => setup.map(_.getSpanId).contains(span.getParentSpanId)),
             attempts.forall(span =>
               subgraph.map(_.getSpanId).contains(span.getParentSpanId) &&
                 span.getAttributes.get(AttributeKey.stringKey("http.request.method")) == "POST" &&
-                span.getAttributes.get(AttributeKey.longKey("http.request.resend_count")) == 0L
+                span.getAttributes.get(AttributeKey.longKey("http.request.resend_count")) == null
             ),
             // The request span covers preparation and stream construction; the subscription outlives it.
             spans.count(_.getName == "caliban.gateway.request") == 1,
@@ -130,7 +132,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
           .exists(span =>
             span.getKind == SpanKind.CLIENT &&
               span.getAttributes.get(AttributeKey.longKey("http.response.status_code")) == 200L &&
-              span.getAttributes.get(AttributeKey.longKey("http.request.resend_count")) == 0L
+              span.getAttributes.get(AttributeKey.longKey("http.request.resend_count")) == null
           ),
         sentHeaders.headOption.flatMap(_.get("traceparent")).exists(_.nonEmpty),
         !attributeNames.exists(name => name.contains("document") || name.contains("query") || name.contains("variable"))
@@ -171,17 +173,15 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         sent        <- remote.requests.get
         headers     <- remote.headers.get
         spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
-        attempts     = spans
-                         .filter(_.getName == "caliban.gateway.subgraph.attempt")
-                         .sortBy(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue())
+        resendCount  =
+          (span: SpanData) =>
+            Option(span.getAttributes.get(AttributeKey.longKey("http.request.resend_count"))).map(_.longValue())
+        attempts     = spans.filter(_.getName == "caliban.gateway.subgraph.attempt").sortBy(resendCount)
       } yield assertTrue(
         response.errors.isEmpty,
         sent.size == 2,
         !spans.exists(_.getName == "caliban.gateway.retry"),
-        attempts.map(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue()) == List(
-          0L,
-          1L
-        ),
+        attempts.map(resendCount) == List(None, Some(1L)),
         headers
           .lift(1)
           .flatMap(_.get("traceparent"))
@@ -209,6 +209,52 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         observed.forall(_.getStatus.getStatusCode == StatusCode.ERROR),
         observed.forall(_.getAttributes.get(AttributeKey.stringKey("error.type")) == "graphql_error"),
         !observed.exists(_.getEvents.asScala.exists(_.getAttributes.toString.contains("private failure")))
+      )
+    },
+    test("marks failed phases without recording the failure cause") {
+      for {
+        remote      <- stub(okResponse)
+        runtime     <- tracedGateway(remote).interpreter
+        spansBefore <- TracingMock.getFinishedSpans.map(_.size)
+        response    <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("{ missing }")))
+        spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
+        preparation  = spans.find(_.getName == "caliban.gateway.preparation")
+      } yield assertTrue(
+        response.errors.nonEmpty,
+        preparation.exists(_.getStatus.getStatusCode == StatusCode.ERROR),
+        preparation.exists(_.getAttributes.get(AttributeKey.longKey("graphql.response.error.count")) == 1L),
+        spans.filter(_.getName.startsWith("caliban.gateway.")).forall(_.getStatus.getDescription.isEmpty)
+      )
+    },
+    test("reports the scheme's default port on attempts to an endpoint without one") {
+      for {
+        endpoint    <- ZIO.fromEither(URL.decode("http://127.0.0.1/graphql"))
+        runtime     <- (Gateway.compose(Subgraph.graphql("products", endpoint, schema)) @@ GatewayTracing.hooks).interpreter
+        spansBefore <- TracingMock.getFinishedSpans.map(_.size)
+        _           <- runtime.execute("{ value }")
+        spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
+        attempts     = spans.filter(_.getName == "caliban.gateway.subgraph.attempt")
+      } yield assertTrue(
+        attempts.size == 1,
+        attempts.forall(_.getAttributes.get(AttributeKey.stringKey("server.address")) == "127.0.0.1"),
+        attempts.forall(_.getAttributes.get(AttributeKey.longKey("server.port")) == 80L)
+      )
+    },
+    test("replaces client trace context even when the gateway injects no tracestate") {
+      val config = RemoteGraphQLConfig.default.withExecution(_.forwardAllIncomingHeaders)
+
+      for {
+        remote      <- stub(okResponse)
+        runtime     <- tracedGateway(remote, config).interpreter
+        response    <- runtime.executeRequest(
+                         GraphQLRequest(query = Some("{ value }")),
+                         List(Header.Custom("tracestate", "client=private"))
+                       )
+        sentHeaders <- remote.headers.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        sentHeaders.headOption.flatMap(_.get("traceparent")).exists(_.nonEmpty),
+        sentHeaders.headOption.exists(_.get("tracestate").isEmpty)
       )
     },
     test("keeps trace propagation outside in-flight query identity") {

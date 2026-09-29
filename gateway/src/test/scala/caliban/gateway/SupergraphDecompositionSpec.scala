@@ -322,12 +322,27 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           "//host/graphql",
           "mailto:someone@example.com"
         )
-        val expected = Left(List("[supergraph] Join graph 'A' must declare an absolute http or https 'url'."))
-        ZIO
-          .foreach(invalid)(url =>
-            graphs(supergraph(s"""enum join__Graph { A @join__graph(name: "a", url: "$url") }""")).map(url -> _)
-          )
-          .map(results => assertTrue(results.filterNot(_._2 == expected).map(_._1) == Nil))
+        val expected = Set(
+          List("[supergraph] Join graph 'A' must declare an absolute http or https 'url'."),
+          List("[a] Endpoint must be an absolute http or https URL.")
+        )
+        val sdl      = (url: String) => supergraph(s"""enum join__Graph { A @join__graph(name: "a", url: "$url") }""")
+        for {
+          results    <- ZIO.foreach(invalid)(url =>
+                          GatewayTestSupport
+                            .compositionDiagnostics(Gateway.fromSupergraph(Supergraph.sdl(sdl(url))))
+                            .map(url -> _)
+                        )
+          overridden <-
+            GatewayTestSupport.compositionDiagnostics(
+              Gateway.fromSupergraph(
+                Supergraph.sdl(sdl("http://a/graphql")).withSubgraphEndpoint(_ => URL.decode("/graphql").toOption)
+              )
+            )
+        } yield assertTrue(
+          results.filterNot(result => expected(result._2)).map(_._1) == Nil,
+          overridden == List("[a] Endpoint must be an absolute http or https URL.")
+        )
       },
       test("accepts http and https endpoints, with or without a port and path") {
         val valid = List(

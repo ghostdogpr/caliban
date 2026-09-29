@@ -3,6 +3,7 @@ package caliban.gateway.internal
 import caliban._
 import caliban.gateway._
 import caliban.gateway.PhaseHooks.{ Event, Result }
+import caliban.parsing.adt.OperationType
 import zio._
 import zio.stm.{ STM, TQueue, TRef }
 import zio.stream.ZStream
@@ -83,7 +84,7 @@ private[gateway] final class SubscriptionControl[-R] private (
       hooks.subscriptionSetup
         .run[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]](Event.SubscriptionSetup)(
           sourceScope.extend[R1](open)
-        )(Result.classifyExit(PhaseHooks.Outcome.TransportError))
+        )(exit => subscribed(Result.classifyExit(PhaseHooks.Outcome.TransportError)(exit)))
         .timeoutFail(SubscriptionTermination.SetupTimeout)(config.setupTimeout)
         .raceFirst(signal.await *> ZIO.never)
         .mapError(SubscriptionTermination.fromFailure)
@@ -121,8 +122,8 @@ private[gateway] final class SubscriptionControl[-R] private (
       .collectWhileSome
       .mapZIO { event =>
         hooks.subscriptionEvent
-          .run[R1, Nothing, Response](Event.SubscriptionEvent)(process(event))(
-            Result.classifyResponse(_)
+          .run[R1, Nothing, Response](Event.SubscriptionEvent)(process(event))(exit =>
+            subscribed(Result.classifyResponse(exit))
           )
           .timeoutFail(SubscriptionTermination.EventTimeout)(config.eventTimeout)
       }
@@ -150,6 +151,8 @@ private[gateway] object SubscriptionControl {
 
   private type Response = GraphQLResponse[CalibanError]
   private type Signal   = Promise[CalibanError.ExecutionError, Unit]
+
+  private def subscribed(result: Result): Result = result.copy(operationType = Some(OperationType.Subscription))
 
   private final val CancelledReason = "cancelled"
   private final val CompleteReason  = "complete"

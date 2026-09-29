@@ -301,7 +301,7 @@ final case class RemoteSubscriptionConfig private (
         case RemoteSubscriptionConfig.WebSocket => Set(Scheme.HTTP, Scheme.HTTPS, Scheme.WS, Scheme.WSS)
         case _: RemoteSubscriptionConfig.Sse    => Set(Scheme.HTTP, Scheme.HTTPS)
       }
-      check(url.scheme.exists(allowed), "Remote subscription endpoint has an unsupported URI scheme.")
+      checkAbsolute(url, allowed, "Remote subscription endpoint must be an absolute URL with a supported scheme.")
     } :::
       List(connectionTimeout, keepAliveInterval).flatMap(
         finitePositive(_, "Remote subscription timeouts and keepalive interval must be finite and positive.")

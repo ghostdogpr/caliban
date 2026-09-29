@@ -52,8 +52,6 @@ written under `benchmark-runs/local-<timestamp>` in the upstream checkout.
 | --- | --- | --- |
 | `JAVA` | `java` | JVM executable |
 | `JAVA_OPTS` | none | Extra JVM flags |
-| `BENCHMARK_GATEWAY_PORT` | `5220` | Listening port |
-| `BENCHMARK_SUBGRAPHS_HOST` | `127.0.0.1` | Host of the subgraphs on ports 5221 to 5224 |
 
 ## Profiles
 

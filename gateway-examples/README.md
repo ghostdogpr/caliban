@@ -16,8 +16,8 @@ sbt "gatewayExamples/runMain example.gateway.ReviewsApi"
 sbt "gatewayExamples/runMain example.gateway.GatewayApp"
 ```
 
-`GatewayApp` uses pinned SDL for products, acquired SDL for reviews, and an in-process Caliban subgraph. Its GraphiQL
-page is available at <http://localhost:8080/graphiql>.
+`GatewayApp` pins the products schema, acquires the reviews schema, and adds the in-process Caliban subgraph from
+`LocalGatewayApp`. Its GraphiQL page is available at <http://localhost:8080/graphiql>.
 
 For the Federation gateway, start:
 

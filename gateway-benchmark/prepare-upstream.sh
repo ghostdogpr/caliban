@@ -37,7 +37,7 @@ set -euo pipefail
 exec bash ./caliban-adapter/run.sh > ./gateway_log.txt 2>&1
 WRAPPER
 cat > "$ADAPTER_DIR/settings.json" <<'WRAPPER'
-{"graphql":"http://127.0.0.1:5220/graphql","health":"http://127.0.0.1:5220/health"}
+{"graphql":"http://127.0.0.1:5220/graphql"}
 WRAPPER
 git -C "$SCRIPT_DIR" rev-parse --short HEAD > "$ADAPTER_DIR/version.txt"
 chmod +x "$ADAPTER_DIR/install.sh" "$ADAPTER_DIR/start.sh"

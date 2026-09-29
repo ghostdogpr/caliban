@@ -47,13 +47,15 @@ final class Subgraph[-R] private[gateway] (
 
   private[gateway] def diagnostics: List[String] =
     (source match {
-      case Source.Remote(_, schema, _, config) =>
+      case Source.Remote(endpoint, schema, _, config) =>
         val acquisition = schema match {
           case SchemaInput.Acquired(acquisition) => acquisition.diagnostics
           case _                                 => Nil
         }
-        config.execution.diagnostics ::: acquisition ::: config.subscription.diagnostics
-      case _                                   => Nil
+        // "foo" decodes into a relative URL, which would only fail later at request time.
+        checkAbsolute(endpoint, _.isHttp, "Endpoint must be an absolute http or https URL.") :::
+          config.execution.diagnostics ::: acquisition ::: config.subscription.diagnostics
+      case _                                          => Nil
     }).map(message => s"[$name] $message")
 }
 

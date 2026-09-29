@@ -630,6 +630,35 @@ object GatewaySpec extends ZIOSpecDefault {
             remoteGateway(remote.endpoint, extended).interpreter.flatMap(_.check("{ version }")).exit
           invalid  <- remoteGateway(remote.endpoint, "type Query { broken: Missing }").interpreter.exit
         } yield assertTrue(fromSdl.isSuccess, fromDoc.isSuccess, fromExt.isSuccess, invalid.isFailure)
+      },
+      test("rejects a remote endpoint that is not an absolute http or https URL") {
+        ZIO
+          .foreach(List("/graphql", "//host/graphql", "foo").flatMap(zio.http.URL.decode(_).toOption))(url =>
+            compositionDiagnostics(Gateway.compose(Subgraph.graphql("products", url, productsSchema)))
+          )
+          .map(results =>
+            assertTrue(results == List.fill(3)(List("[products] Endpoint must be an absolute http or https URL.")))
+          )
+      },
+      test("rejects a subscription endpoint without a host or with an unsupported scheme") {
+        val invalid = zio.http.URL.root.scheme(zio.http.Scheme.WSS) ::
+          List("/ws", "ftp://host/ws").flatMap(zio.http.URL.decode(_).toOption)
+        for {
+          endpoint <- ZIO.fromEither(zio.http.URL.decode("http://host/graphql")).orDie
+          results  <- ZIO.foreach(invalid)(url =>
+                        compositionDiagnostics(
+                          remoteGateway(
+                            endpoint,
+                            productsSchema,
+                            RemoteGraphQLConfig.default.withSubscription(_.withEndpoint(url))
+                          )
+                        )
+                      )
+        } yield assertTrue(
+          results == List.fill(3)(
+            List("[remote] Remote subscription endpoint must be an absolute URL with a supported scheme.")
+          )
+        )
       }
     ),
     suite("local introspection")(

@@ -64,7 +64,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
       val preparation = hooks.preparation
         .run(Event.Preparation)(operations.prepare(request))(
-          Result.fromExit(_)(_ => Result(Outcome.Success), failure => Result(failure.outcome))
+          Result.fromExit(_)(_ => Result(Outcome.Success), failure => Result(failure.outcome, errorCount = 1))
         )
         .either
 

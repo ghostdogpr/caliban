@@ -98,7 +98,9 @@ object GatewayMetrics {
   ): PhaseHandler[Any, Ev, Nothing, Result] =
     PhaseHandler { (event: Ev) =>
       val eventLabels = labels(event)
-      Clock.nanoTime.flatMap(startedAt => active.tagged(eventLabels).increment.as(event -> (startedAt -> eventLabels)))
+      Clock.nanoTime
+        .flatMap(startedAt => active.tagged(eventLabels).increment.as(event -> (startedAt -> eventLabels)))
+        .uninterruptible
     } { case (_, (startedAt, eventLabels), result) =>
       Clock.nanoTime.flatMap { finishedAt =>
         duration.tagged(eventLabels ++ detailLabels(result)).update(seconds(finishedAt - startedAt)) *>

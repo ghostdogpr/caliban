@@ -31,6 +31,15 @@ probe() {
     curl -fsS --max-time 2 -X POST -H 'content-type: application/json' -d "$PROBE" "$1" 2>/dev/null | grep -q '"data"'
 }
 
+subgraphs_up() {
+    for port in 5221 5222 5223 5224; do probe "http://127.0.0.1:$port/graphql" || return 1; done
+}
+
+wait_for() {
+    for _ in $(seq 1 240); do "$@" && return 0; sleep 0.5; done
+    return 1
+}
+
 stop_subgraphs() {
     for port in 5221 5222 5223 5224; do kill_listeners "$port"; done
     SUBGRAPHS_FAMILY=""
@@ -46,12 +55,7 @@ start_subgraphs() {
     else
         (cd "$dir" && BENCHMARK_SIMULATE_LATENCY=$([ "$DELAY_MS" != 0 ] && echo 1) bash start.sh) &
     fi
-    for _ in $(seq 1 240); do
-        local up=0
-        for port in 5221 5222 5223 5224; do probe "http://127.0.0.1:$port/graphql" && up=$((up + 1)); done
-        if [ "$up" = 4 ]; then SUBGRAPHS_FAMILY=$family; return 0; fi
-        sleep 0.5
-    done
+    if wait_for subgraphs_up; then SUBGRAPHS_FAMILY=$family; return 0; fi
     echo "Subgraphs in $dir did not become ready." >&2
     exit 1
 }
@@ -76,12 +80,7 @@ for gateway in "$@"; do
     kill_listeners 5220
     (cd "$gateway_dir" && bash start.sh) &
     leader=$!
-    ready=0
-    for _ in $(seq 1 240); do
-        if probe "$GATEWAY_URL"; then ready=1; break; fi
-        sleep 0.5
-    done
-    if [ "$ready" != 1 ]; then
+    if ! wait_for probe "$GATEWAY_URL"; then
         echo "$gateway did not become ready; last log lines:" >&2
         tail -20 "$gateway_dir/gateway_log.txt" 2>/dev/null >&2
         pkill -P "$leader" 2>/dev/null; kill "$leader" 2>/dev/null; kill_listeners 5220
