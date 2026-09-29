@@ -69,8 +69,6 @@ object LookupSpec extends ZIOSpecDefault {
       |}
       |""".stripMargin
 
-  private val keyFields = List("id", "region")
-
   private val refArgument = Lookup.Argument.obj(
     "productId"  -> Lookup.Argument.key("id"),
     "regionCode" -> Lookup.Argument.key("region")
@@ -78,15 +76,12 @@ object LookupSpec extends ZIOSpecDefault {
 
   private val keyedLookup = Lookup.list(
     "Product",
-    keyFields,
     "productsByRefs",
-    Map("id" -> "id", "region" -> "region"),
     "refs" -> Lookup.Argument.batch(refArgument)
   )
 
   private val singleLookup = Lookup.single(
     "Product",
-    keyFields,
     "productByRef",
     "ref" -> refArgument
   )
@@ -205,9 +200,7 @@ object LookupSpec extends ZIOSpecDefault {
         """{"data":{"products":[{"name":"Table","_caliban_gateway_key":"p1"},{"name":"Chair","_caliban_gateway_key":"p2"}]}}"""
       val localLookup           = Lookup.list(
         "Product",
-        List("id"),
         "productsByRefs",
-        Map("id" -> "id"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
         )
@@ -292,9 +285,7 @@ object LookupSpec extends ZIOSpecDefault {
         "enum Region { US } input RegionRefInput { code: Region! } input ProductRefInput { productId: ID! region: RegionRefInput! } type Query { productsByRefs(refs: [ProductRefInput!]!): [Product!]! } type Product { id: ID! region: Region! reviews: [Review!]! } type Review { body: String! }"
       val lookup         = Lookup.list(
         "Product",
-        List("id", "region"),
         "productsByRefs",
-        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj(
             "productId" -> Lookup.Argument.key("id"),
@@ -402,47 +393,26 @@ object LookupSpec extends ZIOSpecDefault {
     test("rejects invalid ordinary lookup metadata during gateway build") {
       val missingKey         = Lookup.list(
         "Product",
-        List("missing"),
         "productsByRefs",
-        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.batch(Lookup.Argument.obj("productId" -> Lookup.Argument.key("missing")))
       )
-      val wrongShape         = Lookup.single("Product", keyFields, "productsByRefs", "refs" -> refArgument)
-      val missingBatch       = Lookup.list("Product", keyFields, "productsByRefs", Map("id" -> "id", "region" -> "region"))
-      val badCorrelation     = Lookup.list(
-        "Product",
-        keyFields,
-        "productsByRefs",
-        Map("missing" -> "id"),
-        "refs" -> Lookup.Argument.batch(refArgument)
-      )
+      val wrongShape         = Lookup.single("Product", "productsByRefs", "refs" -> refArgument)
+      val missingBatch       = Lookup.list("Product", "productsByRefs")
       val unknownArgument    = Lookup.single(
         "Product",
-        keyFields,
         "productByRef",
         "missing" -> refArgument
       )
       val wrongTypes         = Lookup.single(
         "Product",
-        keyFields,
         "productByRef",
         "ref" -> Lookup.Argument.obj(
           "productId"  -> Lookup.Argument.key("region"),
           "regionCode" -> Lookup.Argument.key("id")
         )
       )
-      val partialKeys        = Lookup.single(
-        "Product",
-        keyFields,
-        "productByRef",
-        "ref" -> Lookup.Argument.obj(
-          "productId"  -> Lookup.Argument.key("id"),
-          "regionCode" -> Lookup.Argument.key("id")
-        )
-      )
       val duplicateArguments = Lookup.single(
         "Product",
-        keyFields,
         "productByRef",
         "ref" -> refArgument,
         "ref" -> refArgument
@@ -457,47 +427,42 @@ object LookupSpec extends ZIOSpecDefault {
         )
 
       for {
-        key         <- lookupDiagnostics(missingKey)
-        shape       <- lookupDiagnostics(wrongShape)
-        batch       <- lookupDiagnostics(missingBatch)
-        correlation <- lookupDiagnostics(badCorrelation)
-        nullable    <- lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("[Product!]!", "[Product]!"))
-        unknown     <- lookupDiagnostics(unknownArgument)
-        types       <- lookupDiagnostics(wrongTypes)
-        coverage    <- lookupDiagnostics(partialKeys)
-        repeated    <- lookupDiagnostics(duplicateArguments)
-        nonScalar   <-
+        key        <- lookupDiagnostics(missingKey)
+        shape      <- lookupDiagnostics(wrongShape)
+        batch      <- lookupDiagnostics(missingBatch)
+        nullable   <- lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("[Product!]!", "[Product]!"))
+        unknown    <- lookupDiagnostics(unknownArgument)
+        types      <- lookupDiagnostics(wrongTypes)
+        repeated   <- lookupDiagnostics(duplicateArguments)
+        nonScalar  <-
           lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: Review!"))
-        listKey     <-
+        listKey    <-
           lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: [String!]!"))
-        duplicate   <- compositionDiagnostics(
-                         Gateway.compose(
-                           Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
-                           Subgraph
-                             .graphql("reviews", unreachableEndpoint, defaultReviewsSchema)
-                             .withLookup(keyedLookup)
-                             .withLookup(keyedLookup)
-                         )
-                       )
-        federation  <- compositionDiagnostics(
-                         Gateway.compose(
-                           Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
-                           Subgraph
-                             .federation("reviews", unreachableEndpoint, defaultReviewsSchema)
-                             .withLookup(keyedLookup)
-                         )
-                       )
+        duplicate  <- compositionDiagnostics(
+                        Gateway.compose(
+                          Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+                          Subgraph
+                            .graphql("reviews", unreachableEndpoint, defaultReviewsSchema)
+                            .withLookup(keyedLookup)
+                            .withLookup(keyedLookup)
+                        )
+                      )
+        federation <- compositionDiagnostics(
+                        Gateway.compose(
+                          Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+                          Subgraph
+                            .federation("reviews", unreachableEndpoint, defaultReviewsSchema)
+                            .withLookup(keyedLookup)
+                        )
+                      )
       } yield assertTrue(
         key.exists(_.contains("[reviews] Lookup key field 'Product.missing' does not exist")),
-        !key.exists(_.contains("'refs.productId' references undeclared key field")),
         shape.exists(_.contains("[reviews] Lookup field 'Query.productsByRefs' must return 'Product'")),
-        batch.exists(_.contains("[reviews] Lookup argument mappings must use every declared key field")),
-        correlation.exists(_.contains("[reviews] Lookup correlation field 'Product.missing' does not exist")),
+        batch.exists(_.contains("[reviews] Lookup for 'Product' must declare at least one key field")),
         nullable.exists(_.contains("[reviews] By-key lookup field 'Query.productsByRefs' must return non-null items")),
-        unknown.exists(_.contains("[reviews] Lookup field 'Query.productByRef' has no argument 'missing'")),
+        unknown.exists(_.contains("[reviews] Lookup argument 'productByRef.missing' does not exist")),
         unknown.exists(_.contains("[reviews] Required lookup argument 'productByRef.ref' has no mapping")),
         types.count(_.contains("is incompatible with key field")) == 2,
-        coverage.exists(_.contains("[reviews] Lookup argument mappings must use every declared key field")),
         repeated.exists(_.contains("Lookup argument 'productByRef.ref' is mapped more than once")),
         nonScalar.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
         listKey.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
@@ -509,20 +474,20 @@ object LookupSpec extends ZIOSpecDefault {
       for {
         single  <-
           typeCheck(
-            """Lookup.single("Product", List("id"), "product", "ref" -> Lookup.Argument.batch(Lookup.Argument.key("id")))"""
+            """Lookup.single("Product", "product", "ref" -> Lookup.Argument.batch(Lookup.Argument.key("id")))"""
           )
         outside <-
           typeCheck(
-            """Lookup.list("Product", List("id"), "products", Map("id" -> "id"), "id" -> Lookup.Argument.key("id"))"""
+            """Lookup.list("Product", "products", "id" -> Lookup.Argument.key("id"))"""
           )
         mixed   <-
           typeCheck(
-            """Lookup.list("Product", List("id"), "products", Map("id" -> "id"), "ref" -> Lookup.Argument.obj("id" -> Lookup.Argument.key("id"), "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))))"""
+            """Lookup.list("Product", "products", "ref" -> Lookup.Argument.obj("id" -> Lookup.Argument.key("id"), "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))))"""
           )
         nested  <- typeCheck("""Lookup.Argument.batch(Lookup.Argument.batch(Lookup.Argument.key("id")))""")
         valid   <-
           typeCheck(
-            """Lookup.list("Product", List("id"), "products", Map("id" -> "id"), "ref" -> Lookup.Argument.obj("ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))))"""
+            """Lookup.list("Product", "products", "ref" -> Lookup.Argument.obj("ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))))"""
           )
       } yield assertTrue(single.isLeft, outside.isLeft, mixed.isLeft, nested.isLeft, valid.isRight)
     }

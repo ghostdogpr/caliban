@@ -17,6 +17,8 @@ final case class OperationEvent(
   outcome: PhaseHooks.Outcome
 ) {
   def operationType: Option[OperationType] = prepared.map(_.executionRequest.operationType)
+
+  def result: PhaseHooks.Result = PhaseHooks.Result(outcome, operationType, errors.size)
 }
 
 object OperationEvent {

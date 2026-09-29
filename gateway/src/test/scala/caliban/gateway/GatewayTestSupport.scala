@@ -124,15 +124,15 @@ private[gateway] object GatewayTestSupport {
     federation: Boolean = true,
     transformations: Map[String, List[SchemaTransformation]] = Map.empty
   ): Either[List[String], ComposedGraph] =
-    SchemaComposer
-      .compose(subgraphs.map { case (name, document) =>
-        val subgraph =
-          if (federation) Subgraph.federation(name, unreachableEndpoint, document)
-          else Subgraph.graphql(name, unreachableEndpoint, document)
-        subgraph.transform(transformations.getOrElse(name, Nil): _*) -> document
-      })
-      .left
-      .map(_.diagnostics)
+    collectErrors(subgraphs.map { case (name, document) =>
+      val subgraph =
+        if (federation) Subgraph.federation(name, unreachableEndpoint, document)
+        else Subgraph.graphql(name, unreachableEndpoint, document)
+      SchemaComposer
+        .prepare(subgraph.transform(transformations.getOrElse(name, Nil): _*), document)
+        .left
+        .map(SubgraphError(name, _).diagnostics)
+    }).flatMap(SchemaComposer.compose(_).left.map(_.diagnostics))
 
   def queryFields(document: Document): List[String] =
     document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))

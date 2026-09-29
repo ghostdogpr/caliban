@@ -1,7 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
-import caliban.gateway.GatewayBuildError.{ SchemaCompositionFailed, SubgraphLoadingFailed }
+import caliban.gateway.GatewayBuildError.SchemaCompositionFailed
 import caliban.gateway.SubgraphBuildError.{ InvalidTransformations, SchemaValidationFailed }
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.FederationCompilation._
@@ -26,15 +26,10 @@ private[gateway] object SchemaComposer {
   import DirectiveComposition._
   import TypeComposition._
 
-  def compose[R](subgraphs: List[(Subgraph[R], Document)]): Either[GatewayBuildError, ComposedGraph] = {
-    val (failures, prepared) = subgraphs.partitionMap { case (subgraph, document) =>
-      prepare(subgraph, document).left.map(SubgraphError(subgraph.name, _))
-    }
-    if (failures.nonEmpty) Left(SubgraphLoadingFailed(failures.sortBy(_.diagnostics.mkString("\n"))))
-    else new SchemaComposer(prepared).compose.left.map(errors => SchemaCompositionFailed(errors.distinct.sorted))
-  }
+  def compose(prepared: List[PreparedSubgraph]): Either[GatewayBuildError, ComposedGraph] =
+    new SchemaComposer(prepared).compose.left.map(errors => SchemaCompositionFailed(errors.distinct.sorted))
 
-  private def prepare[R](subgraph: Subgraph[R], document: Document): Either[SubgraphBuildError, PreparedSubgraph] = {
+  def prepare[R](subgraph: Subgraph[R], document: Document): Either[SubgraphBuildError, PreparedSubgraph] = {
     val federation   = subgraph.source.federation
     val rootDocument = if (federation) withFederationQueryRoot(document) else document
     for {
@@ -55,7 +50,7 @@ private[gateway] object SchemaComposer {
       names          = federationDirectiveNames(normalized.document, federation)
       mapping       <-
         SchemaMapping
-          .compile(subgraph.name, normalized.rootType, names, subgraph.transformations)
+          .compile(normalized.rootType, names, subgraph.transformations)
           .left
           .map(InvalidTransformations(_))
       extensionTypes = federation1ExtensionTypes(document).map(mapping.clientType)
@@ -77,7 +72,7 @@ private[gateway] object SchemaComposer {
     )
   }
 
-  private[composition] final case class PreparedSubgraph(
+  private[gateway] final case class PreparedSubgraph(
     name: String,
     rootType: RootType,
     schemaDirectives: List[Directive],

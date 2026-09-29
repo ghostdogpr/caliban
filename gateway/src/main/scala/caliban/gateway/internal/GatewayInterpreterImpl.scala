@@ -47,12 +47,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
     private def run(request: GraphQLRequest)(implicit trace: Trace): URIO[R, RequestResult] = {
       def observe(effect: URIO[R, RequestResult]): URIO[R, RequestResult] =
-        hooks.execution.run(Event.Execution(request.operationName))(effect)(classifyRequestResult)
+        hooks.execution.run(Event.Execution(request.operationName))(effect)(operationEvent(_).result)
 
       def failed(error: CalibanError, mark: UIO[Unit], outcome: Outcome): URIO[R, RequestResult] =
         hooks.completion.run(Event.Completion)(
           mark.as(RequestResult(GraphQLResponse(NullValue, error :: Nil), OperationEvent(None, error :: Nil, outcome)))
-        )(classifyRequestResult)
+        )(operationEvent(_).result)
 
       val timedOut = failed(requestTimeoutError, markServerError(ServerFailure.TimedOut), Outcome.Timeout)
 
@@ -114,11 +114,6 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       )
       GraphQLResponse(StreamValue(events.map(_.toResponseValue)), Nil)
     }).catchAll(Executor.fail)
-
-  private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result = {
-    val event = operationEvent(exit)
-    Result(event.outcome, event.operationType, event.errors.size)
-  }
 
 }
 

@@ -4,17 +4,15 @@ import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.SupergraphAcquisitionError.FileReadFailed
 import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
 import caliban.gateway.internal.acquisition.ApolloUplinkClient.UplinkResponse
-import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition.{ parseSdl, parseWithinDepth }
+import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition._
 import caliban.gateway.{ RemoteGraphQLConfig, Supergraph, SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.{ IO, NonEmptyChunk, Ref, Trace, UIO, ZIO }
-import zio.http.{ Header, QueryParams, Status, URL }
+import zio.http.{ Header, Status, URL }
 
-import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.{ Files, Path }
-import scala.util.Try
 
 /**
  * Loads the supergraph document a gateway is built from.
@@ -55,43 +53,37 @@ private[gateway] object SupergraphAcquisition {
    * Conditional requests reuse the last fetched document, even if it failed to compose. The caller
    * must be able to retry that build while an older document is still active.
    */
-  private def remote(endpoint: URL, config: RemoteGraphQLConfig.Acquisition, http: GatewayHttpClient)(implicit
-    trace: Trace
-  ): UIO[IO[SupergraphAcquisitionError, Document]] =
+  private def remote(
+    endpoint: URL,
+    config: RemoteGraphQLConfig.Acquisition,
+    http: GatewayHttpClient
+  )(implicit trace: Trace): UIO[IO[SupergraphAcquisitionError, Document]] =
     Ref.make(Option.empty[Cached]).map { cache =>
-      def loop(url: URL, redirects: Int, cached: Option[Cached]): IO[SupergraphAcquisitionError, Document] = {
-        // Redirect targets never receive configured headers, which may contain CDN credentials.
+      def load(cached: Option[Cached]): IO[SupergraphAcquisitionError, Document] = {
         val headers =
-          (if (redirects == 0) config.headers else Nil) :::
-            Header.Custom("Accept", "application/graphql, text/plain;q=0.9") ::
+          Header.Custom("Accept", "application/graphql, text/plain;q=0.9") ::
             cached.map(entry => Header.IfNoneMatch.ETags(NonEmptyChunk(entry.tag))).toList
 
-        http
-          .get(url, headers, config.maxResponseBytes)
-          .mapError[SupergraphAcquisitionError](RequestFailed(_))
-          .flatMap { reply =>
-            val unexpected = UnexpectedResponse(reply.status, reply.contentType)
+        followRedirects(endpoint, config, RedirectScope.AnyOrigin)((url, configured) =>
+          http.get(url, configured ::: headers, config.maxResponseBytes)
+        ).flatMap { reply =>
+          val unexpected = UnexpectedResponse(reply.status, reply.contentType)
 
-            reply.body match {
-              case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
-              case Some(bytes) =>
-                if (reply.status == Status.NotModified) ZIO.fromOption(cached.map(_.document)).orElseFail(unexpected)
-                else if (reply.status.isRedirection && redirects < config.maxRedirects)
-                  ZIO
-                    .fromOption(reply.headers.rawHeader(Header.Location).flatMap(resolveRedirect(url, _)))
-                    .orElseFail(unexpected)
-                    .flatMap(location => loop(location, redirects + 1, cached))
-                else if (!isSdlResponse(reply.status, reply.contentType))
-                  ZIO.fail(unexpected)
-                else
-                  // Save the tag only with a parsed document, so a later 304 can be answered.
-                  parseRemote(new String(bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
-                    .tap(document => cache.set(reply.headers.rawHeader(Header.ETag).map(Cached(_, document))))
-            }
+          reply.body match {
+            case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
+            case Some(bytes) =>
+              if (reply.status == Status.NotModified) ZIO.fromOption(cached.map(_.document)).orElseFail(unexpected)
+              else if (!isSdlResponse(reply.status, reply.contentType))
+                ZIO.fail(unexpected)
+              else
+                // Save the tag only with a parsed document, so a later 304 can be answered.
+                parseRemote(new String(bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
+                  .tap(document => cache.set(reply.headers.rawHeader(Header.ETag).map(Cached(_, document))))
           }
+        }
       }
 
-      cache.get.flatMap(loop(endpoint, 0, _)).timeoutFail(TimedOut(config.timeout))(config.timeout)
+      cache.get.flatMap(load).timeoutFail(TimedOut(config.timeout))(config.timeout)
     }
 
   /**
@@ -124,29 +116,14 @@ private[gateway] object SupergraphAcquisition {
           .timeoutFail(TimedOut(acquisition.timeout))(acquisition.timeout)
 
       cache.get.flatMap { cached =>
-        // Configuration validation rejects an empty list before the loader is created.
-        config.endpoints.map(acquire(_, cached)).reduceLeft { (attempt, fallback) =>
-          attempt.catchSome { case _: RequestFailed | _: UnexpectedResponse | _: TimedOut => fallback }
+        config.endpoints.tail.foldLeft(acquire(config.endpoints.head, cached)) { (attempt, fallback) =>
+          attempt.catchSome { case _: RequestFailed | _: UnexpectedResponse | _: TimedOut => acquire(fallback, cached) }
         }
       }
     }
 
   private def parseRemote(sdl: String, maxDepth: Int)(implicit trace: Trace): IO[SupergraphAcquisitionError, Document] =
     ZIO.fromEither(parseWithinDepth(sdl, maxDepth)(Parser.parseQuery))
-
-  private def resolveRedirect(base: URL, location: String): Option[URL] =
-    Try(new URI(location)).toOption.flatMap { reference =>
-      // Keep the resource path for query-only redirects; URI.resolve would drop its final segment.
-      if (reference.getScheme == null && reference.getRawAuthority == null && reference.getRawPath.isEmpty)
-        Some(
-          base.copy(
-            queryParams =
-              Option(reference.getRawQuery).filter(_.nonEmpty).fold(base.queryParams)(QueryParams.decode(_)),
-            fragment = None
-          )
-        )
-      else Try(base.toJavaURI.resolve(reference)).toOption.flatMap(URL.fromURI)
-    }
 
   /**
    * SDL servers may omit Content-Type or use application/octet-stream. Reject HTML login/error

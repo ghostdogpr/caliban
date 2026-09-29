@@ -260,7 +260,8 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         subgraph   = Subgraph.federation(
                        "remote",
                        remote.stub.endpoint,
-                       RemoteGraphQLConfig.default.withAcquisition(_.withTimeout(1.second))
+                       RemoteGraphQLConfig.default,
+                       RemoteGraphQLConfig.Acquisition.default.withTimeout(1.second)
                      )
         runtime   <- Gateway.compose(subgraph).reloadableForTest
         _         <- remote.beforeSchema.set(started.succeed(()).unit *> release.await)

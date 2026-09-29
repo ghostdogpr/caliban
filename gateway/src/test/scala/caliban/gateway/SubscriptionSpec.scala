@@ -9,7 +9,6 @@ import caliban.ws.{ Protocol, WebSocketHooks }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import zio._
 import zio.http._
-import zio.metrics.Metric
 import zio.stream.ZStream
 import zio.test._
 
@@ -527,17 +526,17 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           .withConfig(_.withSubscriptions(_.withBufferSize(1)))
                           .withPhaseHooks(hooks ++ stalled ++ GatewayMetrics.hooks)
                           .interpreter
-        before       <- Metric.counter("caliban_gateway_subscription_overflows_total").value.map(_.count)
+        before       <- counter("caliban_gateway_subscription_terminations_total", "reason", "SUBSCRIPTION_OVERFLOW")
         running      <- runtime.executeStream(request).runDrain.exit.forkScoped
         _            <- queue.offer(1)
         _            <- processing.await
         _            <- queue.offerAll(List(2, 3, 4))
         exit         <- running.join
         events       <- seen.get
-        after        <- Metric.counter("caliban_gateway_subscription_overflows_total").value.map(_.count)
+        after        <- counter("caliban_gateway_subscription_terminations_total", "reason", "SUBSCRIPTION_OVERFLOW")
       } yield assertTrue(
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Overflow),
-        after == before + 1L,
+        after == before + 1d,
         events.collect { case PhaseHooks.Event.SubscriptionTerminated(reason, _) => reason } == Vector(
           "SUBSCRIPTION_OVERFLOW"
         ),

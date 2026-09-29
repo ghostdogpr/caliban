@@ -167,16 +167,12 @@ object RoutePlanningSpec extends ZIOSpecDefault {
           |""".stripMargin
       val byId           = Lookup.list(
         "Product",
-        List("id"),
         "productsByIds",
-        Map("id" -> "id"),
         "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
       )
       val byRef          = Lookup.list(
         "Product",
-        List("id", "region"),
         "productsByRefs",
-        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj(
             "id"     -> Lookup.Argument.key("id"),

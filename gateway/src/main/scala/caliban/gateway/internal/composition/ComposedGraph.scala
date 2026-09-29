@@ -3,7 +3,6 @@ package caliban.gateway.internal.composition
 import caliban.gateway.{ fieldDefinition, innerParentTypeName, isCompositeType, responseNames }
 import caliban.InputValue
 import caliban.execution.Field
-import caliban.gateway.PhaseHooks.SecurityDirective
 import caliban.gateway.internal.PrivateAliases
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition.FieldCoordinate
@@ -285,13 +284,25 @@ private[gateway] object ComposedGraph {
     member: FederationCompilation.FederationDirective.Security,
     groups: List[List[String]]
   ) {
-    val coordinate: String           = fieldName.fold(typeName)(name => s"$typeName.$name")
-    val directiveName: String        = s"@${member.name}"
-    val directive: SecurityDirective = member match {
-      case FederationCompilation.FederationDirective.Authenticated  => SecurityDirective.Authenticated
-      case FederationCompilation.FederationDirective.RequiresScopes => SecurityDirective.RequiresScopes(groups)
-      case FederationCompilation.FederationDirective.Policy         => SecurityDirective.UnsupportedPolicy
-    }
+    val coordinate: String                 = fieldName.fold(typeName)(name => s"$typeName.$name")
+    val directiveName: String              = s"@${member.name}"
+    val scopes: Option[List[List[String]]] =
+      if (member == FederationCompilation.FederationDirective.Policy) None else Some(groups)
+  }
+
+  private[internal] object SecurityDirectiveApplication {
+
+    def conjunction(expressions: List[List[List[String]]]): List[Set[String]] =
+      expressions.foldLeft(List(Set.empty[String])) { (acc, expression) =>
+        val normalized = if (expression.isEmpty) List(Nil) else expression
+        val combined   = for {
+          left  <- acc
+          right <- normalized
+        } yield left ++ right
+        combined.distinct.filterNot(candidate =>
+          combined.exists(other => other != candidate && other.subsetOf(candidate))
+        )
+      }
   }
 
   final case class EntityLookup(key: List[KeyField], operation: LookupOperation)
@@ -321,7 +332,7 @@ private[gateway] object ComposedGraph {
   object LookupResult {
     case object Single extends LookupResult
 
-    final case class ByKey(fields: Map[String, String]) extends LookupResult
+    case object ByKey extends LookupResult
   }
 
 }

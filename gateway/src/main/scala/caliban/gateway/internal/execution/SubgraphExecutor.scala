@@ -163,5 +163,5 @@ private[gateway] final class LocalSubgraphExecutor[-R](
   ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
     hooks.subgraphCall.run(Event.SubgraphCall(name, OperationType.Subscription))(
       interpreter.executeRequest(request.copy(extensions = None)).map(SubgraphExecutor.subscriptionResponses)
-    )(Result.classifyExit(_))
+    )(Result.classifyExit(Outcome.InternalError))
 }

@@ -17,7 +17,7 @@ private[acquisition] object FederationClient {
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
-    fetchData[SubgraphAcquisitionError](endpoint, Request, config, http)(
+    fetchData[SubgraphAcquisitionError](endpoint, Request, config, http, RedirectScope.AnyOrigin)(
       !_.isRedirection,
       FederationErrors(_)
     ).flatMap { data =>

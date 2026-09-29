@@ -39,7 +39,7 @@ object GatewayTracing {
           event.request.operationName.fold(Attributes.empty())(name =>
             Attributes.builder().put("graphql.operation.name", name).build()
           ),
-        event => Result(event.outcome, event.operationType, event.errors.size)
+        _.result
       )
     ) ++
       PhaseHooks.subscriptionSetup(spanning(contextual = true, "caliban.gateway.subscription.setup")) ++

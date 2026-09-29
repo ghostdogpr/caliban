@@ -270,12 +270,7 @@ object PhaseHooks {
           case None         => ZIO.fail(Denial())
           case Some(claims) =>
             val granted = scopes(claims)
-            val allowed = operation.securityRequirements.forall(_.directives.forall {
-              case SecurityDirective.UnsupportedPolicy            => false
-              case SecurityDirective.Authenticated                => true
-              case SecurityDirective.RequiresScopes(alternatives) =>
-                alternatives.isEmpty || alternatives.exists(_.forall(granted.contains))
-            })
+            val allowed = operation.securityRequirements.forall(_.scopes.exists(_.subsetOf(granted)))
             if (allowed) ZIO.unit else ZIO.fail(Denial())
         }
     }
@@ -293,29 +288,12 @@ object PhaseHooks {
   final case class Denial(reason: String = "Operation denied.") extends Exception(reason) with NoStackTrace
 
   /**
-   * Security directives that apply to a type or field selected by the operation.
-   * Every requirement and directive must pass. `fieldName = None` means the directives apply to the type.
+   * The `@authenticated` and `@requiresScopes` directives on a type or field selected by the operation.
+   * Every requirement must pass. `fieldName = None` means the requirement applies to the type.
+   * The caller must be authenticated and hold every scope in at least one of `scopes`, so `List(Set())` requires
+   * authentication only.
    */
-  final case class SecurityRequirement(typeName: String, fieldName: Option[String], directives: List[SecurityDirective])
-
-  /**
-   * A security directive from the composed schema.
-   */
-  sealed trait SecurityDirective
-
-  object SecurityDirective {
-    case object Authenticated extends SecurityDirective
-
-    /**
-     * An unsupported `@policy` directive. The gateway rejects operations that select it.
-     */
-    case object UnsupportedPolicy extends SecurityDirective
-
-    /**
-     * Alternative sets of required scopes. The caller needs every scope in at least one inner list.
-     */
-    final case class RequiresScopes(scopes: List[List[String]]) extends SecurityDirective
-  }
+  final case class SecurityRequirement(typeName: String, fieldName: Option[String], scopes: List[Set[String]])
 
   /**
    * How a phase ended, as reported in a [[Result]]. `label` is a stable snake_case name for metric labels.
@@ -371,8 +349,8 @@ object PhaseHooks {
     private[gateway] def fromResponse(response: GraphQLResponse[_]): Result =
       Result(Outcome.fromResponse(response), errorCount = response.errors.size)
 
-    private[gateway] def classifyExit[E, A](exit: Exit[E, A]): Result =
-      fromExit(exit)(_ => Result(Outcome.Success), _ => Result(Outcome.InternalError))
+    private[gateway] def classifyExit(failure: Outcome)(exit: Exit[Any, Any]): Result =
+      fromExit(exit)(_ => Result(Outcome.Success), _ => Result(failure))
 
     private[gateway] def classifyResponse[E](exit: Exit[E, GraphQLResponse[_]]): Result =
       fromExit(exit)(fromResponse, _ => Result(Outcome.InternalError))

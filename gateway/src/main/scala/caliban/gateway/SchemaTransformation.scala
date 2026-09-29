@@ -1,9 +1,15 @@
 package caliban.gateway
 
+import caliban.gateway.internal.composition.SchemaMapping._
+
 /**
  * An immutable structural change applied to one subgraph before gateway composition.
  */
-sealed trait SchemaTransformation
+final class SchemaTransformation private (
+  private[gateway] val coordinate: Target,
+  // A missing replacement name means the schema element is hidden.
+  private[gateway] val renamed: Option[String]
+)
 
 /**
  * Constructors for gateway schema transformations.
@@ -19,56 +25,42 @@ object SchemaTransformation {
    * Renames a non-operation type.
    */
   def renameType(name: String, renamed: String): SchemaTransformation =
-    RenameType(name, renamed)
+    new SchemaTransformation(TypeTarget(name), Some(renamed))
 
   /**
    * Hides a type from the composed client schema.
    */
   def hideType(name: String): SchemaTransformation =
-    HideType(name)
+    new SchemaTransformation(TypeTarget(name), None)
 
   /**
    * Renames a field on an object or interface.
    */
   def renameField(typeName: String, name: String, renamed: String): SchemaTransformation =
-    RenameField(typeName, name, renamed)
+    new SchemaTransformation(FieldTarget(typeName, name), Some(renamed))
 
   /**
    * Hides a field from the composed client schema.
    */
   def hideField(typeName: String, name: String): SchemaTransformation =
-    HideField(typeName, name)
+    new SchemaTransformation(FieldTarget(typeName, name), None)
 
   /**
    * Renames a field argument.
    */
   def renameArgument(typeName: String, field: String, name: String, renamed: String): SchemaTransformation =
-    RenameArgument(typeName, field, name, renamed)
+    new SchemaTransformation(ArgumentTarget(typeName, field, name), Some(renamed))
 
   /**
    * Hides an optional field argument from the composed client schema.
    */
   def hideArgument(typeName: String, field: String, name: String): SchemaTransformation =
-    HideArgument(typeName, field, name)
+    new SchemaTransformation(ArgumentTarget(typeName, field, name), None)
 
   /**
    * Hides an optional input-object field from the composed client schema.
    */
   def hideInputField(typeName: String, name: String): SchemaTransformation =
-    HideInputField(typeName, name)
-
-  private[gateway] final case class RenameType(name: String, renamed: String) extends SchemaTransformation
-  private[gateway] final case class HideType(name: String)                    extends SchemaTransformation
-
-  private[gateway] final case class RenameField(typeName: String, name: String, renamed: String)
-      extends SchemaTransformation
-  private[gateway] final case class HideField(typeName: String, name: String) extends SchemaTransformation
-
-  private[gateway] final case class RenameArgument(typeName: String, field: String, name: String, renamed: String)
-      extends SchemaTransformation
-  private[gateway] final case class HideArgument(typeName: String, field: String, name: String)
-      extends SchemaTransformation
-
-  private[gateway] final case class HideInputField(typeName: String, name: String) extends SchemaTransformation
+    new SchemaTransformation(InputFieldTarget(typeName, name), None)
 
 }

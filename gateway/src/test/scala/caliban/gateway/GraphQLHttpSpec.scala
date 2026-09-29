@@ -346,7 +346,6 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
     },
     test("validates finite source policy with accumulated source diagnostics") {
       val firstPolicy  = RemoteGraphQLConfig.default
-        .withAcquisition(_.withMaxResponseBytes(0))
         .withExecution(
           _.withTimeout(Duration.Zero)
             .withMaxRequestBytes(0)
@@ -362,7 +361,12 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       for {
         remote    <- stub(okResponse)
         gateway    = Gateway.compose(
-                       Subgraph.graphql("first", remote.endpoint, firstPolicy),
+                       Subgraph.graphql(
+                         "first",
+                         remote.endpoint,
+                         firstPolicy,
+                         RemoteGraphQLConfig.Acquisition.default.withMaxResponseBytes(0).withMaxRedirects(-1)
+                       ),
                        Subgraph.graphql("second", remote.endpoint, valueInputSchema, secondPolicy)
                      )
         exit      <- gateway.interpreter.exit
@@ -372,12 +376,54 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       } yield assertTrue(
         sent.isEmpty,
         buildDiagnostics(reloading) == errors,
-        errors.count(_.startsWith("[first]")) == 5,
+        errors.count(_.startsWith("[first]")) == 6,
         errors.count(_.startsWith("[second]")) == 3,
         errors.exists(_.contains("timeout must be finite and positive")),
         errors.exists(_.contains("retry backoff must be finite and non-negative")),
+        errors.exists(_.contains("maxRedirects must be non-negative")),
         errors.exists(_.contains("header 'Content-Type' is owned"))
       )
+    },
+    test("rejects every transport-owned static execution header at build time") {
+      val owned  = List(
+        "Accept",
+        "Accept-Encoding",
+        "Connection",
+        "Content-Encoding",
+        "Content-Length",
+        "Content-Type",
+        "Host",
+        "Keep-Alive",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "TE",
+        "Trailer",
+        "Transfer-Encoding",
+        "Upgrade"
+      )
+      val config =
+        RemoteGraphQLConfig.default.withExecution(_.withHeaders(owned.map(Header.Custom(_, "value")): _*))
+
+      for {
+        remote <- stub(okResponse)
+        exit   <- Gateway.compose(Subgraph.graphql("owned", remote.endpoint, valueInputSchema, config)).interpreter.exit
+        sent   <- remote.requests.get
+        errors  = buildDiagnostics(exit)
+      } yield assertTrue(
+        sent.isEmpty,
+        errors == owned.map(name => s"[owned] Subgraph execution header '$name' is owned by the GraphQL transport.")
+      )
+    },
+    test("renders neither header values nor the connection payload in toString") {
+      val config      = RemoteGraphQLConfig.default
+        .withExecution(_.withHeaders(Header.Custom("Authorization", "execution-secret")))
+        .withSubscription(
+          _.withConnectionInit(caliban.InputValue.ObjectValue(Map("token" -> StringValue("init-secret"))))
+        )
+      val acquisition =
+        RemoteGraphQLConfig.Acquisition.default.withHeaders(Header.Custom("Authorization", "acquisition-secret"))
+      val rendered    = config.toString + acquisition.toString
+      assertTrue(!List("acquisition-secret", "execution-secret", "init-secret").exists(rendered.contains(_)))
     },
     test("combines selected incoming, static, and effectful headers with safe precedence") {
       val policy      = RemoteGraphQLConfig.default

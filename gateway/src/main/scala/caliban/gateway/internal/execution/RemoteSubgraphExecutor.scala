@@ -87,22 +87,21 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
               headers,
               if (post) "POST" else "GET"
             )
-          )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(subscriptionResult)
+          )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(
+            Result.classifyExit(Outcome.TransportError)
+          )
         }
 
       resolveHeaders.flatMap { headers =>
         hooks.subgraphCall.runWith(Event.SubgraphCall(name, OperationType.Subscription, headers))(event =>
           open(event.headers)
-        )(subscriptionResult)
+        )(Result.classifyExit(Outcome.TransportError))
       }
     }
 
-  private val subscriptionResult: Exit[Throwable, Any] => Result =
-    Result.fromExit(_)(_ => Result(Outcome.Success), _ => Result(Outcome.TransportError))
-
   private val execution        = config.execution
-  private val staticHeaders    = sanitizeHeaders(execution.headers)
-  private val forwardsIncoming = execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.nonEmpty
+  private val forwarded        = execution.forwardedHeaders.map(_.map(RemoteGraphQLConfig.lowercaseHeaderName))
+  private val forwardsIncoming = forwarded.forall(_.nonEmpty)
   private val subscription     = new RemoteSubscription(
     endpoint,
     http,
@@ -195,10 +194,8 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   }
 
   private def outboundHeaders(incoming: List[Header], effectful: List[Header]): List[Header] = {
-    val forwarded = sanitizeHeaders(incoming).filter { header =>
-      execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.contains(lowercaseName(header))
-    }
-    mergeHeaders(mergeHeaders(forwarded, staticHeaders), sanitizeHeaders(effectful))
+    val selected = sanitizeHeaders(incoming).filter(header => forwarded.forall(_.contains(lowercaseName(header))))
+    mergeHeaders(mergeHeaders(selected, execution.headers), sanitizeHeaders(effectful))
   }
 
   private def sanitizeHeaders(headers: List[Header]): List[Header] = {

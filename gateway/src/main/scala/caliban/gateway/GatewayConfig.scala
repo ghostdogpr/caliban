@@ -6,18 +6,18 @@ import zio._
 /**
  * Configuration for operation preparation, planning, request lifetimes, subscriptions, and remote error disclosure.
  */
-final class GatewayConfig private (
-  val maxOperationCacheWeight: Long,
-  val maxPlanningCandidates: Int,
-  val maxPlanningExpansions: Int,
-  val planningTimeout: Duration,
-  val maxOperationCost: Option[Long],
-  val requestTimeout: Duration,
-  val drainTimeout: Duration,
-  val reloadPollInterval: Duration,
-  val reloadJitter: Double,
-  val remoteErrorMessages: Boolean,
-  val subscriptions: GatewaySubscriptionConfig
+final case class GatewayConfig private (
+  maxOperationCacheWeight: Long,
+  maxPlanningCandidates: Int,
+  maxPlanningExpansions: Int,
+  planningTimeout: Duration,
+  maxOperationCost: Option[Long],
+  requestTimeout: Duration,
+  drainTimeout: Duration,
+  reloadPollInterval: Duration,
+  reloadJitter: Double,
+  remoteErrorMessages: Boolean,
+  subscriptions: GatewaySubscriptionConfig
 ) {
 
   /**
@@ -121,33 +121,6 @@ final class GatewayConfig private (
         "Gateway reload jitter must be finite and between zero (inclusive) and one (exclusive)."
       )
     ).flatten ::: subscriptions.diagnostics
-
-  private def copy(
-    maxOperationCacheWeight: Long = maxOperationCacheWeight,
-    maxPlanningCandidates: Int = maxPlanningCandidates,
-    maxPlanningExpansions: Int = maxPlanningExpansions,
-    planningTimeout: Duration = planningTimeout,
-    maxOperationCost: Option[Long] = maxOperationCost,
-    requestTimeout: Duration = requestTimeout,
-    drainTimeout: Duration = drainTimeout,
-    reloadPollInterval: Duration = reloadPollInterval,
-    reloadJitter: Double = reloadJitter,
-    remoteErrorMessages: Boolean = remoteErrorMessages,
-    subscriptions: GatewaySubscriptionConfig = subscriptions
-  ): GatewayConfig =
-    new GatewayConfig(
-      maxOperationCacheWeight,
-      maxPlanningCandidates,
-      maxPlanningExpansions,
-      planningTimeout,
-      maxOperationCost,
-      requestTimeout,
-      drainTimeout,
-      reloadPollInterval,
-      reloadJitter,
-      remoteErrorMessages,
-      subscriptions
-    )
 }
 
 object GatewayConfig {
@@ -174,11 +147,11 @@ object GatewayConfig {
 /**
  * Bounds active subscriptions and bursts. Overflow sheds the subscription; events are never silently dropped.
  */
-final class GatewaySubscriptionConfig private (
-  val maxActive: Int,
-  val bufferSize: Int,
-  val setupTimeout: Duration,
-  val eventTimeout: Duration
+final case class GatewaySubscriptionConfig private (
+  maxActive: Int,
+  bufferSize: Int,
+  setupTimeout: Duration,
+  eventTimeout: Duration
 ) {
 
   /**
@@ -206,14 +179,6 @@ final class GatewaySubscriptionConfig private (
       positive(bufferSize, "Subscription bufferSize must be positive.") :::
       finitePositive(setupTimeout, "Subscription setupTimeout must be finite and positive.") :::
       finitePositive(eventTimeout, "Subscription eventTimeout must be finite and positive.")
-
-  private def copy(
-    maxActive: Int = maxActive,
-    bufferSize: Int = bufferSize,
-    setupTimeout: Duration = setupTimeout,
-    eventTimeout: Duration = eventTimeout
-  ): GatewaySubscriptionConfig =
-    new GatewaySubscriptionConfig(maxActive, bufferSize, setupTimeout, eventTimeout)
 }
 
 object GatewaySubscriptionConfig {

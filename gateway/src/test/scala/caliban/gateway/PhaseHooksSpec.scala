@@ -23,7 +23,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
           (subscriptionGateway(
             ZStream.fromZIO(opened.succeed(())) *> ZStream.never
           ) @@ GatewayMetrics.hooks).interpreter
-        requestsBefore   <- counter("caliban_gateway_requests_total", "outcome", "success")
+        requestsBefore   <- histogram(
+                              "caliban_gateway_request_duration_seconds",
+                              "outcome"        -> "success",
+                              "operation_type" -> "subscription"
+                            )
         admittedBefore   <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
         terminatedBefore <- counter("caliban_gateway_subscription_terminations_total", "reason", "cancelled")
         fiber            <-
@@ -34,7 +38,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         _                <- fiber.interrupt
         after            <- gauge("caliban_gateway_subscriptions_active")
         admittedAfter    <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
-        requestsAfter    <- counter("caliban_gateway_requests_total", "outcome", "success")
+        requestsAfter    <- histogram(
+                              "caliban_gateway_request_duration_seconds",
+                              "outcome"        -> "success",
+                              "operation_type" -> "subscription"
+                            )
         terminatedAfter  <- counter("caliban_gateway_subscription_terminations_total", "reason", "cancelled")
       } yield assertTrue(
         active == 1d,
@@ -276,8 +284,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         runtime        <-
           (localGateway(started.succeed(()).unit *> ZIO.never)
             .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.hooks).interpreter
-        requestsBefore <- counter("caliban_gateway_requests_total", "outcome", "error")
-        callsBefore    <- counter("caliban_gateway_subgraph_calls_total", "subgraph", "local")
+        callsBefore    <- histogram(
+                            "caliban_gateway_subgraph_call_duration_seconds",
+                            "subgraph" -> "local",
+                            "outcome"  -> "cancelled"
+                          )
         durationBefore <- histogram(
                             "caliban_gateway_request_duration_seconds",
                             "outcome"        -> "timeout",
@@ -288,8 +299,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         requestsActive <- gauge("caliban_gateway_requests_active")
         _              <- TestClock.adjust(Duration.fromSeconds(1))
         response       <- responseFiber.join
-        requestsAfter  <- counter("caliban_gateway_requests_total", "outcome", "error")
-        callsAfter     <- counter("caliban_gateway_subgraph_calls_total", "subgraph", "local")
+        callsAfter     <- histogram(
+                            "caliban_gateway_subgraph_call_duration_seconds",
+                            "subgraph" -> "local",
+                            "outcome"  -> "cancelled"
+                          )
         durationAfter  <- histogram(
                             "caliban_gateway_request_duration_seconds",
                             "outcome"        -> "timeout",
@@ -299,8 +313,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
         requestsActive == 1.0,
-        requestsAfter == requestsBefore + 1.0,
-        callsAfter == callsBefore + 1.0,
+        callsAfter == callsBefore + 1L,
         durationAfter == durationBefore + 1L,
         requestsDone == 0.0
       )
@@ -378,7 +391,12 @@ object PhaseHooksSpec extends ZIOSpecDefault {
           )
         hooks  = first ++ second
         fiber <-
-          hooks.execution.run(Event.Execution(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).exit.fork
+          hooks.execution
+            .run(Event.Execution(Some("Interrupt")))(ZIO.unit)(
+              PhaseHooks.Result.classifyExit(PhaseHooks.Outcome.InternalError)
+            )
+            .exit
+            .fork
         exit  <- fiber.join
         runs  <- count.get
       } yield assertTrue(runs == 1) && assert(exit)(Assertion.isInterrupted)
@@ -393,7 +411,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
           )
         fiber   <- hooks.execution
                      .run(Event.Execution(Some("Interrupt")))(started.succeed(()) *> ZIO.never)(
-                       PhaseHooks.Result.classifyExit
+                       PhaseHooks.Result.classifyExit(PhaseHooks.Outcome.InternalError)
                      )
                      .fork
         _       <- started.await
@@ -410,7 +428,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
               ZIO.unit
             )
           )
-        fiber   <- hooks.execution.run(Event.Execution(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).fork
+        fiber   <- hooks.execution
+                     .run(Event.Execution(Some("Interrupt")))(ZIO.unit)(
+                       PhaseHooks.Result.classifyExit(PhaseHooks.Outcome.InternalError)
+                     )
+                     .fork
         _       <- started.await
         exit    <- fiber.interrupt
       } yield assert(exit)(Assertion.isInterrupted)

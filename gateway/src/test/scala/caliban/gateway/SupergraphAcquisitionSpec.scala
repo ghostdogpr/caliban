@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayHttpClient
+import caliban.gateway.internal.acquisition.SupergraphAcquisition
 import caliban.parsing.adt.Document
 import zio.Config.Secret
 import zio._
@@ -91,6 +92,27 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                      )
                    }
     } yield Route(endpoint, recorded)
+
+  /** A client for https hosts, which the test servers cannot be: it records each url and answers `answer`. */
+  private def scriptedClient(sent: Ref[Vector[URL]], answer: Response): GatewayHttpClient =
+    new GatewayHttpClient(ZClient.fromDriver(new ZClient.Driver[Any, Scope, Throwable] {
+      def request(
+        version: Version,
+        method: Method,
+        url: URL,
+        headers: Headers,
+        body: Body,
+        sslConfig: Option[ClientSSLConfig],
+        proxy: Option[Proxy]
+      )(implicit trace: Trace): ZIO[Scope, Throwable, Response] =
+        sent.update(_ :+ url).as(answer)
+
+      def socket[Env1](version: Version, url: URL, headers: Headers, app: WebSocketApp[Env1])(implicit
+        trace: Trace,
+        ev: Scope =:= Scope
+      ): ZIO[Env1 with Scope, Throwable, Response] =
+        ZIO.dieMessage("unused")
+    }))
 
   def spec = suite("SupergraphAcquisitionSpec")(
     suite("local sources")(
@@ -186,7 +208,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           error    <- acquisitionFailure(exit)
         } yield assertTrue(error == SchemaAcquisitionError.ParsingDepthExceeded(1))
       },
-      test("fails rather than following a redirect") {
+      test("fails on a redirect without a location") {
         for {
           endpoint <- staticEndpoint("", status = Status.Found)
           exit     <- load(httpSource(endpoint, identity))
@@ -200,7 +222,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                         Answer.redirect("../supergraph.graphql", None),
                         Answer.sdl()
                       )
-          result   <- load(httpSource(cdn.endpoint.addPath("start"), _.withMaxRedirects(2)))
+          result   <- load(httpSource(cdn.endpoint.addPath("start"), identity))
           requests <- cdn.requests.get
         } yield assertTrue(
           result.isSuccess,
@@ -208,6 +230,20 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
             s"${java.net.URI.create(cdn.endpoint.toString).getPath}/$path"
           )
         )
+      },
+      test("follows at most maxRedirects redirects, and none at zero") {
+        def loadThroughTwoRedirects(maxRedirects: Int) =
+          for {
+            cdn   <- recordingEndpoint(Answer.redirect("next", None), Answer.redirect("last", None), Answer.sdl())
+            exit  <- load(httpSource(cdn.endpoint.addPath("start"), _.withMaxRedirects(maxRedirects)))
+            calls <- cdn.calls
+          } yield (exit.isSuccess, calls)
+
+        for {
+          atLimit   <- loadThroughTwoRedirects(2)
+          pastLimit <- loadThroughTwoRedirects(1)
+          refused   <- loadThroughTwoRedirects(0)
+        } yield assertTrue(atLimit == ((true, 3)), pastLimit == ((false, 2)), refused == ((false, 1)))
       },
       test("query-only redirects retain the resource path and replace its query") {
         for {
@@ -223,12 +259,32 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                           else Response(Status.Found, Headers(Header.Custom("Location", "?version=2")), Body.empty)
                         )
                       }
-          result   <- load(httpSource(endpoint.addQueryParam("version", "1"), _.withMaxRedirects(1)))
+          result   <- load(httpSource(endpoint.addQueryParam("version", "1"), identity))
           sent     <- requests.get
         } yield assertTrue(
           result.isSuccess,
           sent == Vector(s"${endpoint.path.encode}?version=1", s"${endpoint.path.encode}?version=2")
         )
+      },
+      test("follows a protocol-relative redirect to another host with the base scheme") {
+        for {
+          storage <- recordingEndpoint(Answer.sdl())
+          cdn     <- recordingEndpoint(
+                       Answer.redirect(storage.endpoint.host("localhost").encode.dropWhile(_ != ':').drop(1), None)
+                     )
+          result  <- load(httpSource(cdn.endpoint, identity))
+          calls   <- storage.calls
+        } yield assertTrue(result.isSuccess, calls == 1)
+      },
+      test("never follows a redirect from https to http") {
+        val endpoint = url"https://cdn.example.com/supergraph"
+        for {
+          sent  <- Ref.make(Vector.empty[URL])
+          http   = scriptedClient(sent, Response.redirect(url"http://cdn.example.com/supergraph"))
+          exit  <- SupergraphAcquisition.make(httpSource(endpoint, identity), http).flatMap(_.exit)
+          error <- acquisitionFailure(exit)
+          urls  <- sent.get
+        } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.UnexpectedResponse], urls == Vector(endpoint))
       },
       test("fails when the endpoint is unreachable") {
         for {
@@ -326,7 +382,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")))
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
-          loader  <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
+          loader  <- acquisitionLoader(httpSource(cdn.endpoint, identity))
           _       <- loader
           _       <- loader
           first   <- cdn.conditionOf(0)
@@ -342,7 +398,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")), Answer.notModified)
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
-          loader  <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
+          loader  <- acquisitionLoader(httpSource(cdn.endpoint, identity))
           first   <- loader
           second  <- loader
         } yield assertTrue(first == second)
@@ -357,7 +413,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                             Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")),
                             Answer.notModified
                           )
-          loader       <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
+          loader       <- acquisitionLoader(httpSource(cdn.endpoint, identity))
           first        <- loader
           second       <- loader
           cdnCalls     <- cdn.calls
@@ -374,12 +430,11 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     // Task 10: Supergraph.hive
     //
     // A named constructor over `Source.Http`, so the only thing it can get wrong is the shape of
-    // the request: the artifact path, the header the CDN authenticates with, and a redirect bound
-    // large enough to reach the storage url the CDN answers with. All three are documented values
-    // that no other test would notice changing.
+    // the request: the artifact path and the header the CDN authenticates with. Both are documented
+    // values that no other test would notice changing.
     // ---------------------------------------------------------------------------------------
     suite("hive")(
-      test("describes the documented CDN artifact url, with the key and a redirect bound") {
+      test("describes the documented CDN artifact url, with the key") {
         // Pins the published defaults without a network call, including the host a caller who
         // passes no `cdn` reaches.
         Supergraph.hive("target-1", Secret("cdn-key")).source match {
@@ -388,9 +443,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
               endpoint.toString == "https://cdn.graphql-hive.com/artifacts/v1/target-1/supergraph",
               config.headers.map(header => RemoteGraphQLConfig.headerName(header) -> header.renderedValue) == List(
                 "X-Hive-CDN-Key" -> "cdn-key"
-              ),
-              // Hive answers a 302 to presigned storage, so a bound of zero would never reach the artifact.
-              config.maxRedirects >= 1
+              )
             )
           case other                                    => assertTrue(false, other.toString.isEmpty)
         }

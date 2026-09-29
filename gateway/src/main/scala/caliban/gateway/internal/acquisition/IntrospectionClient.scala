@@ -25,7 +25,10 @@ private[gateway] object IntrospectionClient {
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
-    fetchData[SubgraphAcquisitionError](endpoint, Request, config, http)(!_.isRedirection, IntrospectionErrors(_))
+    fetchData[SubgraphAcquisitionError](endpoint, Request, config, http, RedirectScope.AnyOrigin)(
+      !_.isRedirection,
+      IntrospectionErrors(_)
+    )
       .flatMap(data => ZIO.fromEither(decode(data, config.maxParsingDepth)))
 
   private def decode(data: ObjectValue, maxDepth: Int): Either[SchemaAcquisitionError, Document] =

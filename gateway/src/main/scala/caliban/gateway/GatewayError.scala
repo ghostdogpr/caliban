@@ -33,9 +33,7 @@ object GatewayBuildError {
    * The gateway or one of its subgraphs has invalid configuration, including missing enforcement of the @authenticated
    * or @requiresScopes directives.
    */
-  final case class InvalidConfiguration(errors: List[String]) extends GatewayBuildError {
-    override val diagnostics: List[String] = errors
-  }
+  final case class InvalidConfiguration(diagnostics: List[String]) extends GatewayBuildError
 
   /**
    * The HTTP transport required by remote subgraphs could not be initialized.
@@ -55,9 +53,7 @@ object GatewayBuildError {
   /**
    * The loaded subgraph schemas could not be composed.
    */
-  final case class SchemaCompositionFailed(errors: List[String]) extends GatewayBuildError {
-    override val diagnostics: List[String] = errors
-  }
+  final case class SchemaCompositionFailed(diagnostics: List[String]) extends GatewayBuildError
 
   final case class SupergraphAcquisitionFailed(error: SupergraphAcquisitionError)
       extends GatewayBuildError
@@ -65,9 +61,7 @@ object GatewayBuildError {
     override val diagnostics: List[String] = error.diagnostics.map(message => s"[supergraph] $message")
   }
 
-  final case class SupergraphDecompositionFailed(errors: List[String]) extends GatewayBuildError {
-    override val diagnostics: List[String] = errors
-  }
+  final case class SupergraphDecompositionFailed(diagnostics: List[String]) extends GatewayBuildError
 
 }
 
@@ -79,10 +73,7 @@ final case class SubgraphError(name: String, error: SubgraphBuildError) {
   /**
    * The error's diagnostics, each prefixed with the subgraph name.
    */
-  def diagnostics: List[String] = {
-    val prefix = s"[$name]"
-    error.diagnostics.map(message => if (message.startsWith(prefix)) message else s"$prefix $message")
-  }
+  def diagnostics: List[String] = error.diagnostics.map(message => s"[$name] $message")
 }
 
 /**
@@ -95,9 +86,7 @@ object SubgraphBuildError {
   /**
    * The subgraph has invalid configuration.
    */
-  final case class InvalidConfiguration(errors: List[String]) extends SubgraphBuildError {
-    override val diagnostics: List[String] = errors
-  }
+  final case class InvalidConfiguration(diagnostics: List[String]) extends SubgraphBuildError
 
   /**
    * The parsed schema document failed validation while preparing an executable subgraph.
@@ -111,9 +100,7 @@ object SubgraphBuildError {
   /**
    * Schema transformations or coordinate mappings were invalid.
    */
-  final case class InvalidTransformations(errors: List[String]) extends SubgraphBuildError {
-    override val diagnostics: List[String] = errors
-  }
+  final case class InvalidTransformations(diagnostics: List[String]) extends SubgraphBuildError
 }
 
 /**

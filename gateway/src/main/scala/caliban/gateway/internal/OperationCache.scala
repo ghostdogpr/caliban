@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import caliban.gateway.PhaseHooks
-import caliban.gateway.PhaseHooks.{ CacheResult, Event, Result }
+import caliban.gateway.PhaseHooks.{ CacheResult, Event, Outcome, Result }
 import zio.{ Exit, FiberId, IO, Promise, Ref, Trace, UIO, ZIO }
 
 import scala.annotation.tailrec
@@ -48,7 +48,7 @@ private[gateway] final class OperationCache[K, E, V, R] private (
     state.update(_.settle(key, promise, outcome, maxWeight)) *> promise.done(outcome.mapExit(_.value)).unit
 
   private def observe(result: CacheResult)(effect: ZIO[R, E, V])(implicit trace: Trace): ZIO[R, E, V] =
-    hooks.cacheAccess.run(Event.CacheAccess(result))(effect)(Result.classifyExit)
+    hooks.cacheAccess.run(Event.CacheAccess(result))(effect)(Result.classifyExit(Outcome.InternalError))
 }
 
 private[gateway] object OperationCache {

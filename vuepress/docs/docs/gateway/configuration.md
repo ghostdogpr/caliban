@@ -30,12 +30,18 @@ The execution timeout covers header loading, attempts, and retry delays together
 
 Concurrent identical queries to a remote service share one in-flight call when their request bodies and headers match. Mutations never share calls. Disable sharing with `.withExecution(_.withInFlightQueryDeduplication(false))`.
 
-If loading the schema at startup requires authentication, configure its headers separately:
+If loading the schema at startup requires authentication, give the service its own acquisition settings and headers:
 
 ```scala
-val remoteConfig = RemoteGraphQLConfig.default.withAcquisition(
-  _.withTimeout(5.seconds)
-    .withHeaders(Header.Custom("X-Schema-Token", "schema-secret"))
+val acquisition = RemoteGraphQLConfig.Acquisition.default
+  .withTimeout(5.seconds)
+  .withHeaders(Header.Custom("X-Schema-Token", "schema-secret"))
+
+val products = Subgraph.graphql(
+  "products",
+  url"http://products:8080/graphql",
+  remoteConfig,
+  acquisition
 )
 ```
 
@@ -43,7 +49,7 @@ The gateway sends acquisition headers on the initial schema load and on every re
 
 ### Remote defaults
 
-Change these settings through `withAcquisition` or `withExecution`. Sizes are in bytes. 1 MiB is `1024 * 1024` bytes.
+Change acquisition settings on `RemoteGraphQLConfig.Acquisition` and execution settings through `withExecution`. Sizes are in bytes. 1 MiB is `1024 * 1024` bytes.
 
 | Setting | Acquisition default | Execution default |
 | --- | --- | --- |
@@ -51,13 +57,13 @@ Change these settings through `withAcquisition` or `withExecution`. Sizes are in
 | `withMaxRequestBytes` | Not configurable | 1 MiB |
 | `withMaxResponseBytes` | 16 MiB | 16 MiB |
 | `withMaxParsingDepth` | 128 | Not configurable |
-| `withMaxRedirects` | 0 | Redirects are rejected |
+| `withMaxRedirects` | 10; 0 refuses redirects | Not configurable |
 | `withRetries` | No retries configured here | 0 retries; 100 ms backoff when enabled |
 | `withInFlightQueryDeduplication` | Not applicable | Enabled |
 | `withHeaders` | No headers | No headers |
 | `forwardIncomingHeaders` | Not applicable | No client headers forwarded |
 
-Acquisition redirects, when enabled, do not receive the original request's credentials. Use [subscription settings](subscriptions.md) for connection timeouts and buffering.
+`Supergraph.http` and `SupergraphUplinkConfig.withAcquisition` take the same acquisition settings for supergraph downloads. Every acquisition request sends its headers to the original URL only, never to a redirect target. No acquisition follows a redirect from https to http. The Apollo Uplink follows only redirects to the same origin, because its request body carries the API key. Queries, mutations, and subscriptions never follow redirects. Use [subscription settings](subscriptions.md) for connection timeouts and buffering.
 
 ### Authentication and request headers
 

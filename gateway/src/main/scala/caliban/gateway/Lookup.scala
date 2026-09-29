@@ -5,8 +5,13 @@ package caliban.gateway
  */
 sealed trait Lookup {
   private[gateway] def typeName: String
-  private[gateway] def keyFields: List[String]
   private[gateway] def field: String
+
+  private[gateway] final def keyFields: List[String] =
+    (this match {
+      case Lookup.Single(_, _, arguments) => arguments.flatMap(_._2.leaves)
+      case Lookup.ByKey(_, _, arguments)  => arguments.flatMap(_._2.leaves.flatMap(_.value.leaves))
+    }).map(_.field).distinct
 }
 
 object Lookup {
@@ -14,22 +19,15 @@ object Lookup {
   /**
    * Describes a lookup field that returns one object for one key using deterministically ordered argument mappings.
    */
-  def single(typeName: String, keyFields: List[String], field: String, arguments: (String, Argument[Key])*): Lookup =
-    Single(typeName, keyFields, field, arguments.toList)
+  def single(typeName: String, field: String, arguments: (String, Argument[Key])*): Lookup =
+    Single(typeName, field, arguments.toList)
 
   /**
    * Describes a lookup field that returns a list of objects for a batch of keys using deterministically ordered
-   * argument mappings. Correlation maps returned fields to declared key fields. Results must be non-null;
-   * missing entities are omitted.
+   * argument mappings. Results must be non-null; missing entities are omitted.
    */
-  def list(
-    typeName: String,
-    keyFields: List[String],
-    field: String,
-    correlation: Map[String, String],
-    arguments: (String, Argument[Batch])*
-  ): Lookup =
-    ByKey(typeName, keyFields, field, arguments.toList, correlation)
+  def list(typeName: String, field: String, arguments: (String, Argument[Batch])*): Lookup =
+    ByKey(typeName, field, arguments.toList)
 
   /**
    * A declarative lookup-argument mapping whose leaves are `Key` reads for a single lookup and `Batch` lists for a
@@ -81,18 +79,9 @@ object Lookup {
    */
   final case class Batch private[gateway] (private[gateway] val value: Argument[Key])
 
-  private[gateway] final case class Single(
-    typeName: String,
-    keyFields: List[String],
-    field: String,
-    arguments: List[(String, Argument[Key])]
-  ) extends Lookup
+  private[gateway] final case class Single(typeName: String, field: String, arguments: List[(String, Argument[Key])])
+      extends Lookup
 
-  private[gateway] final case class ByKey(
-    typeName: String,
-    keyFields: List[String],
-    field: String,
-    arguments: List[(String, Argument[Batch])],
-    correlation: Map[String, String]
-  ) extends Lookup
+  private[gateway] final case class ByKey(typeName: String, field: String, arguments: List[(String, Argument[Batch])])
+      extends Lookup
 }

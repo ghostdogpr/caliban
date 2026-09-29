@@ -2,18 +2,17 @@ package caliban.gateway
 
 import caliban.InputValue
 import caliban.gateway.GatewayConfigValidation._
-import caliban.gateway.RemoteGraphQLConfig.{ Acquisition, Execution }
+import caliban.gateway.RemoteGraphQLConfig.Execution
 import zio.http.{ Header, Scheme, URL }
 import zio.{ Duration, ZIO }
 
 /**
- * Immutable acquisition and execution configuration for one remote GraphQL-over-HTTP subgraph.
+ * Immutable execution configuration for one remote GraphQL-over-HTTP subgraph.
  */
-final class RemoteGraphQLConfig[-R] private (
-  val acquisition: Acquisition,
-  val execution: Execution,
-  val effectfulHeaders: ZIO[R, Throwable, List[Header]],
-  val subscription: RemoteSubscriptionConfig
+final case class RemoteGraphQLConfig[-R] private (
+  execution: Execution,
+  effectfulHeaders: ZIO[R, Throwable, List[Header]],
+  subscription: RemoteSubscriptionConfig
 ) {
 
   /**
@@ -21,12 +20,6 @@ final class RemoteGraphQLConfig[-R] private (
    */
   def withSubscription(configure: RemoteSubscriptionConfig => RemoteSubscriptionConfig): RemoteGraphQLConfig[R] =
     copy(subscription = configure(subscription))
-
-  /**
-   * Transforms the stored schema-acquisition configuration.
-   */
-  def withAcquisition(configure: Acquisition => Acquisition): RemoteGraphQLConfig[R] =
-    copy(acquisition = configure(acquisition))
 
   /**
    * Transforms the stored request-execution configuration.
@@ -40,30 +33,20 @@ final class RemoteGraphQLConfig[-R] private (
    * semicolon-separated for `Cookie`.
    */
   def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _), subscription)
-
-  private[gateway] def diagnostics(includeAcquisition: Boolean): List[String] =
-    execution.diagnostics ::: (if (includeAcquisition) acquisition.diagnostics else Nil) ::: subscription.diagnostics
-
-  private def copy(
-    acquisition: Acquisition = acquisition,
-    execution: Execution = execution,
-    subscription: RemoteSubscriptionConfig = subscription
-  ): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, subscription)
+    copy(effectfulHeaders = effectfulHeaders.zipWith(value)(_ ::: _))
 }
 
 object RemoteGraphQLConfig {
 
   /**
-   * Finite schema-acquisition configuration for one remote GraphQL subgraph.
+   * Finite schema-acquisition configuration for a remote subgraph or supergraph source.
    */
-  final class Acquisition private (
-    val timeout: Duration,
-    val maxResponseBytes: Int,
-    val maxParsingDepth: Int,
-    val maxRedirects: Int,
-    val headers: List[Header]
+  final case class Acquisition private (
+    timeout: Duration,
+    maxResponseBytes: Int,
+    maxParsingDepth: Int,
+    maxRedirects: Int,
+    headers: List[Header]
   ) {
 
     /**
@@ -85,9 +68,8 @@ object RemoteGraphQLConfig {
       copy(maxParsingDepth = value)
 
     /**
-     * Sets how many redirects schema acquisition follows. Zero, the default, refuses them outright.
-     * Acquisition headers are not resent to a redirect target, so a token configured here never
-     * reaches the host a redirect points at.
+     * Sets how many redirects schema acquisition follows. Zero refuses them. Configured headers never reach a
+     * redirect target.
      */
     def withMaxRedirects(value: Int): Acquisition =
       copy(maxRedirects = value)
@@ -99,6 +81,8 @@ object RemoteGraphQLConfig {
     def withHeaders(values: Header*): Acquisition =
       copy(headers = values.toList)
 
+    override def toString: String = "Acquisition(<redacted>)"
+
     private[gateway] def diagnostics: List[String] = {
       val protectedHeaders = protocolHeaderDiagnostics("Schema acquisition", headers)
       val timeoutError     = finitePositive(timeout, "Schema acquisition timeout must be finite and positive.")
@@ -108,28 +92,19 @@ object RemoteGraphQLConfig {
 
       timeoutError ::: responseError ::: parsingError ::: redirectsError ::: protectedHeaders
     }
-
-    private def copy(
-      timeout: Duration = timeout,
-      maxResponseBytes: Int = maxResponseBytes,
-      maxParsingDepth: Int = maxParsingDepth,
-      maxRedirects: Int = maxRedirects,
-      headers: List[Header] = headers
-    ): Acquisition =
-      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, maxRedirects, headers)
   }
 
   object Acquisition {
 
     /**
-     * The default finite schema-acquisition configuration.
+     * The default finite schema-acquisition configuration. It follows up to ten redirects.
      */
     val default: Acquisition =
       new Acquisition(
         timeout = Duration.fromSeconds(10),
         maxResponseBytes = 16 * 1024 * 1024,
         maxParsingDepth = 128,
-        maxRedirects = 0,
+        maxRedirects = 10,
         headers = Nil
       )
   }
@@ -140,16 +115,15 @@ object RemoteGraphQLConfig {
    * Outbound headers use this precedence, from lowest to highest: selected incoming headers,
    * configured static headers, effectful headers, and GraphQL transport headers.
    */
-  final class Execution private (
-    val timeout: Duration,
-    val maxRequestBytes: Int,
-    val maxResponseBytes: Int,
-    val retries: Int,
-    val retryBackoff: Duration,
-    val inFlightQueryDeduplication: Boolean,
-    val headers: List[Header],
-    val forwardedHeaders: Set[String],
-    val forwardsAllIncomingHeaders: Boolean
+  final case class Execution private (
+    timeout: Duration,
+    maxRequestBytes: Int,
+    maxResponseBytes: Int,
+    retries: Int,
+    retryBackoff: Duration,
+    inFlightQueryDeduplication: Boolean,
+    headers: List[Header],
+    forwardedHeaders: Option[Set[String]]
   ) {
 
     /**
@@ -193,13 +167,15 @@ object RemoteGraphQLConfig {
      * Selects incoming request headers to forward by case-insensitive name.
      */
     def forwardIncomingHeaders(names: String*): Execution =
-      copy(forwardedHeaders = names.iterator.map(lowercaseHeaderName).toSet, forwardsAllIncomingHeaders = false)
+      copy(forwardedHeaders = Some(names.toSet))
 
     /**
      * Explicitly enables forwarding of all incoming headers except transport-owned headers.
      */
     def forwardAllIncomingHeaders: Execution =
-      copy(forwardedHeaders = Set.empty, forwardsAllIncomingHeaders = true)
+      copy(forwardedHeaders = None)
+
+    override def toString: String = "Execution(<redacted>)"
 
     private[gateway] def diagnostics: List[String] = {
       val timeoutError        = finitePositive(timeout, "Subgraph execution timeout must be finite and positive.")
@@ -209,7 +185,7 @@ object RemoteGraphQLConfig {
       val backoffError        =
         finiteNonNegative(retryBackoff, "Subgraph execution retry backoff must be finite and non-negative.")
       val protectedHeaders    = protocolHeaderDiagnostics("Subgraph execution", headers)
-      val protectedForwarding = forwardedHeaders.toList.sorted.collect {
+      val protectedForwarding = forwardedHeaders.toList.flatMap(_.toList.sorted).collect {
         case name if isProtocolHeader(name) =>
           s"Incoming header '$name' is owned by the GraphQL transport and cannot be forwarded."
       }
@@ -217,29 +193,6 @@ object RemoteGraphQLConfig {
       timeoutError ::: requestError ::: responseError ::: retryError ::: backoffError :::
         protectedHeaders ::: protectedForwarding
     }
-
-    private def copy(
-      timeout: Duration = timeout,
-      maxRequestBytes: Int = maxRequestBytes,
-      maxResponseBytes: Int = maxResponseBytes,
-      retries: Int = retries,
-      retryBackoff: Duration = retryBackoff,
-      inFlightQueryDeduplication: Boolean = inFlightQueryDeduplication,
-      headers: List[Header] = headers,
-      forwardedHeaders: Set[String] = forwardedHeaders,
-      forwardsAllIncomingHeaders: Boolean = forwardsAllIncomingHeaders
-    ): Execution =
-      new Execution(
-        timeout,
-        maxRequestBytes,
-        maxResponseBytes,
-        retries,
-        retryBackoff,
-        inFlightQueryDeduplication,
-        headers,
-        forwardedHeaders,
-        forwardsAllIncomingHeaders
-      )
   }
 
   object Execution {
@@ -257,8 +210,7 @@ object RemoteGraphQLConfig {
         retryBackoff = Duration.fromMillis(100),
         inFlightQueryDeduplication = true,
         headers = Nil,
-        forwardedHeaders = Set.empty,
-        forwardsAllIncomingHeaders = false
+        forwardedHeaders = Some(Set.empty)
       )
   }
 
@@ -266,7 +218,7 @@ object RemoteGraphQLConfig {
    * The default finite remote GraphQL configuration.
    */
   val default: RemoteGraphQLConfig[Any] =
-    new RemoteGraphQLConfig(Acquisition.default, Execution.default, ZIO.succeed(Nil), RemoteSubscriptionConfig.default)
+    new RemoteGraphQLConfig(Execution.default, ZIO.succeed(Nil), RemoteSubscriptionConfig.default)
 
   private[gateway] def lowercaseHeaderName(name: String): String =
     name.toLowerCase(java.util.Locale.ROOT)
@@ -306,12 +258,12 @@ object RemoteGraphQLConfig {
 /**
  * One upstream connection per subscription. No replay, automatic reconnect, or pooling.
  */
-final class RemoteSubscriptionConfig private (
-  val transport: RemoteSubscriptionConfig.Transport,
-  val endpoint: Option[URL],
-  val connectionInit: Option[InputValue],
-  val connectionTimeout: Duration,
-  val keepAliveInterval: Duration
+final case class RemoteSubscriptionConfig private (
+  transport: RemoteSubscriptionConfig.Transport,
+  endpoint: Option[URL],
+  connectionInit: Option[InputValue],
+  connectionTimeout: Duration,
+  keepAliveInterval: Duration
 ) {
 
   /**
@@ -341,6 +293,8 @@ final class RemoteSubscriptionConfig private (
    */
   def withKeepAliveInterval(value: Duration): RemoteSubscriptionConfig = copy(keepAliveInterval = value)
 
+  override def toString: String = "RemoteSubscriptionConfig(<redacted>)"
+
   private[gateway] def diagnostics: List[String] =
     endpoint.toList.flatMap { url =>
       val allowed: Set[Scheme] = transport match {
@@ -352,15 +306,6 @@ final class RemoteSubscriptionConfig private (
       List(connectionTimeout, keepAliveInterval).flatMap(
         finitePositive(_, "Remote subscription timeouts and keepalive interval must be finite and positive.")
       )
-
-  private def copy(
-    transport: RemoteSubscriptionConfig.Transport = transport,
-    endpoint: Option[URL] = endpoint,
-    connectionInit: Option[InputValue] = connectionInit,
-    connectionTimeout: Duration = connectionTimeout,
-    keepAliveInterval: Duration = keepAliveInterval
-  ): RemoteSubscriptionConfig =
-    new RemoteSubscriptionConfig(transport, endpoint, connectionInit, connectionTimeout, keepAliveInterval)
 }
 
 object RemoteSubscriptionConfig {

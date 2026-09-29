@@ -11,18 +11,18 @@ import zio.Config.Secret
  * statically instead, against the fastest jittered interval [[GatewayConfig]] permits, so nothing here
  * throttles a poll dynamically.
  */
-final class SupergraphUplinkConfig private (
-  val graphRef: String,
-  val apiKey: Secret,
-  val endpoints: List[URL],
-  val acquisition: RemoteGraphQLConfig.Acquisition
+final case class SupergraphUplinkConfig private (
+  graphRef: String,
+  apiKey: Secret,
+  endpoints: ::[URL],
+  acquisition: RemoteGraphQLConfig.Acquisition
 ) {
 
   /**
    * Replaces the uplink endpoints, tried in order. Mirrors `withHeaders`: the argument is the whole list.
    */
-  def withEndpoints(endpoints: URL*): SupergraphUplinkConfig =
-    copy(endpoints = endpoints.toList)
+  def withEndpoints(endpoint: URL, fallbacks: URL*): SupergraphUplinkConfig =
+    copy(endpoints = ::(endpoint, fallbacks.toList))
 
   /**
    * Transforms the settings used to fetch the supergraph from the uplink.
@@ -32,19 +32,10 @@ final class SupergraphUplinkConfig private (
   ): SupergraphUplinkConfig =
     copy(acquisition = configure(acquisition))
 
-  override def toString: String = s"SupergraphUplinkConfig($graphRef, $apiKey, $endpoints)"
-
   private[gateway] def diagnostics: List[String] =
     acquisition.diagnostics :::
       check(graphRef.nonEmpty, "Supergraph uplink graph ref must not be empty.") :::
-      check(apiKey.value.nonEmpty, "Supergraph uplink apikey must not be empty.") :::
-      check(endpoints.nonEmpty, "Supergraph uplink must have at least one endpoint.")
-
-  private def copy(
-    endpoints: List[URL] = endpoints,
-    acquisition: RemoteGraphQLConfig.Acquisition = acquisition
-  ): SupergraphUplinkConfig =
-    new SupergraphUplinkConfig(graphRef, apiKey, endpoints, acquisition)
+      check(apiKey.value.nonEmpty, "Supergraph uplink apikey must not be empty.")
 }
 
 object SupergraphUplinkConfig {
@@ -52,9 +43,9 @@ object SupergraphUplinkConfig {
   /**
    * Apollo's public uplink endpoints, in the order they are tried.
    */
-  val DefaultEndpoints: List[URL] = List(
+  val DefaultEndpoints: ::[URL] = ::(
     url"https://uplink.api.apollographql.com/",
-    url"https://aws.uplink.api.apollographql.com/"
+    url"https://aws.uplink.api.apollographql.com/" :: Nil
   )
 
   /**

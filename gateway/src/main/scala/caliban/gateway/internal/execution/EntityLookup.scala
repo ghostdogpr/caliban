@@ -29,7 +29,7 @@ private[execution] object EntityLookup {
     val fetch   = batch.fetch
     val mapping = fetch.source.mapping
     fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities                                                  =>
+      case ComposedGraph.LookupOperation.FederationEntities                                                =>
         val variant = cache.federationLookup(batch)(federationVariant)
         val request = GraphQLRequest(
           query = Some(variant.query),
@@ -39,13 +39,13 @@ private[execution] object EntityLookup {
         Some(
           request -> new Call(batch, variant.projection, ResponseShape.Ordered(EntitiesField))
         )
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single)   =>
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single) =>
         val variant = cache.graphqlLookup(batch)(graphqlVariant)
         val aliases = Vector.tabulate(batch.entries.size)(index => s"${LookupAlias}_$index")
         traverseOption(batch.entries.zip(aliases)) { case (entry, alias) =>
           evaluateArguments(arguments, batch, Some(entry)).map(lookupField(mapping, field, alias, _, variant))
         }.map(fields => lookupRequest(fields) -> new Call(batch, variant.projection, ResponseShape.Aliases(aliases)))
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, _: ComposedGraph.LookupResult.ByKey) =>
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.ByKey)  =>
         val variant = cache.graphqlLookup(batch)(graphqlVariant)
         evaluateArguments(arguments, batch, None).map { values =>
           lookupRequest(List(lookupField(mapping, field, LookupAlias, values, variant))) ->
@@ -226,14 +226,11 @@ private[execution] object EntityLookup {
     val mapping               = fetch.source.mapping
     val executableFields      = executableEntityFields(fetch, contexts)
     val (keys, keySelections) = fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.GraphQLQuery(_, _, result: ComposedGraph.LookupResult.ByKey) =>
+      case ComposedGraph.LookupOperation.GraphQLQuery(_, _, ComposedGraph.LookupResult.ByKey) =>
         val aliases = new PrivateAliases(responseNames(executableFields))
         val keys    = fetch.keys.map(key => RequiredSelection(key.field, aliases.next(LookupKeyAliasBase)))
-        keys -> keys.map { key =>
-          val field = result.fields.getOrElse(key.field, key.field)
-          requiredSelection(mapping.requiredSelectionToSource(fetch.entityType, key.copy(field = field)))
-        }
-      case _                                                                                          => Nil -> Nil
+        keys -> keys.map(key => requiredSelection(mapping.requiredSelectionToSource(fetch.entityType, key)))
+      case _                                                                                  => Nil -> Nil
     }
     GraphQLVariant(
       keys,

@@ -123,9 +123,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
   private val abstractLookup = Lookup.list(
     "User",
-    List("id"),
     "usersByIds",
-    Map("id" -> "id"),
     "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
   )
 

@@ -1653,24 +1653,17 @@ object CompositionSpec extends ZIOSpecDefault {
         val unlinked =
           """directive @audit(label: String!) repeatable on FIELD_DEFINITION
             |type Query { other: String @audit(label: "local") }""".stripMargin
-        val result   = for {
-          linkedDocument   <- Parser.parseQuery(linked)
-          unlinkedDocument <- Parser.parseQuery(unlinked)
-        } yield caliban.gateway.internal.composition.SchemaComposer.compose(
-          List(
-            Subgraph.federation("alpha", unreachableEndpoint, linkedDocument) -> linkedDocument,
-            Subgraph.graphql("beta", unreachableEndpoint, unlinkedDocument)   -> unlinkedDocument
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("alpha", unreachableEndpoint, linked),
+            Subgraph.graphql("beta", unreachableEndpoint, unlinked)
           )
-        )
-
-        assertTrue(
-          result.toOption
-            .flatMap(_.left.toOption)
-            .exists(
-              _.diagnostics.contains(
-                "[directive @audit] Linked directive identities collide: 'https://example.com/audit' and an unlinked definition."
-              )
+        ).map(diagnostics =>
+          assertTrue(
+            diagnostics.contains(
+              "[directive @audit] Linked directive identities collide: 'https://example.com/audit' and an unlinked definition."
             )
+          )
         )
       },
       test("keeps each distinct repeatable directive application once, in subgraph order") {

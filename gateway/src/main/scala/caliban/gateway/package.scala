@@ -31,12 +31,6 @@ package object gateway {
   private[gateway] def isInclusionDirective(directive: Directive): Boolean =
     directive.name == "skip" || directive.name == "include"
 
-  private[gateway] def hasDirective(directives: List[Directive], names: Set[String]): Boolean =
-    directives.exists(directive => names.contains(directive.name))
-
-  private[gateway] def hasDirective(directives: Option[List[Directive]], names: Set[String]): Boolean =
-    directives.exists(hasDirective(_, names))
-
   private[gateway] def isAbstractType(tpe: __Type): Boolean =
     tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION
 

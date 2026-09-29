@@ -69,7 +69,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       normalized <- ZIO.fromEither(RemoteSchema.normalize(document, extensionsCanDefineTypes = true))
       names       = FederationCompilation.federationDirectiveNames(normalized.document, federation = true)
       mapping    <- ZIO.fromEither(
-                      SchemaMapping.compile("contexts", normalized.rootType, names, transformations)
+                      SchemaMapping.compile(normalized.rootType, names, transformations)
                     )
     } yield mapping
       .transform(normalized.document, names)
@@ -388,7 +388,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         rootType   <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         names       = FederationCompilation.federationDirectiveNames(document, federation = false)
         mapping    <- ZIO.fromEither(
-                        SchemaMapping.compile("products", rootType, names, transformations = transformations)
+                        SchemaMapping.compile(rootType, names, transformations = transformations)
                       )
         transformed = mapping.transform(document, names)
         directives  = transformed.objectTypeDefinitions
@@ -576,7 +576,6 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         mapping  <- ZIO.fromEither(
                       SchemaMapping.compile(
-                        "products",
                         rootType,
                         FederationCompilation.federationDirectiveNames(document, federation = false),
                         List(
@@ -619,9 +618,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           |""".stripMargin
       val lookup            = Lookup.list(
         "Product",
-        List("id"),
         "productsByRefs",
-        Map("id" -> "id"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
         )

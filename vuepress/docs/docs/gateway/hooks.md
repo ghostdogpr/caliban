@@ -138,7 +138,7 @@ If any selected field fails authorization, the gateway rejects the whole operati
 
 Schemas with `@authenticated` or `@requiresScopes` require an incoming `authorization` handler at startup. An outgoing-only observer does not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
 
-For custom checks, use `PhaseHooks.authorization(operation => ...)`, returning `ZIO.unit` to allow the operation or failing with `PhaseHooks.Denial()` to deny it. Supply a custom denial reason only if it is safe to return to clients. The operation includes the resolved request, parsed document, validated execution request, and `securityRequirements` identifying protected types and fields.
+For custom checks, use `PhaseHooks.authorization(operation => ...)`, returning `ZIO.unit` to allow the operation or failing with `PhaseHooks.Denial()` to deny it. Supply a custom denial reason only if it is safe to return to clients. The operation includes the resolved request, parsed document, validated execution request, and `securityRequirements` identifying protected types and fields. Each requirement's `scopes` lists the alternative scope sets the caller can hold. `List(Set())` requires authentication only.
 
 Authorization runs after validation and planning, including on cache hits. Combine checks with `++`. Every check must succeed, and a denial stops later checks. Return denials with `ZIO.fail`. Thrown exceptions are treated as unexpected failures and their messages are hidden.
 
@@ -251,7 +251,7 @@ val application = serve.provide(
 
 Run `application` from your `ZIOAppDefault.run`. Configure Prometheus to scrape `/metrics` on port 4000. The publisher refreshes its snapshot every five seconds. See [ZIO's Prometheus guide](https://zio.dev/zio-metrics-connectors/metrics/prometheus-client/) for exporter details.
 
-`caliban_gateway_requests_total` and `caliban_gateway_request_duration_seconds` cover queries and mutations from execution onward. They also count error responses for preparation failures, timeouts, and shutdown rejections, but the duration excludes preparation time. Track preparation separately with `caliban_gateway_preparation_duration_seconds`. Use `caliban_gateway_subgraph_call_duration_seconds` to find slow services and `caliban_gateway_operation_cache_total` to track cache hits and misses.
+`caliban_gateway_request_duration_seconds` covers queries and mutations from execution onward. It also counts error responses for preparation failures, timeouts, and shutdown rejections, but the duration excludes preparation time. Its `_count` series gives the number of requests per outcome. Track preparation separately with `caliban_gateway_preparation_duration_seconds`. Use `caliban_gateway_subgraph_call_duration_seconds` to find slow services and `caliban_gateway_operation_cache_total` to track cache hits and misses.
 
 ### Exporting traces
 

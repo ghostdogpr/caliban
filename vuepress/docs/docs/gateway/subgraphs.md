@@ -122,7 +122,7 @@ val source = Supergraph.file(java.nio.file.Paths.get("supergraph.graphql"))
 val gateway = Gateway.fromSupergraph(source)
 ```
 
-`None` keeps the URL declared in the supergraph. The service configuration controls execution, including headers, retries, and subscriptions. Its acquisition settings are unused because the schemas come from the supergraph. Set authentication for downloading an HTTP supergraph on `Supergraph.http` itself:
+`None` keeps the URL declared in the supergraph. The service configuration controls execution, including headers, retries, and subscriptions. Set authentication for downloading an HTTP supergraph on `Supergraph.http` itself:
 
 ```scala
 val source = Supergraph.http(
@@ -131,6 +131,8 @@ val source = Supergraph.http(
     .withHeaders(Header.Authorization.Bearer("schema-token"))
 )
 ```
+
+`Supergraph.http` follows up to ten redirects by default and never sends the configured headers to a redirect target. It never follows a redirect from https to http. The Apollo Uplink follows only redirects to the same origin, because its request body carries the API key. Set a different limit with `withMaxRedirects` on the acquisition settings, or on `SupergraphUplinkConfig.withAcquisition` for the Apollo Uplink. A limit of 0 refuses redirects.
 
 Registry credentials passed to `Supergraph.uplink` or `Supergraph.hive` authenticate schema downloads. They are not forwarded to subgraphs.
 

@@ -83,12 +83,7 @@ private[gateway] final class SubscriptionControl[-R] private (
       hooks.subscriptionSetup
         .run[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]](Event.SubscriptionSetup)(
           sourceScope.extend[R1](open)
-        )(
-          Result.fromExit(_)(
-            _ => Result(PhaseHooks.Outcome.Success),
-            _ => Result(PhaseHooks.Outcome.TransportError)
-          )
-        )
+        )(Result.classifyExit(PhaseHooks.Outcome.TransportError))
         .timeoutFail(SubscriptionTermination.SetupTimeout)(config.setupTimeout)
         .raceFirst(signal.await *> ZIO.never)
         .mapError(SubscriptionTermination.fromFailure)
@@ -138,7 +133,7 @@ private[gateway] final class SubscriptionControl[-R] private (
   private def notify[R1 <: R, Ev <: Event](event: Ev)(handler: PhaseHandler[R1, Ev, Nothing, Result])(implicit
     trace: Trace
   ): URIO[R1, Unit] =
-    handler.run(event)(ZIO.unit)(Result.classifyExit)
+    handler.run(event)(ZIO.unit)(Result.classifyExit(PhaseHooks.Outcome.InternalError))
 
 }
 

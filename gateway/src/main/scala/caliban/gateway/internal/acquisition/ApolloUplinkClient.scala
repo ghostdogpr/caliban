@@ -24,7 +24,7 @@ private[acquisition] object ApolloUplinkClient {
 
     // Any non-success status is an unexpected response, so that the loader fails over to the next endpoint.
     // Remote error text must not reach diagnostics, including JSON decoding exceptions.
-    fetchData[SupergraphAcquisitionError](endpoint, request, config.acquisition, http)(
+    fetchData[SupergraphAcquisitionError](endpoint, request, config.acquisition, http, RedirectScope.SameOrigin)(
       _.isSuccess,
       _ => InvalidResponse("$.errors")
     ).flatMap(data => ZIO.fromEither(decode(data)))

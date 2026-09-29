@@ -79,16 +79,21 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
   // Loader construction
   // ---------------------------------------------------------------------------------------------
 
-  private def configFor(endpoints: URL*): SupergraphUplinkConfig =
-    SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoints: _*).withAcquisition(_.withTimeout(2.seconds))
+  private def configFor(endpoint: URL, fallbacks: URL*): SupergraphUplinkConfig =
+    SupergraphUplinkConfig(graphRef, apiKey)
+      .withEndpoints(endpoint, fallbacks: _*)
+      .withAcquisition(_.withTimeout(2.seconds))
 
   private def loaderFor(
     config: SupergraphUplinkConfig
   ): ZIO[GatewayHttpClient, Nothing, IO[SupergraphAcquisitionError, Document]] =
     acquisitionLoader(Supergraph.Source.Uplink(config))
 
-  private def loaderFor(endpoints: URL*): ZIO[GatewayHttpClient, Nothing, IO[SupergraphAcquisitionError, Document]] =
-    loaderFor(configFor(endpoints: _*))
+  private def loaderFor(
+    endpoint: URL,
+    fallbacks: URL*
+  ): ZIO[GatewayHttpClient, Nothing, IO[SupergraphAcquisitionError, Document]] =
+    loaderFor(configFor(endpoint, fallbacks: _*))
 
   /** Every string a diagnostic must never contain: the api key, and any remote free text. */
   private def leaks(diagnostics: List[String], secrets: String*): List[String] =
@@ -131,22 +136,15 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("an empty endpoint list is a diagnostic") {
-        assertTrue(
-          SupergraphUplinkConfig(graphRef, apiKey).withEndpoints().diagnostics == List(
-            "Supergraph uplink must have at least one endpoint."
-          )
-        )
-      },
       test("acquisition diagnostics are carried through") {
         val config = SupergraphUplinkConfig(graphRef, apiKey)
           .withAcquisition(_.withMaxResponseBytes(0))
         assertTrue(config.diagnostics == List("Schema acquisition maxResponseBytes must be positive."))
       },
       test("no diagnostic renders the api key, and neither does toString") {
-        val config = SupergraphUplinkConfig("", Secret("")).withEndpoints()
+        val config = SupergraphUplinkConfig("", Secret(""))
         assertTrue(
-          config.diagnostics.size == 3,
+          config.diagnostics.size == 2,
           leaks(config.diagnostics, apiKey.stringValue, graphRef).isEmpty,
           !SupergraphUplinkConfig(graphRef, apiKey).toString.contains(apiKey.stringValue)
         )
@@ -347,13 +345,30 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           error   <- acquisitionFailure(exit)
         } yield assertTrue(shallow.isSuccess, error == ParsingDepthExceeded(4))
       },
-      test("a redirect is refused rather than followed") {
+      test("same-origin redirects are followed with the same request up to maxRedirects, others are refused") {
+        def load(endpoint: URL, maxRedirects: Int) =
+          loaderFor(configFor(endpoint).withAcquisition(_.withMaxRedirects(maxRedirects))).flatMap(_.exit)
+
         for {
-          stub   <- uplinkStub(Answer("", status = Status.Found))
-          loader <- loaderFor(stub.endpoint)
-          exit   <- loader.exit
-          error  <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[UnexpectedResponse])
+          target      <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
+          redirect    <- postEndpoint("uplink-redirect")(_ => ZIO.succeed(Response.redirect(target.endpoint)))
+          chain       <- postEndpoint("uplink-chain")(_ => ZIO.succeed(Response.redirect(redirect)))
+          crossOrigin <-
+            postEndpoint("uplink-cross-origin")(_ => ZIO.succeed(Response.redirect(target.endpoint.host("localhost"))))
+          followed    <- load(chain, 2)
+          query       <- target.queryOf(0)
+          pastLimit   <- load(chain, 1).flatMap(acquisitionFailure)
+          refused     <- load(redirect, 0).flatMap(acquisitionFailure)
+          otherOrigin <- load(crossOrigin, 2).flatMap(acquisitionFailure)
+          calls       <- target.calls
+        } yield assertTrue(
+          followed.isSuccess,
+          query.contains("routerConfig"),
+          pastLimit.isInstanceOf[UnexpectedResponse],
+          refused.isInstanceOf[UnexpectedResponse],
+          otherOrigin.isInstanceOf[UnexpectedResponse],
+          calls == 1
+        )
       },
       test("a response slower than the acquisition timeout fails with TimedOut") {
         for {

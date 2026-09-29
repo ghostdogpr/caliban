@@ -8,11 +8,16 @@ import caliban.gateway._
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.Subgraph.SchemaInput
 import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
+import caliban.gateway.internal.GatewayHttpClient.Reply
 import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
-import zio.{ IO, Trace, ZIO }
-import zio.http.{ Status, URL }
+import zio.{ IO, Task, Trace, ZIO }
+import zio.http.{ Header, QueryParams, Scheme, Status, URL }
+
+import java.net.URI
+import java.util.Locale
+import scala.util.Try
 
 private[gateway] object RemoteSchemaAcquisition {
 
@@ -20,10 +25,8 @@ private[gateway] object RemoteSchemaAcquisition {
     trace: Trace
   ): IO[SubgraphAcquisitionError, Document] =
     remote.schema match {
-      case SchemaInput.Sdl(value)    => ZIO.fromEither(parseSdl(value))
-      case SchemaInput.Parsed(value) => ZIO.succeed(value)
-      case SchemaInput.Acquired      =>
-        val config      = remote.config.acquisition
+      case SchemaInput.Pinned(document) => ZIO.fromEither(document)
+      case SchemaInput.Acquired(config) =>
         val acquisition =
           if (remote.federation) FederationClient.fetch(remote.endpoint, config, http)
           else IntrospectionClient.fetch(remote.endpoint, config, http)
@@ -39,14 +42,13 @@ private[gateway] object RemoteSchemaAcquisition {
     endpoint: URL,
     request: GraphQLRequest,
     config: RemoteGraphQLConfig.Acquisition,
-    http: GatewayHttpClient
+    http: GatewayHttpClient,
+    scope: RedirectScope
   )(accepts: Status => Boolean, onErrors: List[CalibanError] => E)(implicit
     trace: Trace
   ): IO[E, ObjectValue] =
-    http
-      .post(endpoint, writeToArray(request), config.headers, config.maxResponseBytes)
-      .mapError[SchemaAcquisitionError](RequestFailed(_))
-      .flatMap { reply =>
+    followRedirects(endpoint, config, scope)(http.post(_, writeToArray(request), _, config.maxResponseBytes)).flatMap {
+      reply =>
         reply.body match {
           case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
           case Some(bytes) =>
@@ -56,15 +58,69 @@ private[gateway] object RemoteSchemaAcquisition {
               ZIO.fail(ParsingDepthExceeded(config.maxParsingDepth))
             else ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(ResponseDecodingFailed(_))
         }
+    }.flatMap { response =>
+      ZIO.fromEither(for {
+        envelope <- asObject(response, "$")
+        errors   <- responseErrors(envelope)
+        _        <- if (errors.isEmpty) Right(()) else Left(onErrors(errors))
+        data     <- objectField(envelope, "data", "$")
+      } yield data)
+    }
+
+  /**
+   * The redirects an acquisition request follows. Neither scope goes from https to http. `SameOrigin` is for a
+   * request body that carries a credential, such as Uplink's API key.
+   */
+  private[acquisition] sealed trait RedirectScope
+
+  private[acquisition] object RedirectScope {
+    case object AnyOrigin  extends RedirectScope
+    case object SameOrigin extends RedirectScope
+  }
+
+  // A redirect it does not follow is returned as is, for the caller's status check to reject.
+  private[acquisition] def followRedirects(
+    endpoint: URL,
+    config: RemoteGraphQLConfig.Acquisition,
+    scope: RedirectScope
+  )(
+    send: (URL, List[Header]) => Task[Reply]
+  )(implicit trace: Trace): IO[SchemaAcquisitionError, Reply] = {
+    def loop(url: URL, redirects: Int): IO[SchemaAcquisitionError, Reply] =
+      // Redirect targets never receive configured headers, which may contain CDN credentials.
+      send(url, if (redirects == 0) config.headers else Nil).mapError(RequestFailed(_)).flatMap { reply =>
+        val target =
+          if (!reply.status.isRedirection || reply.status == Status.NotModified || redirects >= config.maxRedirects)
+            None
+          else reply.headers.rawHeader(Header.Location).flatMap(resolveRedirect(url, _)).filter(follows(scope, url, _))
+        target.fold[IO[SchemaAcquisitionError, Reply]](ZIO.succeed(reply))(loop(_, redirects + 1))
       }
-      .flatMap { response =>
-        ZIO.fromEither(for {
-          envelope <- asObject(response, "$")
-          errors   <- responseErrors(envelope)
-          _        <- if (errors.isEmpty) Right(()) else Left(onErrors(errors))
-          data     <- objectField(envelope, "data", "$")
-        } yield data)
-      }
+
+    loop(endpoint, 0)
+  }
+
+  private def follows(scope: RedirectScope, from: URL, to: URL): Boolean =
+    scope match {
+      case RedirectScope.AnyOrigin  => !from.scheme.contains(Scheme.HTTPS) || to.scheme.contains(Scheme.HTTPS)
+      case RedirectScope.SameOrigin => origin(from) == origin(to)
+    }
+
+  private def origin(url: URL): (Option[Scheme], Option[String], Option[Int]) =
+    (url.scheme, url.host.map(_.toLowerCase(Locale.ROOT)), url.portOrDefault)
+
+  private def resolveRedirect(base: URL, location: String): Option[URL] =
+    Try(new URI(location)).toOption.flatMap { reference =>
+      // Keep the resource path for query-only redirects; URI.resolve would drop its final segment.
+      if (reference.getScheme == null && reference.getRawAuthority == null && reference.getRawPath.isEmpty)
+        Some(
+          base.copy(
+            queryParams =
+              Option(reference.getRawQuery).filter(_.nonEmpty).fold(base.queryParams)(QueryParams.decode(_)),
+            fragment = None
+          )
+        )
+      else Try(base.toJavaURI.resolve(reference)).toOption.flatMap(URL.fromURI)
+    }
 
   /**
    * Fails for malformed errors, or returns Nil when the response has no errors.
@@ -99,7 +155,7 @@ private[gateway] object RemoteSchemaAcquisition {
       case _                  => Left(InvalidResponse(path))
     }
 
-  private[acquisition] def parseSdl(sdl: String): Either[SchemaParsingFailed, Document] =
+  private[gateway] def parseSdl(sdl: String): Either[SchemaParsingFailed, Document] =
     Parser.parseQuery(sdl).left.map(SchemaParsingFailed(_))
 
   /**

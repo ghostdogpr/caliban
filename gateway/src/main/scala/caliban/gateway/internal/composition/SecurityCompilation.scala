@@ -131,22 +131,10 @@ private[composition] object SecurityCompilation {
         applications.exists(application =>
           application.member == FederationDirective.Authenticated || application.member == FederationDirective.RequiresScopes
         ),
-        conjunction(groups(FederationDirective.RequiresScopes)),
-        conjunction(groups(FederationDirective.Policy))
+        SecurityDirectiveApplication.conjunction(groups(FederationDirective.RequiresScopes)),
+        SecurityDirectiveApplication.conjunction(groups(FederationDirective.Policy))
       )
     }
-
-    private def conjunction(expressions: List[List[List[String]]]): List[Set[String]] =
-      expressions.foldLeft(List(Set.empty[String])) { (acc, expression) =>
-        val normalized = if (expression.isEmpty) List(Nil) else expression
-        val combined   = for {
-          left  <- acc
-          right <- normalized
-        } yield left ++ right
-        combined.distinct.filterNot(candidate =>
-          combined.exists(other => other != candidate && other.subsetOf(candidate))
-        )
-      }
 
     private def implies(actual: List[Set[String]], required: List[Set[String]]): Boolean =
       actual.forall(value => required.exists(_.subsetOf(value)))

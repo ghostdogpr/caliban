@@ -2,7 +2,6 @@ package caliban.gateway.internal.composition
 
 import caliban.execution.Field
 import caliban.gateway._
-import caliban.gateway.SchemaTransformation._
 import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
@@ -138,20 +137,11 @@ private[gateway] final class SchemaMapping private (
 
     val typeName = clientType(lookup.typeName)
     val field    = clientField(sourceType(QueryRoot), lookup.field)
-    val keys     = lookup.keyFields.map(clientField(lookup.typeName, _))
 
     lookup match {
-      case Lookup.Single(_, _, _, values)             => Lookup.Single(typeName, keys, field, arguments(values)(key))
-      case Lookup.ByKey(_, _, _, values, correlation) =>
-        Lookup.ByKey(
-          typeName,
-          keys,
-          field,
-          arguments(values)(batch => Lookup.Batch(batch.value.map(key))),
-          correlation.map { case (response, keyField) =>
-            clientField(lookup.typeName, response) -> clientField(lookup.typeName, keyField)
-          }
-        )
+      case Lookup.Single(_, _, values) => Lookup.Single(typeName, field, arguments(values)(key))
+      case Lookup.ByKey(_, _, values)  =>
+        Lookup.ByKey(typeName, field, arguments(values)(batch => Lookup.Batch(batch.value.map(key))))
     }
   }
 
@@ -350,7 +340,6 @@ private[gateway] final class SchemaMapping private (
 private[gateway] object SchemaMapping {
 
   def compile(
-    source: String,
     rootType: RootType,
     names: FederationCompilation.FederationDirectiveNames,
     transformations: List[SchemaTransformation]
@@ -361,19 +350,17 @@ private[gateway] object SchemaMapping {
       rootType.subscriptionType.map("Subscription" -> _)
     ).flatten.flatMap { case (operation, tpe) => tpe.name.map(_ -> operation) }.toMap
     val context  = ValidationContext(rootType.types, roots.keySet, names.hiddenTypes)
-    val changes  = transformations.map(normalize)
-    val renames  = changes.collect { case Change(coordinate, Some(renamed)) => coordinate -> renamed }
+    val renames  = transformations.flatMap(change => change.renamed.map(change.coordinate -> _))
     val mappings = Mappings(
       roots.filter { case (source, root) => source != root },
       renames.toMap,
-      changes.collect { case Change(coordinate, None) => coordinate }.toSet
+      transformations.collect { case change if change.renamed.isEmpty => change.coordinate }.toSet
     )
 
-    val missing                    = changes.collect {
-      case Change(coordinate, _) if !coordinate.exists(context) =>
-        s"${coordinate.display} does not exist."
+    val missing                    = transformations.collect {
+      case change if !change.coordinate.exists(context) => s"${change.coordinate.display} does not exist."
     }
-    val restrictions               = changes.flatMap(change => change.coordinate.restrictions(change, context))
+    val restrictions               = transformations.flatMap(change => change.coordinate.restrictions(change, context))
     val invalidRenameTargets       = renames.flatMap { case (coordinate, target) =>
       if (Parser.parseName(target).isLeft)
         List(s"${coordinate.display} cannot be transformed to invalid GraphQL name '$target'.")
@@ -387,7 +374,7 @@ private[gateway] object SchemaMapping {
         val references = values.map(_._1).distinct.sortBy(_.currentName).map(_.reference).mkString(", ")
         s"${renamed.plural} $references are both transformed to '${renamed.currentName}'."
     }.toList
-    val conflictingTransformations = changes
+    val conflictingTransformations = transformations
       .groupBy(_.coordinate)
       .collect {
         case (coordinate, values) if values.map(_.renamed).distinct.size > 1 =>
@@ -398,7 +385,7 @@ private[gateway] object SchemaMapping {
       (missing ::: restrictions ::: invalidRenameTargets :::
         collisions ::: transformedCollisions ::: conflictingTransformations).distinct.sorted
 
-    if (diagnostics.nonEmpty) Left(diagnostics.map(message => s"[$source] $message"))
+    if (diagnostics.nonEmpty) Left(diagnostics)
     else Right(new SchemaMapping(rootType, mappings))
   }
 
@@ -422,7 +409,7 @@ private[gateway] object SchemaMapping {
   private[composition] def namedReference(tpe: __Type): Set[Coordinate] =
     tpe.name.map(name => TypeCoordinate(name, typeLocation(tpe.kind)): Coordinate).toSet
 
-  private final case class ValidationContext(
+  private[gateway] final case class ValidationContext(
     types: Map[String, __Type],
     operationRoots: Set[String],
     transportTypes: Set[String]
@@ -434,7 +421,7 @@ private[gateway] object SchemaMapping {
   /**
    * A schema element targeted by a rename or hide operation, such as Product.price or Query.product(id:).
    */
-  private sealed abstract class Target(kind: String, val plural: String) {
+  private[gateway] sealed abstract class Target(kind: String, val plural: String) {
     def currentName: String
     def reference: String
     def renamed(name: String): Target
@@ -446,7 +433,7 @@ private[gateway] object SchemaMapping {
 
     final def display: String = s"$kind $reference"
 
-    final def restrictions(change: Change, context: ValidationContext): List[String] = {
+    final def restrictions(change: SchemaTransformation, context: ValidationContext): List[String] = {
       val element = s"${kind.toLowerCase} $reference"
       check(
         !operationRoot(context),
@@ -470,7 +457,7 @@ private[gateway] object SchemaMapping {
       else None
   }
 
-  private final case class TypeTarget(typeName: String) extends Target("Type", "Types") {
+  private[gateway] final case class TypeTarget(typeName: String) extends Target("Type", "Types") {
     val currentName = typeName
     val reference   = s"'$typeName'"
 
@@ -482,7 +469,7 @@ private[gateway] object SchemaMapping {
     override protected def operationRoot(context: ValidationContext)            = context.operationRoots(typeName)
   }
 
-  private final case class FieldTarget(typeName: String, fieldName: String) extends Target("Field", "Fields") {
+  private[gateway] final case class FieldTarget(typeName: String, fieldName: String) extends Target("Field", "Fields") {
     val currentName = fieldName
     val reference   = s"'$typeName.$fieldName'"
 
@@ -495,7 +482,7 @@ private[gateway] object SchemaMapping {
       context.transportField(typeName, target)
   }
 
-  private final case class ArgumentTarget(typeName: String, fieldName: String, argumentName: String)
+  private[gateway] final case class ArgumentTarget(typeName: String, fieldName: String, argumentName: String)
       extends Target("Argument", "Arguments") {
     val currentName = argumentName
     val reference   = s"'$typeName.$fieldName($argumentName:)'"
@@ -511,7 +498,7 @@ private[gateway] object SchemaMapping {
     protected def transport(context: ValidationContext) = context.transportField(typeName, fieldName)
   }
 
-  private final case class InputFieldTarget(typeName: String, fieldName: String)
+  private[gateway] final case class InputFieldTarget(typeName: String, fieldName: String)
       extends Target("Input field", "Input fields") {
     val currentName = fieldName
     val reference   = s"'$typeName.$fieldName'"
@@ -524,9 +511,6 @@ private[gateway] object SchemaMapping {
     protected def transport(context: ValidationContext) = context.transportTypes(typeName)
   }
 
-  // A missing replacement name means the schema element is hidden.
-  private final case class Change(coordinate: Target, renamed: Option[String])
-
   private val QueryRoot = "Query"
 
   private final case class Mappings(rootNames: Map[String, String], renames: Map[Target, String], hidden: Set[Target]) {
@@ -534,16 +518,4 @@ private[gateway] object SchemaMapping {
 
     def nonEmpty: Boolean = renames.nonEmpty || rootNames.nonEmpty || hidden.nonEmpty
   }
-
-  private def normalize(transformation: SchemaTransformation): Change =
-    transformation match {
-      case RenameType(name, renamed)                 => Change(TypeTarget(name), Some(renamed))
-      case HideType(name)                            => Change(TypeTarget(name), None)
-      case RenameField(tpe, name, renamed)           => Change(FieldTarget(tpe, name), Some(renamed))
-      case HideField(tpe, name)                      => Change(FieldTarget(tpe, name), None)
-      case RenameArgument(tpe, field, name, renamed) =>
-        Change(ArgumentTarget(tpe, field, name), Some(renamed))
-      case HideArgument(tpe, field, name)            => Change(ArgumentTarget(tpe, field, name), None)
-      case HideInputField(tpe, name)                 => Change(InputFieldTarget(tpe, name), None)
-    }
 }

@@ -2,7 +2,6 @@ package caliban.gateway
 
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.PhaseHooks.SecurityDirective.{ Authenticated, RequiresScopes }
 import caliban.gateway.PhaseHooks.{ Denial, SecurityRequirement }
 import caliban.GraphQLRequest
 import zio._
@@ -544,7 +543,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         betaSent  <- beta.requests.get
       } yield assertTrue(
         seen == List(
-          SecurityRequirement("Query", Some("value"), List(Authenticated, RequiresScopes(List(List("read:value")))))
+          SecurityRequirement("Query", Some("value"), List(Set("read:value")))
         ),
         alphaSent.isEmpty,
         betaSent.isEmpty
@@ -590,20 +589,20 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         skipped.errors.map(_.msg) == List("Operation denied."),
         introspection.errors.map(_.msg) == List("Operation denied."),
         first.contains(
-          SecurityRequirement("Query", None, List(Authenticated))
+          SecurityRequirement("Query", None, List(Set.empty))
         ),
         first.contains(
-          SecurityRequirement("Query", Some("node"), List(RequiresScopes(List(List("read:node")))))
+          SecurityRequirement("Query", Some("node"), List(Set("read:node")))
         ),
         first.contains(
           SecurityRequirement(
             "Private",
             None,
-            List(RequiresScopes(List(List("read:private", "tenant:a"), List("admin"))))
+            List(Set("read:private", "tenant:a"), Set("admin"))
           )
         ),
         first.contains(
-          SecurityRequirement("Private", Some("secret"), List(RequiresScopes(List(List("read:secret")))))
+          SecurityRequirement("Private", Some("secret"), List(Set("read:secret")))
         ),
         !second.exists(requirement => requirement.typeName == "Private" && requirement.fieldName.contains("secret")),
         seen.drop(2).headOption.exists(_.isEmpty),
@@ -641,7 +640,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         seen.contains(
-          SecurityRequirement("Child", Some("secret"), List(Authenticated))
+          SecurityRequirement("Child", Some("secret"), List(Set.empty))
         ),
         sent.isEmpty
       )
@@ -674,7 +673,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         seen.contains(
-          SecurityRequirement("ChildNode", Some("value"), List(Authenticated))
+          SecurityRequirement("ChildNode", Some("value"), List(Set.empty))
         ),
         sent.isEmpty
       )

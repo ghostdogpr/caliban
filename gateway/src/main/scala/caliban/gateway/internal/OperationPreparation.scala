@@ -3,7 +3,7 @@ package caliban.gateway.internal
 import caliban.GraphQLResponseContext.{ markRequestError, markServerError, ServerFailure }
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
-import caliban.gateway.PhaseHooks.{ Event, Outcome, SecurityDirective }
+import caliban.gateway.PhaseHooks.{ Event, Outcome }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
@@ -46,17 +46,16 @@ private[gateway] final class OperationPreparation[-R] private (
       case PhaseHooks.Rejection(message, code) => CalibanError.ExecutionError(message, extensions = errorCode(code))
     }
 
-  private def authorize(operation: ExecutableOperation)(implicit trace: Trace): ZIO[R, Failure, Unit] = {
-    val requirements = security.requirements(operation.plan)
-    if (requirements.exists(_.directives.contains(SecurityDirective.UnsupportedPolicy)))
-      ZIO.fail(Rejected(CalibanError.ValidationError(UnsupportedPolicyFailure, "")))
-    else
-      runHook(
-        hooks.authorization,
-        Event.Authorization(operation.request, operation.document, operation.executionRequest, requirements),
-        AuthorizationFailure
-      ) { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }.unit
-  }
+  private def authorize(operation: ExecutableOperation)(implicit trace: Trace): ZIO[R, Failure, Unit] =
+    security.requirements(operation.plan) match {
+      case None               => ZIO.fail(Rejected(CalibanError.ValidationError(UnsupportedPolicyFailure, "")))
+      case Some(requirements) =>
+        runHook(
+          hooks.authorization,
+          Event.Authorization(operation.request, operation.document, operation.executionRequest, requirements),
+          AuthorizationFailure
+        ) { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }.unit
+    }
 
   private def prepareResolved(
     request: GraphQLRequest,

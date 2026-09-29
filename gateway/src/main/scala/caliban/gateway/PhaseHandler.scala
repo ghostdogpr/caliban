@@ -23,27 +23,23 @@ sealed abstract class PhaseHandler[-R, Event, +Err, -Res] { self =>
   def ++[R1 <: R, Err1 >: Err, Res1 <: Res](
     that: PhaseHandler[R1, Event, Err1, Res1]
   ): PhaseHandler[R1, Event, Err1, Res1] =
-    if (self eq PhaseHandler.empty) that
-    else if (that eq PhaseHandler.empty) self
-    else
-      (self, that) match {
-        case (Combined(left), Combined(right)) => Combined(left ++ right)
-        case (Combined(handlers), that)        => Combined(handlers :+ that)
-        case (self, Combined(handlers))        => Combined(self +: handlers)
-        case (left, right)                     => Combined(List(left, right))
-      }
+    if (!self.enabled) that else if (!that.enabled) self else Combined(self, that)
 
   /**
    * Whether this phase handler is enabled. A disabled handler is skipped during gateway execution.
    */
-  def enabled: Boolean
+  final def enabled: Boolean =
+    this match {
+      case PhaseHandler.Empty() => false
+      case _                    => true
+    }
 
   private[gateway] final def hasIncoming: Boolean =
     this match {
       case PhaseHandler.Incoming(_)            => true
       case PhaseHandler.IncomingOutgoing(_, _) => true
       case PhaseHandler.Scoped(handler)        => handler.hasIncoming
-      case PhaseHandler.Combined(handlers)     => handlers.exists(_.hasIncoming)
+      case PhaseHandler.Combined(first, next)  => first.hasIncoming || next.hasIncoming
       case _                                   => false
     }
 
@@ -80,7 +76,7 @@ object PhaseHandler {
   /**
    * Constructs a PhaseHandler that does not perform any incoming or outgoing hooks.
    */
-  def empty[Ev]: PhaseHandler[Any, Ev, Nothing, Any] = Empty.asInstanceOf[PhaseHandler[Any, Ev, Nothing, Any]]
+  def empty[Ev]: PhaseHandler[Any, Ev, Nothing, Any] = Empty()
 
   /**
    * Constructs a PhaseHandler that only performs an incoming phase, for modifying the incoming event, running
@@ -107,19 +103,15 @@ object PhaseHandler {
    * consumes the Scope so that it is bound to the lifespan of the hook.
    */
   def scoped[R, Ev, Err, Out](handler: PhaseHandler[Scope with R, Ev, Err, Out]): PhaseHandler[R, Ev, Err, Out] =
-    Scoped[R, Ev, Err, Out](handler)
+    if (handler.enabled) Scoped[R, Ev, Err, Out](handler) else empty[Ev]
 
-  private case object Empty extends PhaseHandler[Any, Any, Nothing, Any] {
-    override val enabled: Boolean = false
-
-    def runWith[R1 <: Any, E >: Nothing, A](event: Any)(fn: Any => ZIO[R1, E, A])(
+  private final case class Empty[Ev]() extends PhaseHandler[Any, Ev, Nothing, Any] {
+    def runWith[R1 <: Any, E >: Nothing, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Any
     )(implicit trace: Trace): ZIO[R1, E, A] = fn(event)
   }
 
   private case class Incoming[-R, Ev, +Err](incoming: Ev => ZIO[R, Err, Ev]) extends PhaseHandler[R, Ev, Err, Any] {
-    override val enabled: Boolean = true
-
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Any
     )(implicit trace: Trace): ZIO[R1, E, A] = incoming(event).flatMap(fn)
@@ -127,8 +119,6 @@ object PhaseHandler {
 
   private case class Outgoing[-R, Ev, Out](outgoing: (Ev, Out) => ZIO[R, Nothing, Unit])
       extends PhaseHandler[R, Ev, Nothing, Out] {
-    override val enabled: Boolean = true
-
     def runWith[R1 <: R, E >: Nothing, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
     )(implicit trace: Trace): ZIO[R1, E, A] =
@@ -139,8 +129,6 @@ object PhaseHandler {
     incoming: Ev => ZIO[R, Err, (Ev, Ctx0)],
     outgoing: (Ev, Ctx0, Out) => ZIO[R, Nothing, Unit]
   ) extends PhaseHandler[R, Ev, Err, Out] {
-    override val enabled: Boolean = true
-
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
     )(implicit trace: Trace): ZIO[R1, E, A] = ZIO.uninterruptibleMask { restore =>
@@ -153,35 +141,22 @@ object PhaseHandler {
   private case class Scoped[-R, Ev, +Err, Out](handler: PhaseHandler[Scope with R, Ev, Err, Out])
       extends PhaseHandler[R, Ev, Err, Out] {
 
-    def enabled: Boolean = handler.enabled
-
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
     )(implicit trace: Trace): ZIO[R1, E, A] =
+      // The scope has to outlive the handler's own outgoing callback, which runs inside `runWith`, so it cannot be
+      // shared with the rest of the chain and closed at the end of it.
       ZIO.scoped[R1](handler.runWith[Scope with R1, E, A](event)(fn)(result))
   }
 
   private case class Combined[-R, Ev, +Err, Out](
-    handlers: List[PhaseHandler[R, Ev, Err, Out]]
+    first: PhaseHandler[R, Ev, Err, Out],
+    next: PhaseHandler[R, Ev, Err, Out]
   ) extends PhaseHandler[R, Ev, Err, Out] {
-
-    def enabled: Boolean = handlers.exists(_.enabled)
 
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
-    )(implicit trace: Trace): ZIO[R1, E, A] = {
-      def runHandlers[R2 <: R1](remaining: List[PhaseHandler[R2, Ev, Err, Out]], currentEvent: Ev): ZIO[R2, E, A] =
-        remaining match {
-          case Nil                        => fn(currentEvent)
-          case Incoming(incoming) :: next => incoming(currentEvent).flatMap(runHandlers(next, _))
-          case Combined(handlers) :: next => runHandlers(handlers ++ next, currentEvent)
-          // The scope has to outlive the handler's own outgoing callback, which runs inside `runWith`, so it cannot be
-          // shared with the rest of the chain and closed at the end of it.
-          case Scoped(handler) :: next    => ZIO.scoped[R2](runHandlers[R2 with Scope](handler :: next, currentEvent))
-          case handler :: next            => handler.runWith[R2, E, A](currentEvent)(runHandlers(next, _))(result)
-        }
-
-      runHandlers(handlers, event)
-    }
+    )(implicit trace: Trace): ZIO[R1, E, A] =
+      first.runWith[R1, E, A](event)(next.runWith[R1, E, A](_)(fn)(result))(result)
   }
 }

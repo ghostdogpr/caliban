@@ -437,16 +437,13 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
     },
     test("rejects an unusable supergraph source configuration before any poll is made") {
       // Without this the description builds and every poll fails at load time instead.
-      val blank       = SupergraphUplinkConfig(graphRef, Secret(""))
-      val noEndpoints = SupergraphUplinkConfig(graphRef, Secret("key")).withEndpoints()
-      val unbounded   = RemoteGraphQLConfig.Acquisition.default.withTimeout(Duration.Infinity)
+      val blank     = SupergraphUplinkConfig(graphRef, Secret(""))
+      val unbounded = RemoteGraphQLConfig.Acquisition.default.withTimeout(Duration.Infinity)
       for {
         rejected <- Gateway.fromSupergraph(Supergraph.uplink(blank)).reloadableEvery(uplinkPollInterval).exit
-        uplink   <- Gateway.fromSupergraph(Supergraph.uplink(noEndpoints)).interpreter.exit
         http     <- Gateway.fromSupergraph(Supergraph.http(url"http://localhost/supergraph", unbounded)).interpreter.exit
       } yield assertTrue(
         buildDiagnostics(rejected) == List("Supergraph uplink apikey must not be empty."),
-        buildDiagnostics(uplink) == List("Supergraph uplink must have at least one endpoint."),
         buildDiagnostics(http) == List("Schema acquisition timeout must be finite and positive.")
       )
     }

@@ -322,41 +322,42 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("enforces acquisition headers, redirects, and finite response limits") {
-      val headersConfig   = RemoteGraphQLConfig.default.withAcquisition(
-        _.withHeaders(
-          Header.Custom("Authorization", "Bearer schema"),
-          Header.Custom("X-Multi", "first"),
-          Header.Custom("X-Multi", "second")
-        )
+      val headersConfig   = RemoteGraphQLConfig.Acquisition.default.withHeaders(
+        Header.Custom("Authorization", "Bearer schema"),
+        Header.Custom("X-Multi", "first"),
+        Header.Custom("X-Multi", "second")
       )
-      val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
-        _.withHeaders(
-          Header.Custom("Content-Type", "text/plain"),
-          Header.Custom("Content-Encoding", "gzip")
-        )
+      val protectedConfig = RemoteGraphQLConfig.Acquisition.default.withHeaders(
+        Header.Custom("Content-Type", "text/plain"),
+        Header.Custom("Content-Encoding", "gzip")
       )
-      val responseLimit   = RemoteGraphQLConfig.default.withAcquisition(
-        _.withMaxResponseBytes(32)
-      )
+      val responseLimit   = RemoteGraphQLConfig.Acquisition.default.withMaxResponseBytes(32)
+      val noRedirects     = RemoteGraphQLConfig.Acquisition.default.withMaxRedirects(0)
+      val twoRedirects    = RemoteGraphQLConfig.Acquisition.default.withMaxRedirects(2)
 
       for {
         headerStub         <- stub(serviceResponse(reviewsSchema), reviewResponse)
-        headerGateway      <- Gateway
-                                .compose(Subgraph.federation("headers", headerStub.endpoint, headersConfig))
-                                .interpreter
+        headerGateway      <-
+          Gateway
+            .compose(Subgraph.federation("headers", headerStub.endpoint, RemoteGraphQLConfig.default, headersConfig))
+            .interpreter
         _                  <- headerGateway.execute("{ review { body } }")
         sentHeaders        <- headerStub.headers.get
         protectedStub      <- stub(serviceResponse(reviewsSchema))
-        protectedResult    <- Gateway
-                                .compose(Subgraph.federation("protected", protectedStub.endpoint, protectedConfig))
-                                .interpreter
-                                .either
+        protectedResult    <-
+          Gateway
+            .compose(
+              Subgraph.federation("protected", protectedStub.endpoint, RemoteGraphQLConfig.default, protectedConfig)
+            )
+            .interpreter
+            .either
         protectedStubSent  <- protectedStub.requests.get
         boundedStub        <- stub(serviceResponse(reviewsSchema))
-        boundedResult      <- Gateway
-                                .compose(Subgraph.federation("bounded", boundedStub.endpoint, responseLimit))
-                                .interpreter
-                                .either
+        boundedResult      <-
+          Gateway
+            .compose(Subgraph.federation("bounded", boundedStub.endpoint, RemoteGraphQLConfig.default, responseLimit))
+            .interpreter
+            .either
         redirectTarget     <- stub(serviceResponse(reviewsSchema))
         redirects          <- Ref.make(0)
         redirectEndpoint   <- postEndpoint("redirect")(_ =>
@@ -366,16 +367,36 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                     Response(
                                       Status.TemporaryRedirect,
                                       Headers(
-                                        Header.Custom("Location", redirectTarget.endpoint.toString),
+                                        Header.Custom("Location", redirectTarget.endpoint.host("localhost").toString),
                                         Header.Custom("Content-Type", "application/graphql-response+json")
                                       ),
                                       Body.fromString(serviceResponse(reviewsSchema))
                                     )
                                   )
                               )
-        redirectResult     <- Gateway.compose(Subgraph.federation("redirect", redirectEndpoint)).interpreter.either
+        redirectResult     <-
+          Gateway
+            .compose(Subgraph.federation("redirect", redirectEndpoint, RemoteGraphQLConfig.default, headersConfig))
+            .interpreter
+            .either
+        refusedResult      <-
+          Gateway
+            .compose(Subgraph.federation("refused", redirectEndpoint, RemoteGraphQLConfig.default, noRedirects))
+            .interpreter
+            .either
         redirectCount      <- redirects.get
-        redirectTargetSent <- redirectTarget.requests.get
+        redirectTargetSent <- redirectTarget.headers.get
+        loops              <- Ref.make(0)
+        loopEndpoint       <-
+          postEndpoint("loop")(request => loops.update(_ + 1).as(Response.redirect(request.url, isPermanent = true)))
+        loopResult         <- Gateway.compose(Subgraph.federation("loop", loopEndpoint)).interpreter.either
+        loopCount          <- loops.getAndSet(0)
+        boundedLoopResult  <-
+          Gateway
+            .compose(Subgraph.federation("bounded-loop", loopEndpoint, RemoteGraphQLConfig.default, twoRedirects))
+            .interpreter
+            .either
+        boundedLoopCount   <- loops.get
         acquisitionMulti    = sentHeaders.headOption.fold(List.empty[String])(renderedHeaderValues(_, "X-Multi"))
       } yield assertTrue(
         sentHeaders.headOption.flatMap(_.get("Authorization")).contains("Bearer schema"),
@@ -388,13 +409,19 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         protectedResult.left.exists(_.diagnostics.exists(_.contains("header 'Content-Encoding' is owned"))),
         protectedStubSent.isEmpty,
         boundedResult.left.exists(_.diagnostics.exists(_.contains("response exceeded 32 bytes"))),
-        redirectResult.left.exists(_.diagnostics.exists(_.startsWith("[redirect]"))),
-        redirectCount == 1,
-        redirectTargetSent.isEmpty
+        redirectResult.isRight,
+        refusedResult.left.exists(_.diagnostics.exists(_.startsWith("[refused]"))),
+        redirectCount == 2,
+        redirectTargetSent.size == 1,
+        redirectTargetSent.headOption.flatMap(_.get("Authorization")).isEmpty,
+        loopResult.left.exists(_.diagnostics.exists(_.startsWith("[loop]"))),
+        loopCount == 11,
+        boundedLoopResult.left.exists(_.diagnostics.exists(_.startsWith("[bounded-loop]"))),
+        boundedLoopCount == 3
       )
     },
     test("bounds embedded GraphQL nesting while ignoring comments and escaped string delimiters") {
-      val config      = RemoteGraphQLConfig.default.withAcquisition(_.withMaxParsingDepth(32))
+      val config      = RemoteGraphQLConfig.Acquisition.default.withMaxParsingDepth(32)
       val delimiters  = "[({" * 64
       val quoted      = "\"escaped \\\" " + delimiters + "\""
       val block       = "\"\"\"escaped \\\"\"\" " + delimiters + "\"\"\""
@@ -405,9 +432,16 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
 
       for {
         allowedSource <- stub(serviceResponse(shallow))
-        allowed       <- Gateway.compose(Subgraph.federation("shallow", allowedSource.endpoint, config)).interpreter.either
+        allowed       <-
+          Gateway
+            .compose(Subgraph.federation("shallow", allowedSource.endpoint, RemoteGraphQLConfig.default, config))
+            .interpreter
+            .either
         deniedSource  <- stub(serviceResponse(deep))
-        denied        <- Gateway.compose(Subgraph.federation("deep", deniedSource.endpoint, config)).interpreter.either
+        denied        <- Gateway
+                           .compose(Subgraph.federation("deep", deniedSource.endpoint, RemoteGraphQLConfig.default, config))
+                           .interpreter
+                           .either
         introspection <- introspectionResponse(ProductsApi.api)
         defaultSource <- stub(
                            introspection.replaceFirst(
@@ -415,7 +449,11 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                              "\"defaultValue\":\"" + "[" * 4096 + "null" + "]" * 4096 + "\""
                            )
                          )
-        deniedDefault <- Gateway.compose(Subgraph.graphql("default", defaultSource.endpoint, config)).interpreter.either
+        deniedDefault <-
+          Gateway
+            .compose(Subgraph.graphql("default", defaultSource.endpoint, RemoteGraphQLConfig.default, config))
+            .interpreter
+            .either
       } yield assertTrue(
         allowed.isRight,
         denied.left.exists(_.diagnostics.exists(_.contains("parsing depth exceeded 32"))),
@@ -423,9 +461,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("releases acquisition response streams on success, failure, timeout, and interruption") {
-      val timeoutConfig = RemoteGraphQLConfig.default.withAcquisition(
-        _.withTimeout(1.second)
-      )
+      val timeoutConfig = RemoteGraphQLConfig.Acquisition.default.withTimeout(1.second)
 
       for {
         successTracked                                   <- tracked(serviceResponse(reviewsSchema))
@@ -447,11 +483,12 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
               timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit
             )
           )
-        timeoutFiber                                     <- Gateway
-                                                              .compose(Subgraph.federation("timeout", timeoutEndpoint, timeoutConfig))
-                                                              .interpreter
-                                                              .either
-                                                              .fork
+        timeoutFiber                                     <-
+          Gateway
+            .compose(Subgraph.federation("timeout", timeoutEndpoint, RemoteGraphQLConfig.default, timeoutConfig))
+            .interpreter
+            .either
+            .fork
         _                                                <- timeoutStarted.await
         _                                                <- TestClock.adjust(2.seconds)
         timeoutResult                                    <- timeoutFiber.join
@@ -489,16 +526,18 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("does not retain failed or interrupted build resources in the caller scope") {
-      val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
-        _.withHeaders(Header.Custom("Content-Encoding", "gzip"))
-      )
+      val protectedConfig =
+        RemoteGraphQLConfig.Acquisition.default.withHeaders(Header.Custom("Content-Encoding", "gzip"))
 
       for {
         parent               <- Scope.make
         initialSize           = parent.size
         failed               <-
           parent.extend(
-            Gateway.compose(Subgraph.federation("failed", unreachableEndpoint, protectedConfig)).interpreter.either
+            Gateway
+              .compose(Subgraph.federation("failed", unreachableEndpoint, RemoteGraphQLConfig.default, protectedConfig))
+              .interpreter
+              .either
           )
         sizeAfterFailure      = parent.size
         interruptStarted     <- Promise.make[Nothing, Unit]

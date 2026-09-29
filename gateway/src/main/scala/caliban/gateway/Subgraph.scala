@@ -3,6 +3,8 @@ package caliban.gateway
 import caliban.GraphQL
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition
+import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition.parseSdl
+import caliban.gateway.internal.composition.SchemaComposer
 import caliban.gateway.internal.execution.{ LocalSubgraphExecutor, RemoteSubgraphExecutor, SubgraphExecutor }
 import caliban.parsing.adt.Document
 import zio.{ IO, Scope, Trace, ZIO }
@@ -17,7 +19,7 @@ final class Subgraph[-R] private[gateway] (
   private[gateway] val lookups: List[Lookup],
   private[gateway] val transformations: List[SchemaTransformation]
 ) {
-  import Subgraph.{ Executable, Source }
+  import Subgraph.{ Resolved, SchemaInput, Source }
 
   /**
    * Adds an explicit ordinary GraphQL object lookup to this subgraph.
@@ -31,25 +33,28 @@ final class Subgraph[-R] private[gateway] (
   def transform(values: SchemaTransformation*): Subgraph[R] =
     new Subgraph[R](name, source, lookups, transformations ::: values.toList)
 
-  private[gateway] def load[R1 <: R](
-    http: GatewayHttpClient,
-    remoteErrorMessages: Boolean,
-    hooks: PhaseHooks[R1]
-  )(implicit trace: Trace): ZIO[Scope, SubgraphBuildError, Executable[R1]] =
+  private[gateway] def acquired: Boolean =
     source match {
-      case remote @ Source.Remote(endpoint, _, _, config) =>
-        for {
-          document <- remote.loadSchema(http)
-          executor <- RemoteSubgraphExecutor.make(name, endpoint, http, config, hooks, remoteErrorMessages)
-        } yield Executable(this, document, executor)
-      case Source.Local(graph, _)                         =>
-        ZIO
-          .fromEither(graph.interpreterEither)
-          .mapBoth(
-            SubgraphBuildError.SchemaValidationFailed(_),
-            interpreter => Executable(this, graph.toDocument, new LocalSubgraphExecutor(name, interpreter, hooks))
-          )
+      case Source.Remote(_, SchemaInput.Acquired(_), _, _) => true
+      case _                                               => false
     }
+
+  private[gateway] def resolve(http: GatewayHttpClient)(implicit trace: Trace): IO[SubgraphBuildError, Resolved[R]] =
+    (source match {
+      case remote @ Source.Remote(_, _, _, _) => RemoteSchemaAcquisition.load(remote, http)
+      case Source.Local(graph, _)             => ZIO.succeed(graph.toDocument)
+    }).map(Resolved(this, _))
+
+  private[gateway] def diagnostics: List[String] =
+    (source match {
+      case Source.Remote(_, schema, _, config) =>
+        val acquisition = schema match {
+          case SchemaInput.Acquired(acquisition) => acquisition.diagnostics
+          case _                                 => Nil
+        }
+        config.execution.diagnostics ::: acquisition ::: config.subscription.diagnostics
+      case _                                   => Nil
+    }).map(message => s"[$name] $message")
 }
 
 object Subgraph {
@@ -61,10 +66,15 @@ object Subgraph {
     graphql(name, endpoint, RemoteGraphQLConfig.default)
 
   /**
-   * Describes an ordinary remote GraphQL graph with remote GraphQL configuration.
+   * Describes an ordinary remote GraphQL graph with remote GraphQL and schema-acquisition configuration.
    */
-  def graphql[R](name: String, endpoint: URL, config: RemoteGraphQLConfig[R]): Subgraph[R] =
-    remote(name, endpoint, SchemaInput.Acquired, federation = false, config = config)
+  def graphql[R](
+    name: String,
+    endpoint: URL,
+    config: RemoteGraphQLConfig[R],
+    acquisition: RemoteGraphQLConfig.Acquisition = RemoteGraphQLConfig.Acquisition.default
+  ): Subgraph[R] =
+    remote(name, endpoint, SchemaInput.Acquired(acquisition), federation = false, config = config)
 
   /**
    * Describes an ordinary remote GraphQL graph from pinned SDL.
@@ -76,7 +86,7 @@ object Subgraph {
    * Describes an ordinary remote GraphQL graph from pinned SDL with remote GraphQL configuration.
    */
   def graphql[R](name: String, endpoint: URL, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
-    remote(name, endpoint, SchemaInput.Sdl(schema), federation = false, config = config)
+    remote(name, endpoint, SchemaInput.Pinned(parseSdl(schema)), federation = false, config = config)
 
   /**
    * Describes an ordinary remote GraphQL graph from an already parsed schema document.
@@ -88,7 +98,7 @@ object Subgraph {
    * Describes an ordinary remote GraphQL graph from a parsed document with remote GraphQL configuration.
    */
   def graphql[R](name: String, endpoint: URL, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
-    remote(name, endpoint, SchemaInput.Parsed(schema), federation = false, config = config)
+    remote(name, endpoint, SchemaInput.Pinned(Right(schema)), federation = false, config = config)
 
   /**
    * Describes an ordinary in-process Caliban graph whose environment is supplied when the gateway executes.
@@ -106,7 +116,7 @@ object Subgraph {
    * Describes a Federation subgraph from pinned SDL with remote GraphQL configuration.
    */
   def federation[R](name: String, endpoint: URL, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
-    remote(name, endpoint, SchemaInput.Sdl(schema), federation = true, config = config)
+    remote(name, endpoint, SchemaInput.Pinned(parseSdl(schema)), federation = true, config = config)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph from an already parsed schema document.
@@ -118,7 +128,7 @@ object Subgraph {
    * Describes a Federation subgraph from a parsed document with remote GraphQL configuration.
    */
   def federation[R](name: String, endpoint: URL, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
-    remote(name, endpoint, SchemaInput.Parsed(schema), federation = true, config = config)
+    remote(name, endpoint, SchemaInput.Pinned(Right(schema)), federation = true, config = config)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph whose schema is acquired through `_service`.
@@ -127,10 +137,15 @@ object Subgraph {
     federation(name, endpoint, RemoteGraphQLConfig.default)
 
   /**
-   * Describes a Federation subgraph with remote GraphQL configuration.
+   * Describes a Federation subgraph with remote GraphQL and schema-acquisition configuration.
    */
-  def federation[R](name: String, endpoint: URL, config: RemoteGraphQLConfig[R]): Subgraph[R] =
-    remote(name, endpoint, SchemaInput.Acquired, federation = true, config = config)
+  def federation[R](
+    name: String,
+    endpoint: URL,
+    config: RemoteGraphQLConfig[R],
+    acquisition: RemoteGraphQLConfig.Acquisition = RemoteGraphQLConfig.Acquisition.default
+  ): Subgraph[R] =
+    remote(name, endpoint, SchemaInput.Acquired(acquisition), federation = true, config = config)
 
   /**
    * Describes an in-process Federation graph whose environment is supplied when the gateway executes.
@@ -148,9 +163,23 @@ object Subgraph {
   ): Subgraph[R] =
     new Subgraph[R](name, Source.Remote(endpoint, schema, federation, config), Nil, Nil)
 
+  private[gateway] final case class Resolved[-R](subgraph: Subgraph[R], document: Document) {
+
+    def load[R1 <: R](http: GatewayHttpClient, remoteErrorMessages: Boolean, hooks: PhaseHooks[R1])(implicit
+      trace: Trace
+    ): ZIO[Scope, SubgraphBuildError, Executable[R1]] =
+      (subgraph.source match {
+        case Source.Remote(endpoint, _, _, config) =>
+          RemoteSubgraphExecutor.make(subgraph.name, endpoint, http, config, hooks, remoteErrorMessages)
+        case Source.Local(graph, _)                =>
+          ZIO
+            .fromEither(graph.interpreterEither)
+            .mapBoth(SubgraphBuildError.SchemaValidationFailed(_), new LocalSubgraphExecutor(subgraph.name, _, hooks))
+      }).flatMap(executor => ZIO.fromEither(SchemaComposer.prepare(subgraph, document)).map(Executable(_, executor)))
+  }
+
   private[gateway] final case class Executable[-R](
-    subgraph: Subgraph[R],
-    document: Document,
+    prepared: SchemaComposer.PreparedSubgraph,
     executor: SubgraphExecutor[R]
   )
 
@@ -160,23 +189,14 @@ object Subgraph {
 
   private[gateway] object Source {
     final case class Remote[R](endpoint: URL, schema: SchemaInput, federation: Boolean, config: RemoteGraphQLConfig[R])
-        extends Source[R] {
-      def loadSchema(http: GatewayHttpClient)(implicit trace: Trace): IO[SubgraphBuildError, Document] =
-        validate *> RemoteSchemaAcquisition.load(this, http)
-
-      def validate(implicit trace: Trace): IO[SubgraphBuildError, Unit] = {
-        val diagnostics = config.diagnostics(includeAcquisition = schema == SchemaInput.Acquired)
-        ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty).unit
-      }
-    }
+        extends Source[R]
     final case class Local[R](graph: GraphQL[R], federation: Boolean) extends Source[R]
   }
 
   private[gateway] sealed trait SchemaInput
 
   private[gateway] object SchemaInput {
-    final case class Sdl(value: String)      extends SchemaInput
-    final case class Parsed(value: Document) extends SchemaInput
-    case object Acquired                     extends SchemaInput
+    final case class Pinned(document: Either[SchemaAcquisitionError, Document]) extends SchemaInput
+    final case class Acquired(config: RemoteGraphQLConfig.Acquisition)          extends SchemaInput
   }
 }
