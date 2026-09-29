@@ -626,14 +626,14 @@ private[gateway] object GatewayTestSupport {
    * Attaches the same handler to every phase that reports a [[PhaseHooks.Result]].
    */
   private trait PhaseRecorder {
-    def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, Nothing, PhaseHooks.Result]
+    def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, PhaseHooks.Result]
   }
 
-  private def everyResultPhase(recorder: PhaseRecorder): PhaseHooks[Any] =
+  private def everyResultPhase(recorder: PhaseRecorder, notified: PhaseHooks.Event => UIO[Unit]): PhaseHooks[Any] =
     PhaseHooks.subscriptionSetup(recorder.handler) ++
       PhaseHooks.subscriptionEvent(recorder.handler) ++
-      PhaseHooks.subscriptionTerminated(recorder.handler) ++
-      PhaseHooks.subscriptionAdmission(recorder.handler) ++
+      PhaseHooks.subscriptionTerminated(notified) ++
+      PhaseHooks.subscriptionAdmission(notified) ++
       PhaseHooks.execution(recorder.handler) ++
       PhaseHooks.preparation(recorder.handler) ++
       PhaseHooks.subgraphCall(recorder.handler) ++
@@ -649,10 +649,13 @@ private[gateway] object GatewayTestSupport {
    */
   def recordEvents: UIO[(Ref[Vector[PhaseHooks.Event]], PhaseHooks[Any])] =
     Ref.make(Vector.empty[PhaseHooks.Event]).map { events =>
-      val hooks = everyResultPhase(new PhaseRecorder {
-        def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, Nothing, PhaseHooks.Result] =
-          PhaseHandler.incomingDiscard((event: Ev) => events.update(_ :+ event))
-      })
+      val hooks = everyResultPhase(
+        new PhaseRecorder {
+          def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, PhaseHooks.Result] =
+            PhaseHandler.incomingDiscard((event: Ev) => events.update(_ :+ event))
+        },
+        event => events.update(_ :+ event)
+      )
 
       (events, hooks)
     }
@@ -672,12 +675,15 @@ private[gateway] object GatewayTestSupport {
       events  <- Ref.make(Vector.empty[PhaseHooks.Event])
       results <- Ref.make(Vector.empty[(PhaseHooks.Event, PhaseHooks.Result)])
     } yield {
-      val hooks = everyResultPhase(new PhaseRecorder {
-        def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, Nothing, PhaseHooks.Result] =
-          PhaseHandler((event: Ev) => events.update(_ :+ event).as((event, ())))((event, _, result) =>
-            results.update(_ :+ (event -> result))
-          )
-      })
+      val hooks = everyResultPhase(
+        new PhaseRecorder {
+          def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, PhaseHooks.Result] =
+            PhaseHandler((event: Ev) => events.update(_ :+ event).as((event, ())))((event, _, result) =>
+              results.update(_ :+ (event -> result))
+            )
+        },
+        event => events.update(_ :+ event)
+      )
 
       (events, results, hooks)
     }

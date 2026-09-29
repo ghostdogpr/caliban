@@ -5,14 +5,13 @@ import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition._
 import caliban.gateway.internal.composition.FederationCompilation._
-import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 
 import scala.collection.compat._
 
-private[composition] final class CostCompilation private (subgraph: PreparedSubgraph) {
+private[composition] final class CostCompilation private (subgraph: Source) {
   import CostCompilation._
 
   private val types = subgraph.rootType.types
@@ -102,7 +101,7 @@ private[composition] final class CostCompilation private (subgraph: PreparedSubg
 
 private[composition] object CostCompilation {
 
-  def compile(subgraph: PreparedSubgraph): Either[List[String], CostMetadata] =
+  def compile(subgraph: Source): Either[List[String], CostMetadata] =
     new CostCompilation(subgraph).compile
 
   def merge(values: List[CostMetadata]): CostMetadata =

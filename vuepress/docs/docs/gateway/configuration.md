@@ -263,7 +263,7 @@ Use [phase hooks](hooks.md) to distinguish transport failures, timeouts, and lim
 | Startup cannot load a schema | Endpoint reachability and acquisition credentials. Ordinary services need introspection unless SDL is pinned; Federation services need `_service` unless SDL is pinned. |
 | Startup reports incompatible definitions or multiple owners | The named services' types and fields. Follow the [composition rules](subgraphs.md#composition-rules). |
 | A query cannot reach a field in another ordinary service | The target service's [lookup](planning.md#connecting-objects-across-ordinary-services), key fields, and argument mapping. Inspect the plan with `explain`. |
-| Startup requires an authorization handler | Install an incoming [authorization hook](hooks.md#authorizing-operations) for `@authenticated` or `@requiresScopes`. |
+| Startup requires an authorization hook | Install an [authorization hook](hooks.md#authorizing-operations) for `@authenticated` or `@requiresScopes`. |
 | Requests fail only for large queries or responses | Gateway planning and cost limits, remote body limits, and QuickAdapter body limits. These are separate settings. |
 | Schema changes do not appear | Use `.reloadable`, confirm the schema source is refreshable, and inspect `lastReloadFailure`. Pinned SDL and local APIs do not refresh. |
 

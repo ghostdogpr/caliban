@@ -26,7 +26,7 @@ Hooks are listed in entry order for a query or mutation. `operation` wraps both 
 | `operation` | The whole request, from preparation to response assembly, including failures. |
 | `preparation` | All work before execution, including document resolution, parsing, validation, authorization, and planning. |
 | `resolution` | Supplies query text, for example from a persisted document ID. Runs before parsing, even on cache hits. |
-| `overrideLabels` | Selects active custom `@override` labels before plan lookup. |
+| `overrideLabels` | Selects active custom `@override` labels before the lookup of the plan with those labels. |
 | `cacheAccess` | Cache lookup and preparation on a miss. Skipped when caching is disabled. |
 | `authorization` | Allows or rejects a validated operation before execution, even on cache hits. |
 | `execution` | Runs the query or mutation plan and assembles the response. |
@@ -77,7 +77,7 @@ The client can now omit `query`:
 
 The helper uses the registered query and ignores client-supplied query text. It preserves the operation name, variables, and extensions, and never registers new documents. Invalid IDs return `TRUSTED_DOCUMENT_ID_INVALID` in `extensions.code`. Unknown IDs return `TRUSTED_DOCUMENT_NOT_FOUND`. Add an [authorization hook](#authorizing-operations) to control who can execute a registered query.
 
-For a database lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. It replaces query text before [cache lookup](planning.md#operation-cache), even on cache hits. Pass `cacheable = false` when the result must not reuse a cached operation. Validation still applies. To change other request fields, use `PhaseHooks.resolutionHandler(handler)` with a handler over `PhaseHooks.Event.Resolution`.
+For a database lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. It replaces query text before [cache lookup](planning.md#operation-cache), even on cache hits. Pass `cacheable = false` when the result must not reuse a cached operation. Validation still applies. To change other request fields, use `PhaseHooks.resolutionHandler(handler)` with a `PhaseHooks.Event.Resolution => ZIO[R, Throwable, PhaseHooks.Event.Resolution]` function.
 
 To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(PhaseHooks.Rejection(message, code))`. `QuickAdapter` returns these rejections as request errors: HTTP 200 for `application/json` clients, or 400 when the client accepts `application/graphql-response+json`. The gateway hides unexpected failures.
 
@@ -87,24 +87,21 @@ For a custom label, attach an override-label hook:
 
 ```scala
 import caliban.GraphQLRequest
-import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
-import caliban.gateway.PhaseHooks.Event
+import caliban.gateway.{ Gateway, PhaseHooks }
 import zio.Task
 
 def activeLabels(request: GraphQLRequest): Task[Set[String]] = ???
 
-val progressiveOverrides = PhaseHooks.overrideLabels(
-  PhaseHandler.incoming[Any, Event.OverrideLabels, Throwable] { event =>
-    activeLabels(event.request).map(labels => event.activate(labels intersect event.reached))
-  }
-)
+val progressiveOverrides = PhaseHooks.overrideLabels[Any] { event =>
+  activeLabels(event.request).map(labels => event.activate(labels intersect event.reached))
+}
 
 val gateway = Gateway.compose(products, reviews) @@ progressiveOverrides
 ```
 
 Call `event.activate` with the labels that should use the overriding subgraph. `event.reached` contains the custom labels used by this operation. Unactivated labels use the original service. Multiple hooks can add labels.
 
-The hook runs once per request that uses custom labels, before cache lookup. Percentage-only overrides need no hook. Each active-label combination has its own cached plan, so keep the lookup fast and the number of combinations small. A failing hook stops the request before any subgraph call.
+The hook runs once per request that uses custom labels, before the lookup of the plan with the active labels. Percentage-only overrides need no hook. Each active-label combination has its own cached plan, so keep the lookup fast and the number of combinations small. A failing hook stops the request before any subgraph call.
 
 ## Authorizing operations
 
@@ -136,7 +133,7 @@ If any selected field fails authorization, the gateway rejects the whole operati
 
 `@policy` always denies operations that select the annotated type or field. Custom authorization cannot override it. The gateway does not evaluate external policy rules. Composition rejects a field that depends on a `@policy` field through `@requires` or `@fromContext` unless it declares policies that satisfy them.
 
-Schemas with `@authenticated` or `@requiresScopes` require an incoming `authorization` handler at startup. An outgoing-only observer does not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
+Schemas with `@authenticated` or `@requiresScopes` require an `authorization` hook at startup. A schema that contains only `@policy` needs no authorization hook.
 
 For custom checks, use `PhaseHooks.authorization(operation => ...)`, returning `ZIO.unit` to allow the operation or failing with `PhaseHooks.Denial()` to deny it. Supply a custom denial reason only if it is safe to return to clients. The operation includes the resolved request, parsed document, validated execution request, and `securityRequirements` identifying protected types and fields. Each requirement's `scopes` lists the alternative scope sets the caller can hold. `List(Set())` requires authentication only.
 
@@ -186,7 +183,7 @@ import zio.ZIO
 import zio.http.Header
 
 val headers = PhaseHooks.subgraphCall(
-  PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing] { event =>
+  PhaseHandler.incoming[Any, Event.SubgraphCall] { event =>
     ZIO.succeed(event.copy(headers = Header.Custom("X-Gateway", "caliban") :: event.headers))
   }
 )

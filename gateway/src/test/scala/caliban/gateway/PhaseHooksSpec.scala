@@ -95,7 +95,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
     test("transforms headers for each attempt and counts only retries") {
       val config  = RemoteGraphQLConfig.default.withExecution(_.withRetries(1, Duration.Zero))
       val headers = PhaseHooks.attempt(
-        PhaseHandler.incoming[Any, Event.Attempt, Nothing](event =>
+        PhaseHandler.incoming[Any, Event.Attempt](event =>
           ZIO.succeed(event.copy(headers = Header.Custom("X-Attempt", event.number.toString) :: event.headers))
         )
       )
@@ -103,7 +103,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         calls      <- Ref.make(0)
         callHeaders =
           PhaseHooks.subgraphCall(
-            PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing](event =>
+            PhaseHandler.incoming[Any, Event.SubgraphCall](event =>
               calls
                 .updateAndGet(_ + 1)
                 .map(number => event.copy(headers = Header.Custom("X-Call", number.toString) :: event.headers))
@@ -139,7 +139,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
           )
         headers      =
           PhaseHooks.subgraphCall(
-            PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing](event =>
+            PhaseHandler.incoming[Any, Event.SubgraphCall](event =>
               identity.get.map(value => event.copy(headers = Header.Custom("X-Identity", value) :: event.headers))
             )
           )
@@ -365,7 +365,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
     },
     test("runs the request an operation hook's incoming side produces") {
       val rewriting = PhaseHooks.operation(
-        PhaseHandler.incoming[Any, Event.Operation, Nothing](event =>
+        PhaseHandler.incoming[Any, Event.Operation](event =>
           ZIO.succeed(event.copy(request = event.request.copy(query = Some("{ value }"))))
         )
       )
@@ -460,9 +460,9 @@ object PhaseHooksSpec extends ZIOSpecDefault {
    */
   private def observing(into: Ref[Vector[OperationEvent]], order: Ref[Vector[String]]): PhaseHooks[Any] =
     PhaseHooks.operation(
-      PhaseHandler[Any, Event.Operation, Nothing, Unit, OperationEvent](event =>
-        order.update(_ :+ "direct-in").as((event, ()))
-      )((_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "direct-out"))
+      PhaseHandler[Any, Event.Operation, Unit, OperationEvent](event => order.update(_ :+ "direct-in").as((event, ())))(
+        (_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "direct-out")
+      )
     )
 
   /**
@@ -470,8 +470,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
    */
   private def observingScoped(into: Ref[Vector[OperationEvent]], order: Ref[Vector[String]]): PhaseHooks[Any] =
     PhaseHooks.operation(
-      PhaseHandler.scoped[Any, Event.Operation, Nothing, OperationEvent](
-        PhaseHandler[Scope, Event.Operation, Nothing, Unit, OperationEvent](event =>
+      PhaseHandler.scoped[Any, Event.Operation, OperationEvent](
+        PhaseHandler[Scope, Event.Operation, Unit, OperationEvent](event =>
           order.update(_ :+ "scoped-in") *>
             ZIO.addFinalizer(order.update(_ :+ "scope-closed")).as((event, ()))
         )((_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "scoped-out"))

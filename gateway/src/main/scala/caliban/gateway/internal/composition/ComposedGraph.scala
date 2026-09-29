@@ -1,13 +1,17 @@
 package caliban.gateway.internal.composition
 
-import caliban.gateway.{ fieldDefinition, innerParentTypeName, isCompositeType, responseNames }
+import caliban.gateway._
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.gateway.internal.PrivateAliases
 import caliban.gateway.internal.composition.ComposedGraph._
-import caliban.gateway.internal.composition.DirectiveComposition.FieldCoordinate
+import caliban.gateway.internal.composition.DirectiveComposition._
+import caliban.gateway.internal.composition.FederationCompilation._
+import caliban.gateway.internal.composition.FederationCompilation.FederationDirective._
+import caliban.gateway.internal.composition.SchemaComposer.SubgraphKeys
+import caliban.gateway.internal.composition.TypeComposition.{ FieldOverride, RootOperations, SubgraphMode }
 import caliban.introspection.adt._
-import caliban.parsing.adt.{ OperationType, Selection }
+import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 
@@ -35,8 +39,27 @@ private[gateway] final case class ComposedGraph private[internal] (
 
   def hasProgressiveOverrides: Boolean = progressiveRoutes.nonEmpty
 
-  def progressiveOverrides(fieldNames: Set[String]): Set[OverrideLabel] =
-    progressiveRoutes.collect { case (FieldCoordinate(_, field), route) if fieldNames(field) => route.label }.toSet
+  def securityAt(
+    typeName: String,
+    fieldName: Option[String],
+    condition: Option[Set[String]]
+  ): List[SecurityDirectiveApplication] =
+    securityByField
+      .getOrElse(fieldName, Nil)
+      .filter(application =>
+        application.typeName == typeName ||
+          typesOverlap(possibleTypesByName, typeName, application.typeName, condition)
+      )
+
+  private lazy val securityByField = securityApplications.groupBy(_.fieldName)
+
+  private lazy val progressiveLabels =
+    progressiveRoutes.toList.groupMap(_._1.fieldName)(route => route._1.typeName -> route._2.label)
+
+  def progressiveOverrides(typeName: String, field: String): List[OverrideLabel] =
+    progressiveLabels.getOrElse(field, Nil).collect {
+      case (owner, label) if typesOverlap(possibleTypesByName, typeName, owner, None) => label
+    }
 
   def operationRoot(operation: OperationType): Option[__Type] = rootType.types.get(rootName(operation))
 
@@ -147,19 +170,118 @@ private[gateway] object ComposedGraph {
    */
   final class Source private[composition] (
     val name: String,
+    val rootType: RootType,
+    val schemaDirectives: List[Directive],
+    val lookups: List[Lookup],
     val mapping: SchemaMapping,
-    types: Map[String, __Type],
-    entityLookupsByType: Map[String, List[EntityLookup]],
-    interfaceObjects: Set[String],
-    private[composition] val requiredFieldSets: Map[FieldCoordinate, List[Selection]],
-    providedFieldSets: Map[FieldCoordinate, List[Selection]],
-    private[composition] val contexts: ContextCompilation.FederationContexts
+    val federation1ExtensionTypes: Set[String],
+    val directiveNames: FederationDirectiveNames
   ) {
     override def toString: String = name
 
-    def entityLookups(typeName: String): List[EntityLookup] = entityLookupsByType.getOrElse(typeName, Nil)
+    private def types: Map[String, __Type] = rootType.types
+
+    lazy val directiveApplications: List[TypeSystemDirectiveApplication] =
+      FederationCompilation.directiveApplications(rootType, schemaDirectives)
+
+    lazy val keys: SubgraphKeys = SchemaComposer.subgraphKeys(this)
+
+    def federation: Boolean = directiveNames.mode != SubgraphMode.Ordinary
+
+    lazy val (federationErrors, federationApplications) =
+      (for {
+        application <- directiveApplications
+        directive   <- application.directives
+        coordinate   = application.coordinate
+        result      <-
+          directiveNames.resolved.get(directive.name).map(validateApplication(name, coordinate, _, directive)) ++
+            directiveNames.unsupported.get(directive.name).map(message => Left(List(s"[$name] ${message(coordinate)}")))
+      } yield result).partitionMap(identity)
+
+    lazy val repeatedDirectives: List[String] = {
+      val repeatable =
+        rootType.additionalDirectives.map(definition => definition.name -> definition.isRepeatable).toMap ++
+          directiveNames.resolved.map { case (local, member) => local -> member.definition.isRepeatable }
+      directiveApplications.flatMap { application =>
+        duplicates(application.directives.map(_.name))
+          .filter(repeatable.get(_).contains(false))
+          .map(directive =>
+            s"[$name] Non-repeatable directive '@$directive' is applied more than once at '${application.coordinate.display}'."
+          )
+      }
+    }
+
+    def applications(member: FederationDirective): List[FederationApplication] =
+      federationApplications.filter(_.member == member)
+
+    private lazy val appliedAt: Set[(FederationDirective, Coordinate)] =
+      federationApplications.map(application => application.member -> application.coordinate).toSet
+
+    def applied(member: FederationDirective, coordinate: Coordinate): Boolean = appliedAt(member -> coordinate)
+
+    lazy val overrides: Map[Coordinate, (FieldOverride, Option[String])] =
+      applications(Override)
+        .map(application => application.coordinate -> SchemaComposer.fieldOverride(this, application))
+        .toMap
+
+    lazy val compiledLookups: List[Either[List[String], (String, EntityLookup)]] =
+      lookups.map(lookup =>
+        LookupCompilation
+          .compile(this, lookup)
+          .map { operation =>
+            val keys = lookup.keyFields.map(field => KeyField(mapping.clientField(lookup.typeName, field), Nil))
+            mapping.clientType(lookup.typeName) -> EntityLookup(keys, operation)
+          }
+      )
+
+    private lazy val interfaceObjects: Set[String] =
+      applications(InterfaceObject).collect { case FederationApplication(TypeCoordinate(typeName, _), _, _) =>
+        typeName
+      }.toSet -- RootOperations.keySet
 
     def isInterfaceObject(typeName: String): Boolean = interfaceObjects.contains(typeName)
+
+    private lazy val entityLookupsByType: Map[String, List[EntityLookup]] =
+      (if (!federation) compiledLookups.collect { case Right(lookup) => lookup }
+       else
+         keys.all.collect {
+           case SchemaComposer.FederationKey(typeName, fields, true)
+               if SchemaComposer.hasEntityLookup(this, typeName) =>
+             typeName -> EntityLookup(fields, LookupOperation.FederationEntities)
+         }).filterNot(lookup => RootOperations.contains(lookup._1)).groupMap(_._1)(_._2)
+
+    def entityLookups(typeName: String): List[EntityLookup] = entityLookupsByType.getOrElse(typeName, Nil)
+
+    lazy val (fieldSetErrors, requiredFieldSets, providedFieldSets) = {
+      val (requiredErrors, required) = fieldSets(Requires)
+      val (providedErrors, provided) = fieldSets(Provides)
+      (requiredErrors ::: providedErrors, required.toMap, provided.toMap)
+    }
+
+    private def fieldSets(member: FederationDirective): (List[String], List[(FieldCoordinate, List[Selection])]) =
+      applications(member).flatMap {
+        case application @ FederationApplication(at @ FieldCoordinate(typeName, fieldName), _, _) =>
+          for {
+            parent <- types.get(typeName)
+            field  <- fieldDefinition(parent, fieldName)
+            target  = if (member == Provides) field._type.innerType else parent
+          } yield SchemaComposer.validateFieldSet(this, application, target)(Right(_)).map(at -> _)
+        case _                                                                                    => None
+      }.partitionMap(identity)
+
+    lazy val (contextErrors, contexts) =
+      ContextCompilation.compile(this).fold(_ -> ContextCompilation.FederationContexts(Nil, Map.empty), Nil -> _)
+
+    lazy val costs: Either[List[String], CostMetadata] = CostCompilation.compile(this)
+
+    lazy val diagnostics: List[String] =
+      keys.diagnostics ::: overrides.values.toList.flatMap(_._2) ::: federationErrors.flatten :::
+        repeatedDirectives ::: LookupCompilation.declarationDiagnostics(this) :::
+        compiledLookups.flatMap(_.left.getOrElse(Nil)) ::: fieldSetErrors ::: contextErrors :::
+        costs.left.getOrElse(Nil)
+
+    lazy val hidden: Set[Coordinate] =
+      mapping.hidden ++ (applications(Inaccessible) ::: applications(FromContext)).map(_.coordinate)
 
     def sourceField(typeName: String, field: String): Option[__Field] =
       types.get(typeName).flatMap(fieldDefinition(_, field))
@@ -189,11 +311,8 @@ private[gateway] object ComposedGraph {
     def fieldApplies(parentType: String, field: Field): Boolean =
       field._condition.forall(possibleTypes(parentType).exists(_))
 
-    def prepareField(field: Field): Field =
-      prepareField(None, field)
-
-    def prepareEntityFields(entityType: String, fields: List[Field]): List[Field] =
-      aliasConflicts(fields.map(prepareField(Some(entityType), _)))
+    def prepareFields(parentType: String, fields: List[Field]): List[Field] =
+      aliasConflicts(fields.map(prepareField(Some(parentType), _)))
 
     private def prepareField(parentType: Option[String], field: Field): Field = {
       val parent      = parentType.getOrElse(innerParentTypeName(field))
@@ -266,7 +385,7 @@ private[gateway] object ComposedGraph {
 
   final case class ContextDeclaration(typeName: String, name: ContextName)
 
-  final case class ContextArgument(argument: String, context: ContextName, selections: List[Selection])
+  final case class ContextArgument(at: ArgumentCoordinate, context: ContextName, selections: List[Selection])
 
   sealed trait OverrideLabel { def value: String }
   object OverrideLabel       {
@@ -312,27 +431,16 @@ private[gateway] object ComposedGraph {
   object LookupOperation {
     case object FederationEntities extends LookupOperation
 
-    final case class GraphQLQuery(
-      field: String,
-      arguments: Map[String, LookupArgument],
-      result: LookupResult
-    ) extends LookupOperation
+    sealed trait GraphQLQuery extends LookupOperation {
+      def field: String
+    }
+
+    final case class Single(field: String, arguments: List[(String, Lookup.Argument[KeyArgument])]) extends GraphQLQuery
+
+    final case class ByKey(field: String, arguments: List[(String, Lookup.Argument[Lookup.Argument[KeyArgument]])])
+        extends GraphQLQuery
   }
 
-  sealed trait LookupArgument
-
-  object LookupArgument {
-    final case class Key(field: String, expectedType: __Type)              extends LookupArgument
-    final case class ObjectMapping(fields: List[(String, LookupArgument)]) extends LookupArgument
-    final case class Batch(value: LookupArgument)                          extends LookupArgument
-  }
-
-  sealed trait LookupResult
-
-  object LookupResult {
-    case object Single extends LookupResult
-
-    case object ByKey extends LookupResult
-  }
+  final case class KeyArgument(field: String, expectedType: __Type)
 
 }

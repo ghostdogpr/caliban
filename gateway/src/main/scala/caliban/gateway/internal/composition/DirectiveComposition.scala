@@ -4,7 +4,7 @@ import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.Value._
 import caliban.gateway._
-import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
+import caliban.gateway.internal.composition.ComposedGraph.Source
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
@@ -19,7 +19,7 @@ import scala.collection.immutable.ListMap
  */
 private[gateway] object DirectiveComposition {
 
-  def compile(subgraphs: List[PreparedSubgraph]): ComposedDirectives = {
+  def compile(subgraphs: List[Source]): ComposedDirectives = {
     val sourceDirectives             = subgraphs.map(SourceDirectives(_))
     val declarations                 = sourceDirectives.flatMap(_.composeDeclarations)
     val selected                     = sourceDirectives.flatMap(info => info.definitions.filter(value => info.selected(value.key)))
@@ -275,7 +275,7 @@ private[gateway] object DirectiveComposition {
   private final case class DirectiveKey(identity: Option[String], member: String)
   private final case class LocalDefinition(source: String, key: DirectiveKey, definition: __Directive)
   private final case class Application(local: LocalDefinition, coordinate: Coordinate, directive: Directive)
-  private final case class SourceDirectives(subgraph: PreparedSubgraph) {
+  private final case class SourceDirectives(subgraph: Source) {
     private val names                         = subgraph.directiveNames
     private val features                      = names.features
     private val federationTransportDirectives =

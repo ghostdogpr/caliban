@@ -454,6 +454,28 @@ object AbstractOperationSpec extends ZIOSpecDefault {
             )
         )
       },
+      test("sends an interface field resolved by one source once for all runtime types") {
+        val schema =
+          "type Query { node: Node } interface Node { child: Node value: String } " +
+            List("A", "B", "C").map(name => s"type $name implements Node { child: Node value: String }").mkString(" ")
+        for {
+          nodes   <- stub("""{"data":{"node":null}}""")
+          other   <- stub("""{"data":{}}""")
+          runtime <- Gateway
+                       .compose(
+                         Subgraph.graphql("nodes", nodes.endpoint, schema),
+                         Subgraph.graphql("other", other.endpoint, "type Query { other: Int }")
+                       )
+                       .interpreter
+          result  <- runtime.execute("{ node { child { child { child { value } } } } }")
+          sent    <- nodes.requests.get
+          query    = sent.headOption.flatMap(_.query).getOrElse("")
+        } yield assertTrue(
+          result.errors.isEmpty,
+          "child".r.findAllIn(query).size == 3,
+          "value".r.findAllIn(query).size == 1
+        )
+      },
       test("retains concrete fragments when single-source execution needs runtime evidence") {
         val response =
           """{"data":{"response":{"actions":[{"_caliban_gateway_runtime_typename":"Alpha","value":"alpha"}]}}}"""

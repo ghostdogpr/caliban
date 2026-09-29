@@ -1,11 +1,10 @@
 package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, PathValue, ResponseValue }
-import caliban.execution.Field
+import caliban.execution.{ isMetaField, Field }
 import caliban.gateway.TypenameField
 import caliban.gateway.internal.execution.ResponseCompletion._
 import caliban.gateway.internal.planning.OperationPlan
-import caliban.gateway.internal.planning.OperationPlan.RootFetch
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
@@ -16,25 +15,12 @@ import scala.collection.mutable
 /**
  * Completes fetched values against the client selections, including GraphQL null propagation.
  */
-private[gateway] final class ResponseCompletion private (
-  operationFields: List[Field],
-  fetchedFields: FetchedFields
-) {
+private[gateway] final class ResponseCompletion private (fields: Array[CompiledField]) {
+  lazy val names: List[String] = fields.iterator.map(_.name).toList
+
+  def only(names: Set[String]): ResponseCompletion = new ResponseCompletion(fields.filter(field => names(field.name)))
+
   def complete(value: ResponseValue, errors: List[CalibanError]): Completion =
-    completeFields(operationRoot, value, errors)
-
-  def completeRoot(fetch: RootFetch, value: ResponseValue, errors: List[CalibanError]): Completion = {
-    val names = fetch.client.map(_.aliasedName)
-    completeFields(operationRoot.filter(field => names.contains(field.name)), value, errors)
-  }
-
-  private val operationRoot = compileFields(operationFields, fetchedFields, null)
-
-  private def completeFields(
-    fields: Array[CompiledField],
-    value: ResponseValue,
-    errors: List[CalibanError]
-  ): Completion =
     value match {
       case obj: ObjectValue =>
         val completer        = new Completer(errorPaths(errors))
@@ -43,60 +29,6 @@ private[gateway] final class ResponseCompletion private (
         if (result eq null) BubbleNull(completionErrors) else Completed(result, completionErrors)
       case _                => Completed(NullValue, if (errors.isEmpty) List(RemoteError.at(Nil)) else Nil)
     }
-
-  private def compileFields(fields: List[Field], fetched: FetchedFields, runtimeType: String): Array[CompiledField] =
-    fields.map(compileField(_, fetched, runtimeType)).toArray
-
-  private def compileField(field: Field, fetched: FetchedFields, runtimeType: String): CompiledField = {
-    val name          = field.aliasedName
-    val isConditional = field._condition.nonEmpty && (runtimeType ne null)
-    val fetchedChild  = fetched.child(name)
-    val unfetched     = isConditional && !wasFetched(fetchedChild, field, runtimeType)
-    new CompiledField(
-      field,
-      name,
-      PathValue.Key(name),
-      unfetched,
-      compileType(field.fieldType, field, fetchedChild)
-    )
-  }
-
-  private def compileType(fieldType: __Type, field: Field, fetched: FetchedFields): CompiledType =
-    fieldType.kind match {
-      case __TypeKind.NON_NULL                     =>
-        new NonNullType(fieldType.ofType.fold[CompiledType](PassThroughType)(compileType(_, field, fetched)))
-      case __TypeKind.LIST                         =>
-        new ListType(fieldType.ofType.fold[CompiledType](PassThroughType)(compileType(_, field, fetched)))
-      case __TypeKind.INTERFACE | __TypeKind.UNION => compileAbstract(fieldType, field, fetched)
-      case __TypeKind.OBJECT                       =>
-        val typeName = fieldType.name.getOrElse("")
-        new ObjectType(compileFields(field.collectFields(typeName), fetched, typeName))
-      case __TypeKind.ENUM                         =>
-        new EnumType(fieldType.allEnumValues.map(_.name).toSet, fieldType.name.getOrElse("Unknown"))
-      case __TypeKind.SCALAR                       =>
-        fieldType.name match {
-          case Some("String") | Some("ID") => StringScalar
-          case Some("Int")                 => IntScalar
-          case Some("Float")               => FloatScalar
-          case Some("Boolean")             => BooleanScalar
-          case _                           => PassThroughType
-        }
-      case _                                       => PassThroughType
-    }
-
-  private def compileAbstract(fieldType: __Type, field: Field, fetched: FetchedFields): AbstractType =
-    new AbstractType(
-      fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet,
-      fetched.typenames :::
-        field.fields.iterator.filter(_.name == TypenameField).map(_.aliasedName).toList :::
-        TypenameField :: Nil,
-      field.fields.exists(child => child.name == TypenameField || child._condition.nonEmpty || child.targets.nonEmpty),
-      fieldType.name.getOrElse(""),
-      typeName => compileFields(field.collectFields(typeName), fetched, typeName)
-    )
-
-  private def wasFetched(node: FetchedFields, field: Field, typeName: String): Boolean =
-    node.fields.exists(selected => selected.name == field.name && selected._condition.forall(_.contains(typeName)))
 
   /**
    * Paths are accumulated in reverse order. A Scala null signals a non-null violation that must bubble;
@@ -234,6 +166,60 @@ private[gateway] final class ResponseCompletion private (
 }
 
 private[gateway] object ResponseCompletion {
+  private def compileFields(fields: List[Field], fetched: FetchedFields, runtimeType: String): Array[CompiledField] =
+    fields.map(compileField(_, fetched, runtimeType)).toArray
+
+  private def compileField(field: Field, fetched: FetchedFields, runtimeType: String): CompiledField = {
+    val name          = field.aliasedName
+    val isConditional = field._condition.nonEmpty && (runtimeType ne null)
+    val fetchedChild  = fetched.child(name)
+    val unfetched     = isConditional && !wasFetched(fetchedChild, field, runtimeType)
+    new CompiledField(
+      field,
+      name,
+      PathValue.Key(name),
+      unfetched,
+      compileType(field.fieldType, field, fetchedChild)
+    )
+  }
+
+  private def compileType(fieldType: __Type, field: Field, fetched: FetchedFields): CompiledType =
+    fieldType.kind match {
+      case __TypeKind.NON_NULL                     =>
+        new NonNullType(fieldType.ofType.fold[CompiledType](PassThroughType)(compileType(_, field, fetched)))
+      case __TypeKind.LIST                         =>
+        new ListType(fieldType.ofType.fold[CompiledType](PassThroughType)(compileType(_, field, fetched)))
+      case __TypeKind.INTERFACE | __TypeKind.UNION => compileAbstract(fieldType, field, fetched)
+      case __TypeKind.OBJECT                       =>
+        val typeName = fieldType.name.getOrElse("")
+        new ObjectType(compileFields(field.collectFields(typeName), fetched, typeName))
+      case __TypeKind.ENUM                         =>
+        new EnumType(fieldType.allEnumValues.map(_.name).toSet, fieldType.name.getOrElse("Unknown"))
+      case __TypeKind.SCALAR                       =>
+        fieldType.name match {
+          case Some("String") | Some("ID") => StringScalar
+          case Some("Int")                 => IntScalar
+          case Some("Float")               => FloatScalar
+          case Some("Boolean")             => BooleanScalar
+          case _                           => PassThroughType
+        }
+      case _                                       => PassThroughType
+    }
+
+  private def compileAbstract(fieldType: __Type, field: Field, fetched: FetchedFields): AbstractType =
+    new AbstractType(
+      fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet,
+      fetched.typenames :::
+        field.fields.iterator.filter(_.name == TypenameField).map(_.aliasedName).toList :::
+        TypenameField :: Nil,
+      field.fields.exists(child => child.name == TypenameField || child._condition.nonEmpty || child.targets.nonEmpty),
+      fieldType.name.getOrElse(""),
+      typeName => compileFields(field.collectFields(typeName), fetched, typeName)
+    )
+
+  private def wasFetched(node: FetchedFields, field: Field, typeName: String): Boolean =
+    node.fields.exists(selected => selected.name == field.name && selected._condition.forall(_.contains(typeName)))
+
   def forPlan(plan: OperationPlan): ResponseCompletion = {
     // A valid plan can omit conditional fields outside the common runtime types of a shareable path.
     // Retain fetched selections so those omissions do not look like malformed upstream responses.
@@ -244,7 +230,7 @@ private[gateway] object ResponseCompletion {
         child.fields = field :: child.fields
         collect(field.fields, child)
       }
-    collect(plan.localFields ::: plan.roots.flatMap(_.downstream), root)
+    collect(plan.roots.flatMap(_.downstream), root)
     plan.entities.foreach { fetch =>
       var node = root
       fetch.mergePath.foreach(name => node = node.childOrCreate(name))
@@ -255,7 +241,7 @@ private[gateway] object ResponseCompletion {
       selection.path.foreach(name => node = node.childOrCreate(name))
       node.typenames = node.typenames :+ selection.responseName
     }
-    new ResponseCompletion(plan.fields, root)
+    new ResponseCompletion(compileFields(plan.fields.filterNot(isMetaField), root, null))
   }
 
   sealed trait Completion {

@@ -27,15 +27,11 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         seen     <- Ref.make(List.empty[String])
         handler   =
           (name: String, query: String) =>
-            PhaseHooks.resolutionHandler(PhaseHandler[Any, PhaseHooks.Event.Resolution, Throwable, Unit, Any] { event =>
+            PhaseHooks.resolutionHandler[Any] { event =>
               seen
-                .update(_ :+ s"$name-in:${event.request.query.getOrElse("")}")
-                .as(
-                  (event.copy(request = event.request.copy(query = Some(query))), ())
-                )
-            } { (event, _, _) =>
-              seen.update(_ :+ s"$name-out:${event.request.query.getOrElse("")}")
-            })
+                .update(_ :+ s"$name:${event.request.query.getOrElse("")}")
+                .as(event.copy(request = event.request.copy(query = Some(query))))
+            }
         runtime  <- remoteGateway(remote.endpoint)
                       .withPhaseHooks(handler("first", "intermediate"))
                       .withPhaseHooks(handler("second", query))
@@ -45,7 +41,7 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
-        observed == List("first-in:", "second-in:intermediate", s"second-out:$query", "first-out:intermediate"),
+        observed == List("first:", "second:intermediate"),
         sent.map(_.query) == Vector(Some(query)),
         sent.map(_.variables) == Vector(request.variables)
       )
@@ -109,7 +105,9 @@ object OperationResolutionSpec extends ZIOSpecDefault {
     test("uses the caller's extraction format and keeps IDs opaque") {
       val resolver                         = PhaseHooks.trustedDocuments(Map(" opaque ID " -> query))(_.operationName)
       def resolve(request: GraphQLRequest) =
-        resolver.resolution.runWith(PhaseHooks.Event.Resolution(request))(event => ZIO.succeed(event.request))(_ => ())
+        ZIO
+          .foldLeft(resolver.resolution)(PhaseHooks.Event.Resolution(request))((event, step) => step(event))
+          .map(_.request)
       for {
         resolved <- resolve(GraphQLRequest(operationName = Some(" opaque ID ")))
         rejected <- resolve(GraphQLRequest(operationName = Some("opaque ID"))).either

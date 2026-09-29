@@ -96,13 +96,15 @@ private[planning] object FetchGraphOptimizer {
         if (!needPrerequisites(fetch.id)) fetch
         else {
           val required                                         =
-            (fetch.keys ::: fetch.requirements).flatMap(selectionPaths(fetch.mergePath)).toSet ++
-              fetch.contextArguments.flatMap(argument => argument.projection.paths.map(argument.sourcePath ++ _))
+            (fetch.target.keys ::: fetch.target.requirements).flatMap(selectionPaths(fetch.mergePath)).toSet ++
+              fetch.target.contextArguments.flatMap(argument =>
+                argument.selections.flatMap(selectionPaths(argument.sourcePath))
+              )
           val siblings                                         =
             providers.filter { case (other, _) => other.id != fetch.id && other.root == fetch.root }
           def providedElsewhere(path: Vector[String]): Boolean =
-            provides(rootPaths.getOrElse(fetch.root, Nil), path, fetch.entityType) ||
-              siblings.exists { case (_, paths) => provides(paths, path, fetch.entityType) }
+            provides(rootPaths.getOrElse(fetch.root, Nil), path, fetch.target.entityType) ||
+              siblings.exists { case (_, paths) => provides(paths, path, fetch.target.entityType) }
           // A fetch that needs its own output depends on itself, which waves rejects as a cycle.
           val needsItself                                      = own.exists { case (path, _) => required(path) && !providedElsewhere(path) }
           val dependencies                                     = siblings.iterator.collect {

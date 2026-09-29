@@ -103,7 +103,7 @@ object GatewayTracing {
     result: Res => Result,
     attributes: Ev => Attributes = (_: Ev) => Attributes.empty(),
     enter: (Ev, Span) => Ev = (event: Ev, _: Span) => event
-  ): PhaseHandler[Tracing, Ev, Nothing, Res] = {
+  ): PhaseHandler[Tracing, Ev, Res] = {
     val outcomeName = s"$name.outcome"
     PhaseHandler { (event: Ev) =>
       open(contextual, name, kind, attributes(event)).map(opened => enter(event, opened._1) -> opened).uninterruptible

@@ -1,6 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayBuildError.SupergraphDecompositionFailed
+import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition.parseSdl
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.parsing.adt.Document
 import zio._
@@ -54,12 +55,12 @@ object Supergraph {
   /**
    * Describes a supergraph from SDL. It is parsed once and never reloaded.
    */
-  def sdl(value: String): Supergraph[Any] = fromSource(Source.Sdl(value))
+  def sdl(value: String): Supergraph[Any] = fromSource(Source.Pinned(parseSdl(value)))
 
   /**
    * Describes a supergraph from an already parsed schema document. It is never reloaded.
    */
-  def parsed(value: Document): Supergraph[Any] = fromSource(Source.Parsed(value))
+  def parsed(value: Document): Supergraph[Any] = fromSource(Source.Pinned(Right(value)))
 
   /**
    * Describes a supergraph read from a file. A reloadable gateway reads the file again on every poll.
@@ -103,9 +104,9 @@ object Supergraph {
   private[gateway] sealed trait Source {
     def reloadDiagnostics(minimumPollInterval: Duration): List[String] =
       this match {
-        case _: Source.Sdl | _: Source.Parsed => List("Gateway reload from supergraph requires a remote source.")
-        case _: Source.File | _: Source.Http  => Nil
-        case _: Source.Uplink                 =>
+        case _: Source.Pinned                => List("Gateway reload from supergraph requires a remote source.")
+        case _: Source.File | _: Source.Http => Nil
+        case _: Source.Uplink                =>
           // Uplink asks clients not to poll faster than the `minDelaySeconds` it answers with, and
           // Apollo's published floor is ten seconds. Jitter is what reaches the wire, so the fastest
           // poll the configuration permits is what has to clear the floor.
@@ -124,11 +125,14 @@ object Supergraph {
   }
 
   private[gateway] object Source {
-    final case class Sdl(value: String)                                           extends Source
-    final case class Parsed(value: Document)                                      extends Source
-    final case class File(path: Path)                                             extends Source
-    final case class Http(endpoint: URL, config: RemoteGraphQLConfig.Acquisition) extends Source
-    final case class Uplink(config: SupergraphUplinkConfig)                       extends Source
+
+    /**
+     * Static SDL is parsed once when the supergraph is described; any parse error is reported by every load.
+     */
+    final case class Pinned(document: Either[SupergraphAcquisitionError, Document]) extends Source
+    final case class File(path: Path)                                               extends Source
+    final case class Http(endpoint: URL, config: RemoteGraphQLConfig.Acquisition)   extends Source
+    final case class Uplink(config: SupergraphUplinkConfig)                         extends Source
   }
 
 }

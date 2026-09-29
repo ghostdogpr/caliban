@@ -226,15 +226,10 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.size == 1
       )
     },
-    test("requires incoming authorization for aliased and namespace-qualified Federation security directives") {
-      val observer = PhaseHandler.outgoing[Any, PhaseHooks.Event.Authorization, Any]((_, _) => ZIO.unit)
-      val hooks    = List(
+    test("requires authorization for aliased and namespace-qualified Federation security directives") {
+      val hooks = List(
         PhaseHooks.empty,
-        PhaseHooks.resolution[Any](request => ZIO.succeed(request.query.getOrElse(""))),
-        PhaseHooks.authorizationHandler(PhaseHandler.empty[PhaseHooks.Event.Authorization]),
-        PhaseHooks.authorizationHandler(observer),
-        PhaseHooks.authorizationHandler(PhaseHandler.scoped(observer)),
-        PhaseHooks.authorizationHandler(observer ++ observer)
+        PhaseHooks.resolution[Any](request => ZIO.succeed(request.query.getOrElse("")))
       )
       ZIO
         .foreach(hooks) { hook =>
@@ -255,28 +250,13 @@ object SecurityPolicySpec extends ZIOSpecDefault {
           )
         )
     },
-    test("accepts incoming authorization in composed, scoped, and incoming-outgoing handlers") {
-      val observer = PhaseHandler.outgoing[Any, PhaseHooks.Event.Authorization, Any]((_, _) => ZIO.unit)
-      val decision = PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Authorization, Nothing](_ => ZIO.unit)
-      val hooks    = List(
-        PhaseHooks.authorizationHandler(observer ++ decision),
-        PhaseHooks.authorizationHandler(decision ++ observer),
-        PhaseHooks.authorizationHandler(PhaseHandler.scoped(decision)),
-        PhaseHooks.authorizationHandler(
-          PhaseHandler[Any, PhaseHooks.Event.Authorization, Nothing, Unit, Any](event => ZIO.succeed((event, ())))(
-            (_, _, _) => ZIO.unit
-          )
-        )
-      )
-      ZIO
-        .foreach(hooks) { hook =>
-          Gateway
-            .compose(Subgraph.federation("secure", unreachableEndpoint, securitySchema))
-            .withPhaseHooks(hook)
-            .interpreter
-            .exit
-        }
-        .map(results => assertTrue(results.forall(_.isSuccess)))
+    test("accepts any authorization hook") {
+      Gateway
+        .compose(Subgraph.federation("secure", unreachableEndpoint, securitySchema))
+        .withPhaseHooks(PhaseHooks.empty ++ allowAll)
+        .interpreter
+        .exit
+        .map(result => assertTrue(result.isSuccess))
     },
     test("rejects policy selections at execution even with an allowing policy, but serves public selections") {
       val expressions                = List("[]", "[[]]", "[[\"owner\"]]")

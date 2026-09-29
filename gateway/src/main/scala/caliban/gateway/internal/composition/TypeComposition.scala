@@ -82,15 +82,17 @@ private[composition] final class TypeComposition(
       val owned              = owners(resolving, withLabels = true)
       val ownerTypes         = owned.map(_.owner)
       val unshared           =
-        owned.filter(value => value.owner.subgraphMode == SubgraphMode.Federation2 && !value.field.shareable)
+        owned.filter(value =>
+          value.owner.subgraph.directiveNames.mode == SubgraphMode.Federation2 && !value.field.shareable
+        )
       val hiddenArgument     = hiddenArguments(name, fieldName)
       val compatible         = fieldsCompatible(values.map(value => visibleArguments(value.field.definition, hiddenArgument)))
       val sharedSubscription = operation.contains(OperationType.Subscription) &&
         (owned.size > 1 || values.exists(_.field.shareable))
       val sharedOrdinary     =
-        operation.nonEmpty && compatible && owned.size > 1 && ownerTypes.exists(_.subgraphMode == SubgraphMode.Ordinary)
+        operation.nonEmpty && compatible && owned.size > 1 && ownerTypes.exists(!_.subgraph.federation)
       val sharedUnshareable  = compatible && owned.size > 1 && entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
-        unshared.nonEmpty && (operation.isEmpty || ownerTypes.forall(_.subgraphMode != SubgraphMode.Ordinary))
+        unshared.nonEmpty && (operation.isEmpty || ownerTypes.forall(_.subgraph.federation))
       val prefix             = if (operation.isEmpty) s"[type $fieldPath]" else s"[$fieldPath]"
       overrideDiagnostics(prefix, values, resolving) ::: contextualArgumentDiagnostics(fieldPath, values) :::
         check(
@@ -321,8 +323,7 @@ private[composition] object TypeComposition {
     subgraph: Source,
     name: String,
     tpe: __Type,
-    fields: List[SubgraphField],
-    subgraphMode: SubgraphMode
+    fields: List[SubgraphField]
   ) {
     def source: String = subgraph.name
   }

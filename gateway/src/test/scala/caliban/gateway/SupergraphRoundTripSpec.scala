@@ -198,7 +198,8 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
             // declares the field and the route is unconditional.
             owners("weight").contains(List("a")),
             active("weight").isEmpty,
-            graph.progressiveOverrides(Set("price", "colour")) == Set[ComposedGraph.OverrideLabel](percent, flag)
+            (graph.progressiveOverrides("Widget", "price") ::: graph.progressiveOverrides("Widget", "colour")) ==
+              List(percent, flag)
           )
         }
       }
@@ -243,10 +244,10 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
               .sorted ==
               List("characters" -> "viewer", "episodes" -> "crew").sorted,
             contextArguments(graph, "characters", "Ship", "fare")
-              .map(value => value.argument -> value.context.value) ==
+              .map(value => value.at.argumentName -> value.context.value) ==
               List("currency" -> "viewer", "locale" -> "viewer"),
             contextArguments(graph, "episodes", "Ship", "manifest")
-              .map(value => value.argument -> value.context.value) ==
+              .map(value => value.at.argumentName -> value.context.value) ==
               List("rank" -> "crew")
           )
         }

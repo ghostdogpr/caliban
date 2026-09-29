@@ -225,7 +225,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         graph <- composeSingle("details", schema)
         node   = graph.rootType.types("Node")
         fields = graph.sources.flatMap(
-                   _.prepareEntityFields(
+                   _.prepareFields(
                      "Node",
                      List(
                        Field(
@@ -260,7 +260,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), document, Map.empty, graph.rootType)
         fields       = execution.field.fields
         executor     = new PlanExecutor[Any](graph, Map.empty, PhaseHooks.empty)
-        roots        = graph.sources.map(RootFetch(FetchId(0), _, fields, fields))
+        roots        = graph.sources.map(RootFetch(FetchId(0), _, fields))
         fetched     <- executor.execute(
                          OperationPlan(OperationType.Query, None, fields, roots, Nil, Nil, None),
                          execution,
@@ -279,28 +279,21 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         )
       )
     },
-    test("execution artifacts are reused but variable binding gets an independent cache") {
+    test("execution artifacts are reused but variable binding prepares fresh ones") {
       val field = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
       composeSingle("products", "type Query { product(id: ID): String }").map { graph =>
-        val fetches      = graph.sources.map(RootFetch(FetchId(0), _, List(field), List(field)))
-        val plan         = OperationPlan(OperationType.Query, None, List(field), fetches, Nil, Nil, None)
-        val fetch        = plan.roots.head
-        val cache        = plan.executionCache
-        val completion   = plan.completion
-        val bound        = plan.bind(Map("id" -> StringValue("p1")))
-        val projection   = ResponseProjection.compile(Nil, Nil, Map.empty)
-        val originalRoot = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("original")), projection)
-        val boundRoot    = PlanExecutor.PreparedRoot(fetch, GraphQLRequest(query = Some("bound")), projection)
-        val cachedRoot   = cache.root(fetch.id)(originalRoot)
+        val fetches    = graph.sources.map(RootFetch(FetchId(0), _, List(field)))
+        val plan       = OperationPlan(OperationType.Query, None, List(field), fetches, Nil, Nil, None)
+        val roots      = plan.preparedRoots
+        val completion = plan.completion
+        val bound      = plan.bind(Map("id" -> StringValue("p1")))
         assertTrue(
-          cache eq plan.executionCache,
+          roots eq plan.preparedRoots,
           completion eq plan.completion,
-          plan.executionCache ne bound.executionCache,
+          plan.preparedRoots ne bound.preparedRoots,
           plan.completion ne bound.completion,
           bound.bind(Map("id" -> StringValue("p2"))) eq bound,
-          cachedRoot eq originalRoot,
-          cache.root(fetch.id)(boundRoot) eq originalRoot,
-          bound.executionCache.root(fetch.id)(boundRoot) eq boundRoot,
+          bound.preparedRoots.flatMap(_.request.query).forall(_.contains("\"p1\"")),
           bound.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
           plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
         )

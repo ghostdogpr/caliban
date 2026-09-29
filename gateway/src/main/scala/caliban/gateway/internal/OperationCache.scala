@@ -2,41 +2,30 @@ package caliban.gateway.internal
 
 import caliban.gateway.PhaseHooks
 import caliban.gateway.PhaseHooks.{ CacheResult, Event, Outcome, Result }
-import zio.{ Exit, FiberId, IO, Promise, Ref, Trace, UIO, ZIO }
+import zio.{ Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
 
 private[gateway] final class OperationCache[K, E, V, R] private (
   maxWeight: Long,
+  scope: Scope,
   state: Ref[OperationCache.State[K, E, V]],
   hooks: PhaseHooks[R]
 ) {
   import OperationCache._
 
-  def getOrCompute(key: K)(compute: => IO[E, Weighted[V]])(implicit trace: Trace): ZIO[R, E, V] =
+  def getOrCompute[R1 <: R](key: K)(compute: => ZIO[R1, E, Weighted[V]])(implicit trace: Trace): ZIO[R1, E, V] =
     Promise.make[E, V].flatMap { fresh =>
       ZIO.uninterruptibleMask { restore =>
         state.modify { current =>
           current.slots.get(key) match {
             case Some(Ready(value))     => restore(observe(CacheResult.Hit)(ZIO.succeed(value))) -> current
-            case Some(Running(promise)) =>
-              restore(
-                observe(CacheResult.Wait)(
-                  promise.await.catchAllCause(cause =>
-                    if (cause.isInterrupted) getOrCompute(key)(compute) else Exit.failCause(cause)
-                  )
-                )
-              ) -> current
+            case Some(Running(promise)) => restore(observe(CacheResult.Wait)(promise.await))     -> current
             case None                   =>
-              restore(
-                observe(CacheResult.Miss)(
-                  ZIO
-                    .suspendSucceed(compute)
-                    .onExit(settle(key, fresh, _))
-                    .map(_.value)
-                )
-              ).onError(_ => settle(key, fresh, Exit.interrupt(FiberId.None))) -> current.copy(
+              // Shared work belongs to the cache scope, so one waiter cannot cancel it for the others.
+              (ZIO.suspendSucceed(compute).interruptible.onExit(settle(key, fresh, _)).forkIn(scope) *>
+                restore(observe(CacheResult.Miss)(fresh.await))) -> current.copy(
                 slots = current.slots.updated(key, Running(fresh))
               )
           }
@@ -55,8 +44,15 @@ private[gateway] object OperationCache {
 
   final case class Weighted[+A](value: A, weight: Long)
 
-  def make[K, E, V, R](maxWeight: Long, hooks: PhaseHooks[R])(implicit trace: Trace): UIO[OperationCache[K, E, V, R]] =
-    Ref.make(State[K, E, V](Map.empty, Queue.empty, 0L)).map(new OperationCache(maxWeight, _, hooks))
+  def make[K, E, V, R](maxWeight: Long, hooks: PhaseHooks[R])(implicit
+    trace: Trace
+  ): URIO[Scope, OperationCache[K, E, V, R]] =
+    // A child scope opened now closes after finalizers added later, such as the request drain.
+    ZIO
+      .scopeWith(_.fork)
+      .flatMap(scope =>
+        Ref.make(State[K, E, V](Map.empty, Queue.empty, 0L)).map(new OperationCache(maxWeight, scope, _, hooks))
+      )
 
   private sealed trait Slot[E, V]
   private final case class Ready[E, V](value: V)                 extends Slot[E, V]

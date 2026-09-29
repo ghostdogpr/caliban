@@ -6,9 +6,8 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.composition.DirectiveComposition.{ Coordinate, FieldCoordinate }
-import caliban.gateway.internal.planning.{ OperationCost, OperationPlan }
+import caliban.gateway.internal.planning.{ CandidateSearch, OperationCost, OperationPlan, OperationPlanner }
 import caliban.schema.RootType
-import caliban.parsing.adt.OperationType
 import caliban.tools.RemoteSchema
 import zio._
 import zio.test._
@@ -58,25 +57,25 @@ object OperationCostSpec extends ZIOSpecDefault {
   private def rootType(schema: String): IO[CalibanError, RootType] =
     parseSdl(schema).flatMap(document => ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType)))
 
-  private def prepare(root: RootType, query: String): IO[CalibanError, (ExecutionRequest, OperationPlan)] =
+  private def prepare(
+    schema: String,
+    root: RootType,
+    query: String
+  ): IO[CalibanError, (ExecutionRequest, OperationPlan)] =
     for {
       operation <- RequestPreparation.parse(query)
       request   <-
         RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root)
-      graph     <- parseSdl("type Query { ok: Int }").flatMap(document =>
+      graph     <- parseSdl(schema).flatMap(document =>
                      ZIO
                        .fromEither(composeDocuments(List("nodes" -> document), federation = false))
                        .orDieWith(errors => new AssertionError(errors.mkString))
                    )
-    } yield request -> OperationPlan(
-      OperationType.Query,
-      None,
-      request.field.fields,
-      Nil,
-      Nil,
-      Nil,
-      graph.sources.headOption
-    )
+      limits     = CandidateSearch.Limits(Int.MaxValue, Int.MaxValue, Duration.Infinity)
+      plan      <- ZIO
+                     .fromEither(new OperationPlanner(graph, limits).plan(operation, request, Set.empty))
+                     .orDieWith(failure => new AssertionError(failure.toString))
+    } yield request -> plan
 
   private def costLimitedGateway(maxCost: Long)(first: Subgraph[Any], rest: Subgraph[Any]*): Gateway[Any] =
     Gateway.compose(first, rest: _*).withConfig(_.withMaxOperationCost(maxCost))
@@ -93,7 +92,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
       for {
         root           <- rootType(schema)
-        prepared       <- prepare(root, query)
+        prepared       <- prepare(schema, root, query)
         (request, plan) = prepared
         weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
                             FieldCoordinate(name, "value") -> BigInt(index + 1)
@@ -119,7 +118,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
       for {
         root           <- rootType(schema)
-        prepared       <- prepare(root, query)
+        prepared       <- prepare(schema, root, query)
         (request, plan) = prepared
         weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
                             FieldCoordinate(name, "value") -> BigInt(index + 1)
@@ -153,7 +152,7 @@ object OperationCostSpec extends ZIOSpecDefault {
           )
         costs    = new OperationCost(root.types, Map("Node" -> Set("A", "B")), metadata)
         results <- ZIO.foreach(queries) { case (query, expected) =>
-                     prepare(root, query).map { case (_, plan) =>
+                     prepare(schema, root, query).map { case (_, plan) =>
                        assertTrue(costs.estimate(plan) == Right(expected))
                      }
                    }

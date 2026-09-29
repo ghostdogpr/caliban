@@ -2,8 +2,9 @@ package caliban.gateway.internal.planning
 
 import caliban.{ Hash, InputValue }
 import caliban.execution.{ isIntrospectionField, isMetaField, Field, Fragment }
+import caliban.gateway.{ responseNames, TypenameField }
 import caliban.gateway.internal.composition.{ ComposedGraph, DirectiveComposition }
-import caliban.gateway.internal.execution.{ PlanExecutionCache, ResponseCompletion }
+import caliban.gateway.internal.execution.{ EntityLookup, PlanExecutor, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.parsing.adt.Type.NamedType
@@ -33,15 +34,15 @@ private[gateway] final case class OperationPlan(
 
   lazy val entities: List[EntityFetch] = entityWaves.flatten
 
-  lazy val localFields: List[Field] = fields.filter(isMetaField)
+  lazy val introspectionFields: List[Field] = fields.filter(isIntrospectionField)
 
-  lazy val introspectionFields: List[Field] = localFields.filter(isIntrospectionField)
+  lazy val hasLocalFields: Boolean = fields.exists(isMetaField)
 
   lazy val hasVariableReferences: Boolean = PlanVariables.hasReferences(this)
 
   // Cached plans share these artifacts; replacing variable references creates a plan with fresh caches.
-  lazy val executionCache: PlanExecutionCache = new PlanExecutionCache
-  lazy val completion: ResponseCompletion     = ResponseCompletion.forPlan(this)
+  lazy val preparedRoots: List[PlanExecutor.PreparedRoot] = roots.map(PlanExecutor.prepareRoot(this, _))
+  lazy val completion: ResponseCompletion                 = ResponseCompletion.forPlan(this)
 
   def bind(variables: Map[String, InputValue]): OperationPlan =
     if (hasVariableReferences) PlanVariables.bind(this, variables) else this
@@ -58,86 +59,50 @@ private[gateway] object OperationPlan {
     typenameAlias: Option[String] = None
   )
 
-  final case class RootFetch(
-    id: FetchId,
-    source: ComposedGraph.Source,
-    client: List[Field],
-    downstream: List[Field]
-  )
+  final case class RootFetch(id: FetchId, source: ComposedGraph.Source, downstream: List[Field])
 
   final case class ContextualArgument(
-    parentType: String,
-    field: String,
-    argument: String,
+    at: DirectiveComposition.ArgumentCoordinate,
     context: ComposedGraph.ContextName,
     sourcePath: Vector[String],
-    sourceType: String,
-    projection: ContextProjection
-  ) {
-    def fieldArgument: DirectiveComposition.ArgumentCoordinate =
-      DirectiveComposition.ArgumentCoordinate(parentType, field, argument)
-  }
-
-  sealed trait ContextProjection {
-    def paths: List[List[String]]
-  }
-
-  object ContextProjection {
-    final case class Path(names: List[String]) extends ContextProjection {
-      def paths: List[List[String]] = names :: Nil
-    }
-
-    final case class ByType(typenameAlias: String, pathsByType: Map[String, List[String]]) extends ContextProjection {
-      def paths: List[List[String]] = pathsByType.values.toList.distinct
-    }
-  }
+    selections: List[RequiredSelection],
+    typenameAlias: Option[String]
+  )
 
   /**
    * The response path and alias of an injected __typename field used during response completion.
    */
   final case class TypenameSelection(path: Vector[String], responseName: String)
 
-  final case class EntityFetch(
-    id: FetchId,
-    root: FetchId,
-    source: ComposedGraph.Source,
-    dependencies: Set[FetchId],
-    mergePath: Vector[String],
-    entityType: String,
-    keys: List[RequiredSelection],
-    requirements: List[RequiredSelection],
-    contextArguments: List[ContextualArgument],
-    typename: Option[RequiredSelection],
-    lookup: ComposedGraph.EntityLookup,
-    fields: List[Field]
-  ) {
-
-    lazy val groupKey: EntityGroupKey = {
-      val selections =
-        fields.map(field => if (field.targets.contains(Set(entityType))) field.copy(targets = None) else field)
-      EntityGroupKey(
-        source,
-        entityType,
-        lookup,
-        keys,
-        requirements,
-        contextArguments,
-        canonicalSelectionKey(selections)
-      )
-    }
-  }
-
-  private[internal] final case class EntityGroupKey(
+  final case class EntityTarget(
     source: ComposedGraph.Source,
     entityType: String,
     lookup: ComposedGraph.EntityLookup,
     keys: List[RequiredSelection],
     requirements: List[RequiredSelection],
-    contextArguments: List[ContextualArgument],
-    selection: String
+    contextArguments: List[ContextualArgument]
   ) {
     @transient @threadUnsafe
     final override lazy val hashCode: Int = Hash.caseClassHash(this)
+  }
+
+  final case class EntityFetch(
+    id: FetchId,
+    root: FetchId,
+    dependencies: Set[FetchId],
+    mergePath: Vector[String],
+    target: EntityTarget,
+    typenameAlias: Option[String],
+    fields: List[Field]
+  ) {
+
+    private[internal] lazy val lookupVariant = EntityLookup.variant(this, Map.empty)
+
+    lazy val groupKey: (EntityTarget, String) = {
+      val selections =
+        fields.map(field => if (field.targets.contains(Set(target.entityType))) field.copy(targets = None) else field)
+      target -> canonicalSelectionKey(selections)
+    }
   }
 
   private[planning] def fieldPaths(fields: List[Field]): List[String] =
@@ -196,7 +161,7 @@ private[gateway] object OperationPlan {
 
     def hasReferences(plan: OperationPlan): Boolean =
       plan.fields.exists(fieldReferences) ||
-        plan.roots.exists(rootReferences) ||
+        plan.roots.exists(_.downstream.exists(fieldReferences)) ||
         plan.entities.exists(fetch => fetch.fields.exists(fieldReferences))
 
     def bind(plan: OperationPlan, variables: Map[String, InputValue]): OperationPlan = {
@@ -229,11 +194,7 @@ private[gateway] object OperationPlan {
         )
 
       def bindRoot(fetch: RootFetch): RootFetch =
-        if (rootReferences(fetch))
-          fetch.copy(
-            client = fetch.client.map(bindField),
-            downstream = fetch.downstream.map(bindField)
-          )
+        if (fetch.downstream.exists(fieldReferences)) fetch.copy(downstream = fetch.downstream.map(bindField))
         else fetch
 
       def bindEntity(fetch: EntityFetch): EntityFetch =
@@ -246,9 +207,6 @@ private[gateway] object OperationPlan {
         entityWaves = plan.entityWaves.map(_.map(bindEntity))
       )
     }
-
-    private def rootReferences(fetch: RootFetch): Boolean =
-      fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences)
 
     private def fieldReferences(field: Field): Boolean =
       field.arguments.valuesIterator.exists(valueReferences) ||
@@ -273,24 +231,28 @@ private[gateway] object OperationPlan {
 
   private def render(plan: OperationPlan): String = {
     val header      = plan.operationType.toString.toLowerCase
+    val clientNames = responseNames(plan.fields)
     val rootLines   = plan.roots.flatMap { fetch =>
-      fetch.client.zip(fetch.downstream).map { case (client, downstream) =>
+      fetch.downstream.filter(field => clientNames(field.aliasedName)).map { downstream =>
         val keySelections = plan.entities
-          .find(_.mergePath.headOption.contains(client.aliasedName))
+          .find(_.mergePath.headOption.contains(downstream.aliasedName))
           .toList
-          .flatMap(entity => entity.keys ::: entity.typename.toList)
+          .flatMap(entity =>
+            entity.target.keys ::: entity.typenameAlias.map(RequiredSelection(TypenameField, _)).toList
+          )
         val fields        = fieldPaths(downstream.fields).map { path =>
           keySelections.find(_.responseName == path).map(selection => s"${selection.field} (key)").getOrElse(path)
         }
-        s"fetch ${fetch.source} at $$.${client.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
+        s"fetch ${fetch.source} at $$.${downstream.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
       }
     }
     val sources     = (plan.roots.iterator.map(fetch => fetch.id -> fetch.source) ++
-      plan.entities.iterator.map(fetch => fetch.id -> fetch.source)).toMap
+      plan.entities.iterator.map(fetch => fetch.id -> fetch.target.source)).toMap
     val entityLines = plan.entities.map { fetch =>
       val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
-      s"fetch ${fetch.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
-        s"via ${fetch.entityType}(${fetch.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields).mkString("[", ", ", "]")}"
+      s"fetch ${fetch.target.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
+        s"via ${fetch.target.entityType}(${fetch.target.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields)
+            .mkString("[", ", ", "]")}"
     }
     (header :: rootLines ::: entityLines).mkString("\n")
   }

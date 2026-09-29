@@ -33,5 +33,5 @@ private[execution] object IndexedFields {
     new IndexedFields(value, index)
   }
 
-  final val IndexThreshold = 16
+  private final val IndexThreshold = 16
 }

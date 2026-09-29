@@ -53,19 +53,16 @@ object GatewayMetrics {
    * `caliban_gateway_` prefix. Labels hold outcomes, operation types, subgraph names, and termination reasons only.
    */
   val hooks: PhaseHooks[Any] =
-    PhaseHooks.subscriptionAdmission(
-      PhaseHandler.incomingDiscard { event =>
-        subscriptionAdmission.tagged(ResultLabel, if (event.accepted) "accepted" else "rejected").increment *>
-          subscriptionsActive.increment.whenDiscard(event.accepted)
-      }
-    ) ++
-      PhaseHooks
-        .subscriptionTerminated(PhaseHandler.incomingDiscard { case Event.SubscriptionTerminated(reason, duration) =>
-          subscriptionsActive.decrement *> subscriptionTerminated
-            .tagged("reason", reason)
-            .increment *>
-            subscriptionLifetime.update(seconds(duration))
-        }) ++
+    PhaseHooks.subscriptionAdmission { event =>
+      subscriptionAdmission.tagged(ResultLabel, if (event.accepted) "accepted" else "rejected").increment *>
+        subscriptionsActive.increment.whenDiscard(event.accepted)
+    } ++
+      PhaseHooks.subscriptionTerminated { case Event.SubscriptionTerminated(reason, duration) =>
+        subscriptionsActive.decrement *> subscriptionTerminated
+          .tagged("reason", reason)
+          .increment *>
+          subscriptionLifetime.update(seconds(duration))
+      } ++
       PhaseHooks.subscriptionSetup(trackPhaseDuration(subscriptionSetup)) ++
       PhaseHooks
         .execution(
@@ -95,7 +92,7 @@ object GatewayMetrics {
     duration: Metric.Histogram[Double],
     labels: Ev => Set[MetricLabel],
     detailLabels: Result => Set[MetricLabel]
-  ): PhaseHandler[Any, Ev, Nothing, Result] =
+  ): PhaseHandler[Any, Ev, Result] =
     PhaseHandler { (event: Ev) =>
       val eventLabels = labels(event)
       Clock.nanoTime
@@ -110,7 +107,7 @@ object GatewayMetrics {
 
   private def trackPhaseDuration[Ev](duration: Metric.Histogram[Double])(implicit
     trace: Trace
-  ): PhaseHandler[Any, Ev, Nothing, Result] =
+  ): PhaseHandler[Any, Ev, Result] =
     PhaseHandler((event: Ev) => Clock.nanoTime.map(event -> _)) { (_, startedAt: Long, result: Result) =>
       Clock.nanoTime.flatMap { finishedAt =>
         duration.tagged(OutcomeLabel, result.outcome.label).update(seconds(finishedAt - startedAt))

@@ -475,7 +475,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
             )
             .withPhaseHooks(
               PhaseHooks.subgraphCall(
-                PhaseHandler.incoming[Any, PhaseHooks.Event.SubgraphCall, Nothing](event =>
+                PhaseHandler.incoming[Any, PhaseHooks.Event.SubgraphCall](event =>
                   hookCalls.update(_ + 1).as(event.copy(headers = event.headers :+ Header.Custom("X-Multi", "hook")))
                 )
               )

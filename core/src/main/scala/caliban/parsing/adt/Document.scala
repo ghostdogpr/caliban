@@ -77,12 +77,6 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     loop(operation.selectionSet)
   }
 
-  private[caliban] def foreachSelection(operationName: Option[String])(f: Selection => Unit): Unit =
-    operationDefinition(operationName).foreach(existsSelection(_) { selection =>
-      f(selection)
-      false
-    })
-
   private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
     def selectionHasDirective(selection: Selection): Boolean =
       selection match {

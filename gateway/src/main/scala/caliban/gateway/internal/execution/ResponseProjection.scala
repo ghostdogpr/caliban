@@ -2,7 +2,7 @@ package caliban.gateway.internal.execution
 
 import caliban.{ PathValue, ResponseValue }
 import caliban.execution.Field
-import caliban.gateway.TypenameField
+import caliban.gateway.{ groupNonEmpty, TypenameField }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.StringValue
 
@@ -83,15 +83,13 @@ private[gateway] object ResponseProjection {
       if (client.isEmpty && executable.isEmpty && translations.isEmpty) Identity
       else {
         val fields = new java.util.HashMap[String, Entry]
-        executable.zip(client).groupBy(_._1.aliasedName).foreach { case (name, matches) =>
-          val translations = if (matches.exists(_._1.name == TypenameField)) typeNames else Map.empty[String, String]
-          val child        = build(matches.flatMap(_._2.fields), matches.flatMap(_._1.fields), translations)
-          val path         = matches match {
+        groupNonEmpty(executable.zip(client))(_._1.aliasedName).foreach {
+          case (name, matches @ ::((source, target), rest)) =>
+            val translations = if (matches.exists(_._1.name == TypenameField)) typeNames else Map.empty[String, String]
+            val child        = build(matches.flatMap(_._2.fields), matches.flatMap(_._1.fields), translations)
             // Aliases shared by fragments combine for values, but errors retain first-match field lookup.
-            case (source, target) :: _ :: _ => build(target.fields, source.fields)
-            case _                          => child
-          }
-          fields.put(name, Entry(matches.head._2.aliasedName, child, path))
+            val path         = if (rest.isEmpty) child else build(target.fields, source.fields)
+            fields.put(name, Entry(target.aliasedName, child, path))
         }
         new ResponseProjection(fields, translations)
       }

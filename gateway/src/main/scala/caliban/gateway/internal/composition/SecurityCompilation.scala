@@ -5,13 +5,12 @@ import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition.{ FieldCoordinate, TypeCoordinate }
 import caliban.gateway.internal.composition.FederationCompilation._
-import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.parsing.adt.{ Directive, Selection }
 import caliban.schema.RootType
 
 private[composition] object SecurityCompilation {
 
-  def compile(subgraph: PreparedSubgraph): List[SecurityDirectiveApplication] =
+  def compile(subgraph: Source): List[SecurityDirectiveApplication] =
     subgraph.federationApplications.collect {
       case FederationApplication(TypeCoordinate(typeName, _), member: FederationDirective.Security, directive)      =>
         SecurityDirectiveApplication(subgraph.name, typeName, None, member, groups(directive))
@@ -67,18 +66,11 @@ private[composition] object SecurityCompilation {
   }
 
   private def missingTransitiveDiagnostics(dependencies: List[Dependency], graph: ComposedGraph): List[String] = {
-    val applications = graph.securityApplications
-
-    def applicable(selectedType: String, candidateType: String): Boolean =
-      selectedType == candidateType || typesOverlap(graph.possibleTypesByName, selectedType, candidateType, None)
-
     def typeApplications(typeName: String): List[SecurityDirectiveApplication] =
-      applications.filter(application => application.fieldName.isEmpty && applicable(typeName, application.typeName))
+      graph.securityAt(typeName, None, None)
 
     def fieldApplications(typeName: String, fieldName: String): List[SecurityDirectiveApplication] =
-      applications.filter(application =>
-        application.fieldName.contains(fieldName) && applicable(typeName, application.typeName)
-      )
+      graph.securityAt(typeName, Some(fieldName), None)
 
     // Field sets can select fields hidden from clients, so they resolve against the source schema.
     def requiredProfiles(

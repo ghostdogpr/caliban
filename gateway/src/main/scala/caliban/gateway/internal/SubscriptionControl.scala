@@ -53,7 +53,7 @@ private[gateway] final class SubscriptionControl[-R] private (
                      if (current.active.size >= config.maxActive) Some(SubscriptionTermination.Capacity) else None
                    ) match {
                      case Some(error) =>
-                       val rejected = notify(Event.SubscriptionAdmission(false))(hooks.subscriptionAdmission)
+                       val rejected = hooks.subscriptionAdmission(Event.SubscriptionAdmission(false))
                        (rejected *> ZIO.fail(error)) -> current
                      case None        => ZIO.unit -> current.copy(active = current.active + signal)
                    }
@@ -67,13 +67,11 @@ private[gateway] final class SubscriptionControl[-R] private (
                            _.fold(SubscriptionTermination.code, _ => CompleteReason)
                          )
                        )
-                       .flatMap(why =>
-                         notify(Event.SubscriptionTerminated(why, ended - started))(hooks.subscriptionTerminated)
-                       )
+                       .flatMap(why => hooks.subscriptionTerminated(Event.SubscriptionTerminated(why, ended - started)))
                        .ensuring(state.update(current => current.copy(active = current.active - signal)).commit)
                    }
                  }
-      _       <- notify(Event.SubscriptionAdmission(true))(hooks.subscriptionAdmission)
+      _       <- hooks.subscriptionAdmission(Event.SubscriptionAdmission(true))
     } yield signal
 
   private def openSource[R1 <: R](
@@ -130,11 +128,6 @@ private[gateway] final class SubscriptionControl[-R] private (
       .concat(ZStream.execute(signal.succeed(()) *> signal.await))
       .interruptWhen(signal.await)
       .tapError(signal.fail(_))
-
-  private def notify[R1 <: R, Ev <: Event](event: Ev)(handler: PhaseHandler[R1, Ev, Nothing, Result])(implicit
-    trace: Trace
-  ): URIO[R1, Unit] =
-    handler.run(event)(ZIO.unit)(Result.classifyExit(PhaseHooks.Outcome.InternalError))
 
 }
 

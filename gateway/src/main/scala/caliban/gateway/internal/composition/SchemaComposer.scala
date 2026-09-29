@@ -8,7 +8,7 @@ import caliban.gateway.internal.composition.FederationCompilation._
 import caliban.gateway.internal.composition.FederationCompilation.FederationDirective._
 import caliban.introspection.adt._
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
+import caliban.parsing.adt.{ Document, OperationType, Selection }
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -26,10 +26,10 @@ private[gateway] object SchemaComposer {
   import DirectiveComposition._
   import TypeComposition._
 
-  def compose(prepared: List[PreparedSubgraph]): Either[GatewayBuildError, ComposedGraph] =
+  def compose(prepared: List[Source]): Either[GatewayBuildError, ComposedGraph] =
     new SchemaComposer(prepared).compose.left.map(errors => SchemaCompositionFailed(errors.distinct.sorted))
 
-  def prepare[R](subgraph: Subgraph[R], document: Document): Either[SubgraphBuildError, PreparedSubgraph] = {
+  def prepare[R](subgraph: Subgraph[R], document: Document): Either[SubgraphBuildError, Source] = {
     val federation   = subgraph.source.federation
     val rootDocument = if (federation) withFederationQueryRoot(document) else document
     for {
@@ -61,114 +61,15 @@ private[gateway] object SchemaComposer {
             .left
             .map(SchemaValidationFailed(_))
         else Right(normalized)
-    } yield PreparedSubgraph(
+    } yield new Source(
       subgraph.name,
       transformed.rootType,
       DirectiveComposition.schemaDirectives(transformed.document),
-      subgraph.lookups.map(mapping.transform),
+      subgraph.lookups,
       mapping,
       extensionTypes,
       names
     )
-  }
-
-  private[gateway] final case class PreparedSubgraph(
-    name: String,
-    rootType: RootType,
-    schemaDirectives: List[Directive],
-    lookups: List[Lookup],
-    mapping: SchemaMapping,
-    federation1ExtensionTypes: Set[String],
-    directiveNames: FederationDirectiveNames
-  ) {
-    lazy val directiveApplications: List[TypeSystemDirectiveApplication] =
-      FederationCompilation.directiveApplications(rootType, schemaDirectives)
-
-    lazy val keys: SubgraphKeys = subgraphKeys(this)
-
-    def federation: Boolean = directiveNames.mode != SubgraphMode.Ordinary
-
-    lazy val (federationErrors, federationApplications) =
-      (for {
-        application <- directiveApplications
-        directive   <- application.directives
-        coordinate   = application.coordinate
-        result      <-
-          directiveNames.resolved.get(directive.name).map(validateApplication(name, coordinate, _, directive)) ++
-            directiveNames.unsupported.get(directive.name).map(message => Left(List(s"[$name] ${message(coordinate)}")))
-      } yield result).partitionMap(identity)
-
-    lazy val repeatedDirectives: List[String] = {
-      val repeatable =
-        rootType.additionalDirectives.map(definition => definition.name -> definition.isRepeatable).toMap ++
-          directiveNames.resolved.map { case (local, member) => local -> member.definition.isRepeatable }
-      directiveApplications.flatMap { application =>
-        duplicates(application.directives.map(_.name))
-          .filter(repeatable.get(_).contains(false))
-          .map(directive =>
-            s"[$name] Non-repeatable directive '@$directive' is applied more than once at '${application.coordinate.display}'."
-          )
-      }
-    }
-
-    def applications(member: FederationDirective): List[FederationApplication] =
-      federationApplications.filter(_.member == member)
-
-    private lazy val appliedAt: Set[(FederationDirective, Coordinate)] =
-      federationApplications.map(application => application.member -> application.coordinate).toSet
-
-    def applied(member: FederationDirective, coordinate: Coordinate): Boolean = appliedAt(member -> coordinate)
-
-    lazy val overrides: Map[Coordinate, (FieldOverride, Option[String])] =
-      applications(Override).map(application => application.coordinate -> fieldOverride(this, application)).toMap
-
-    lazy val compiledLookups: List[Either[List[String], (String, EntityLookup)]] =
-      lookups.map(lookup =>
-        LookupCompilation
-          .compile(this, lookup)
-          .map(operation => lookup.typeName -> EntityLookup(lookup.keyFields.map(KeyField(_, Nil)), operation))
-      )
-
-    def isInterfaceObject(name: String): Boolean =
-      !RootOperations.contains(name) && applied(InterfaceObject, TypeCoordinate(name, __DirectiveLocation.OBJECT))
-
-    def entityLookups(name: String): List[EntityLookup] =
-      if (RootOperations.contains(name)) Nil
-      else if (!federation) compiledLookups.collect { case Right((`name`, lookup)) => lookup }
-      else if (!hasEntityLookup(this, name)) Nil
-      else
-        keys.all.collect { case FederationKey(`name`, fields, true) =>
-          EntityLookup(fields, LookupOperation.FederationEntities)
-        }
-
-    lazy val requiredFieldSets = fieldSets(Requires)
-    lazy val providedFieldSets = fieldSets(Provides)
-
-    private def fieldSets(member: FederationDirective): List[Either[String, (FieldCoordinate, List[Selection])]] =
-      applications(member).flatMap {
-        case application @ FederationApplication(at @ FieldCoordinate(typeName, fieldName), _, _) =>
-          for {
-            parent <- rootType.types.get(typeName)
-            field  <- fieldDefinition(parent, fieldName)
-            target  = if (member == Provides) field._type.innerType else parent
-          } yield validateFieldSet(this, application, target)(Right(_)).map(at -> _)
-        case _                                                                                    => None
-      }
-
-    lazy val contexts: Either[List[String], ContextCompilation.FederationContexts] = ContextCompilation.compile(this)
-
-    lazy val costs: Either[List[String], CostMetadata] = CostCompilation.compile(this)
-
-    lazy val diagnostics: List[String] =
-      keys.diagnostics ::: overrides.values.toList.flatMap(_._2) ::: federationErrors.flatten :::
-        repeatedDirectives ::: LookupCompilation.declarationDiagnostics(this) :::
-        compiledLookups.flatMap(_.left.getOrElse(Nil)) ::: (requiredFieldSets ::: providedFieldSets).flatMap(
-          _.left.toOption
-        ) :::
-        contexts.left.getOrElse(Nil) ::: costs.left.getOrElse(Nil)
-
-    lazy val hidden: Set[Coordinate] =
-      mapping.hidden ++ (applications(Inaccessible) ::: applications(FromContext)).map(_.coordinate)
   }
 
   private def withFederationQueryRoot(document: Document): Document = {
@@ -222,7 +123,7 @@ private[gateway] object SchemaComposer {
       case _                                 => Left(s"Invalid Federation @override label '$label'.")
     }
 
-  private def fieldOverride(subgraph: PreparedSubgraph, application: FederationApplication) = {
+  private[composition] def fieldOverride(subgraph: Source, application: FederationApplication) = {
     val arguments = application.directive.arguments
     val at        = application.coordinate.display
     val label     = stringArgument(arguments, "label").map(parseProgressiveOverrideLabel)
@@ -234,7 +135,7 @@ private[gateway] object SchemaComposer {
       error.map(error => s"[${subgraph.name}] $error")
   }
 
-  private def validateFieldSet[A](subgraph: PreparedSubgraph, application: FederationApplication, parent: __Type)(
+  private[composition] def validateFieldSet[A](subgraph: Source, application: FederationApplication, parent: __Type)(
     shape: List[Selection] => Either[String, A]
   ): Either[String, A] = {
     val directive = application.directive
@@ -251,7 +152,7 @@ private[gateway] object SchemaComposer {
   }
 
   private def validateFieldSetSelections(
-    subgraph: PreparedSubgraph,
+    subgraph: Source,
     parent: __Type,
     selections: List[Selection]
   ): Either[String, Unit] = {
@@ -262,7 +163,7 @@ private[gateway] object SchemaComposer {
     Validator.validateAll(document, subgraph.rootType.copy(queryType = parent)).left.map(_.msg)
   }
 
-  private def subgraphKeys(subgraph: PreparedSubgraph): SubgraphKeys = {
+  private[composition] def subgraphKeys(subgraph: Source): SubgraphKeys = {
     val (errors, keys) = subgraph
       .applications(Key)
       .collect { case application @ FederationApplication(TypeCoordinate(name, _), _, directive) =>
@@ -275,12 +176,15 @@ private[gateway] object SchemaComposer {
       .flatten
       .partitionMap(identity)
     val keyFields      = keys.flatMap(key => collectKeyFields(subgraph.rootType, key.typeName, key.fields))
-    val lookupKeys     = subgraph.lookups.flatMap(lookup => lookup.keyFields.map(FieldCoordinate(lookup.typeName, _)))
+    val lookupKeys     = subgraph.lookups.flatMap { lookup =>
+      val typeName = subgraph.mapping.clientType(lookup.typeName)
+      lookup.keyFields.map(field => FieldCoordinate(typeName, subgraph.mapping.clientField(lookup.typeName, field)))
+    }
     SubgraphKeys(keys, errors, keyFields.toSet ++ lookupKeys, federation1ExtensionKeyFields(subgraph, keys))
   }
 
   private def federation1ExtensionKeyFields(
-    subgraph: PreparedSubgraph,
+    subgraph: Source,
     keys: List[FederationKey]
   ): Set[FieldCoordinate] =
     if (subgraph.directiveNames.mode != SubgraphMode.Federation1) Set.empty
@@ -299,7 +203,7 @@ private[gateway] object SchemaComposer {
       FieldCoordinate(typeName, field.name) :: childType.toList.flatMap(collectKeyFields(rootType, _, field.children))
     }
 
-  private def hasEntityLookup(subgraph: PreparedSubgraph, entityType: String): Boolean =
+  private[composition] def hasEntityLookup(subgraph: Source, entityType: String): Boolean =
     fieldDefinition(subgraph.rootType.queryType, EntitiesField).forall { field =>
       isEntityLookup(field) && field._type.innerType.possibleTypes.exists(_.exists(_.name.contains(entityType)))
     }
@@ -325,7 +229,7 @@ private[gateway] object SchemaComposer {
 /**
  * Composes loaded subgraphs; all intermediate state is scoped to one composition.
  */
-private[gateway] final class SchemaComposer private (subgraphs: List[SchemaComposer.PreparedSubgraph]) {
+private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGraph.Source]) {
   import SchemaComposer._
   import DirectiveComposition._
   import TypeComposition._
@@ -338,27 +242,16 @@ private[gateway] final class SchemaComposer private (subgraphs: List[SchemaCompo
 
   private val sortedSubgraphs    = subgraphs.sortBy(_.name)
   private val composedDirectives = DirectiveComposition.compile(sortedSubgraphs)
-  private val (sources, types)   = sortedSubgraphs.map { subgraph =>
-    val visible = subgraph.rootType.types.filter { case (name, _) => !subgraph.directiveNames.hiddenTypes(name) }
-    val source  = sourceSubgraph(subgraph, visible.keySet)
-    source -> visible.map { case (name, tpe) => subgraphType(subgraph, source, name, tpe) }
-  }.unzip
-  private val typeComposition    =
-    new TypeComposition(types.flatten, composedDirectives)
+  private val typeComposition    = new TypeComposition(
+    sortedSubgraphs.flatMap { subgraph =>
+      subgraph.rootType.types.collect {
+        case (name, tpe) if !subgraph.directiveNames.hiddenTypes(name) => subgraphType(subgraph, name, tpe)
+      }
+    },
+    composedDirectives
+  )
 
-  private def sourceSubgraph(subgraph: PreparedSubgraph, visible: Set[String]): Source =
-    new Source(
-      subgraph.name,
-      subgraph.mapping,
-      subgraph.rootType.types,
-      visible.iterator.map(name => name -> subgraph.entityLookups(name)).filter(_._2.nonEmpty).toMap,
-      visible.filter(subgraph.isInterfaceObject),
-      subgraph.requiredFieldSets.collect { case Right(fieldSet) => fieldSet }.toMap,
-      subgraph.providedFieldSets.collect { case Right(fieldSet) => fieldSet }.toMap,
-      subgraph.contexts.getOrElse(ContextCompilation.FederationContexts(Nil, Map.empty))
-    )
-
-  private def subgraphType(subgraph: PreparedSubgraph, source: Source, name: String, tpe: __Type): SubgraphType = {
+  private def subgraphType(subgraph: Source, name: String, tpe: __Type): SubgraphType = {
     val isRoot = RootOperations.contains(name)
 
     def has(member: FederationDirective): Boolean =
@@ -394,11 +287,10 @@ private[gateway] final class SchemaComposer private (subgraphs: List[SchemaCompo
     }
 
     SubgraphType(
-      subgraph = source,
+      subgraph = subgraph,
       name = name,
       tpe = composedType,
-      fields = composedType.allFields.map(subgraphField),
-      subgraphMode = subgraph.directiveNames.mode
+      fields = composedType.allFields.map(subgraphField)
     )
   }
 
@@ -407,7 +299,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[SchemaCompo
       rootType = rootType,
       fieldRoutes = typeComposition.inactiveRoutes,
       progressiveRoutes = typeComposition.progressiveRoutes,
-      sources = sources,
+      sources = sortedSubgraphs,
       possibleTypesByName = rootType.types.map { case (name, tpe) => name -> tpe.possibleTypeNames },
       costMetadata = CostCompilation.merge(sortedSubgraphs.flatMap(_.costs.toOption)),
       securityApplications = sortedSubgraphs.flatMap(SecurityCompilation.compile)

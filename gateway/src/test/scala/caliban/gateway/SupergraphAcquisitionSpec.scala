@@ -118,19 +118,19 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     suite("local sources")(
       test("parses sdl") {
         for {
-          exit     <- load(Supergraph.Source.Sdl(minimalSupergraphSdl))
+          exit     <- load(Supergraph.sdl(minimalSupergraphSdl).source)
           document <- ZIO.fromEither(exit.toEither).orDie
         } yield assertTrue(queryFields(document) == List("hello"))
       },
       test("returns a parsed document unchanged") {
         for {
           document <- parseSdl(minimalSupergraphSdl)
-          exit     <- load(Supergraph.Source.Parsed(document))
+          exit     <- load(Supergraph.parsed(document).source)
         } yield assertTrue(exit == Exit.succeed(document))
       },
       test("reports unparseable sdl rather than throwing") {
         for {
-          exit  <- load(Supergraph.Source.Sdl("type Query {"))
+          exit  <- load(Supergraph.sdl("type Query {").source)
           error <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SchemaAcquisitionError.SchemaParsingFailed])
       }

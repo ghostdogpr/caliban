@@ -50,9 +50,9 @@ private[gateway] final class CandidateSearch(limits: Limits) {
   /**
    * Rejected routes are skipped; exhausting a budget stops the entire search. A single route does not branch.
    */
-  def evaluate[A, B](values: List[A])(plan: A => Either[PlanningFailure, B]): Either[PlanningFailure, List[B]] =
+  def evaluate[A, B](values: List[A])(plan: A => Either[PlanningFailure, B]): Either[PlanningFailure, ::[B]] =
     values match {
-      case value :: Nil => checkTimeout.flatMap(_ => plan(value)).map(List(_))
+      case value :: Nil => checkTimeout.flatMap(_ => plan(value)).map(::(_, Nil))
       case _            =>
         recordCandidates(values.size).flatMap { _ =>
           @tailrec
@@ -60,11 +60,13 @@ private[gateway] final class CandidateSearch(limits: Limits) {
             remaining: List[A],
             successes: List[B],
             firstFailure: Option[PlanningFailure]
-          ): Either[PlanningFailure, List[B]] =
+          ): Either[PlanningFailure, ::[B]] =
             remaining match {
               case Nil           =>
-                if (successes.nonEmpty) Right(successes.reverse)
-                else Left(firstFailure.getOrElse(NoCompleteCandidate))
+                successes.reverse match {
+                  case head :: tail => Right(::(head, tail))
+                  case Nil          => Left(firstFailure.getOrElse(NoCompleteCandidate))
+                }
               case value :: tail =>
                 recordExpansion.flatMap(_ => plan(value)) match {
                   case Right(candidate)                         => collect(tail, candidate :: successes, firstFailure)

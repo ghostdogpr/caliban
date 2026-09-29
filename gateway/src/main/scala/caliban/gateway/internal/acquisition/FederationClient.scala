@@ -22,8 +22,8 @@ private[acquisition] object FederationClient {
       FederationErrors(_)
     ).flatMap { data =>
       ZIO.fromEither(for {
-        service  <- objectField(data, ServiceField, "$.data")
-        sdl      <- string(service, "sdl", s"$$.data.$ServiceField")
+        service  <- data.obj(ServiceField)
+        sdl      <- service.string("sdl")
         document <- parseWithinDepth(sdl, config.maxParsingDepth)(Parser.parseQuery)
       } yield document)
     }

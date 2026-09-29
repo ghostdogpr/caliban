@@ -2,24 +2,20 @@ package caliban.gateway.internal.execution
 
 import caliban.PathValue
 
-import scala.collection.mutable
-
 /**
- * Scans small path sets directly and uses a prefix tree for larger sets.
+ * Prefix tree over a set of paths.
  */
-private[execution] final class PathIndex private (root: PathIndex.Node, linear: List[List[PathValue]]) {
+private[execution] final class PathIndex private (root: PathIndex.Node) {
 
   /**
    * Whether an indexed path is an ancestor of, or equal to, the given path.
    */
-  def containsPrefixOf(path: List[PathValue]): Boolean =
-    linear.exists(path.startsWith(_)) || find(path, overlap = false)
+  def containsPrefixOf(path: List[PathValue]): Boolean = find(path, overlap = false)
 
   /**
    * Whether either path is an ancestor of, or equal to, the other.
    */
-  def overlaps(path: List[PathValue]): Boolean =
-    linear.exists(indexed => indexed.startsWith(path) || path.startsWith(indexed)) || find(path, overlap = true)
+  def overlaps(path: List[PathValue]): Boolean = find(path, overlap = true)
 
   private def find(path: List[PathValue], overlap: Boolean): Boolean = {
     var current   = root
@@ -35,26 +31,15 @@ private[execution] final class PathIndex private (root: PathIndex.Node, linear: 
 }
 
 private[execution] object PathIndex {
-  def apply(paths: Iterator[List[PathValue]]): PathIndex = {
-    val initial = new mutable.ListBuffer[List[PathValue]]
-    while (initial.size <= LinearLimit && paths.hasNext) initial += paths.next()
-    if (initial.size <= LinearLimit)
-      if (initial.isEmpty) empty else new PathIndex(null, initial.toList)
+  def apply(paths: Iterator[List[PathValue]]): PathIndex =
+    if (!paths.hasNext) empty
     else {
-      val root     = new Node
-      var buffered = initial.toList
-      while (buffered ne Nil) {
-        add(root, buffered.head)
-        buffered = buffered.tail
-      }
-      while (paths.hasNext) add(root, paths.next())
-      new PathIndex(root, Nil)
+      val root = new Node
+      paths.foreach(add(root, _))
+      new PathIndex(root)
     }
-  }
 
-  val empty: PathIndex = new PathIndex(null, Nil)
-
-  private final val LinearLimit = 4
+  val empty: PathIndex = new PathIndex(null)
 
   private final class Node {
     val children = new java.util.HashMap[PathValue, Node]

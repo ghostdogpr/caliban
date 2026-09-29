@@ -106,8 +106,8 @@ final class Gateway[-R] private[gateway] (
     for {
       executables <- loadAll(subgraphs)(_.subgraph.name)(_.load(http, config.remoteErrorMessages, hooks))
       graph       <- ZIO.fromEither(SchemaComposer.compose(executables.map(_.prepared)))
-      security     = new OperationSecurity(graph.possibleTypesByName, graph.securityApplications)
-      _           <- validate(if (hooks.authorization.hasIncoming) Nil else security.diagnostics)
+      security     = new OperationSecurity(graph)
+      _           <- validate(if (hooks.authorization.nonEmpty) Nil else security.diagnostics)
       executors    = executables.map(value => value.prepared.name -> value.executor).toMap
       requestRoot  = Introspector.withIntrospection(graph.rootType)
       operations  <- OperationPreparation.make(

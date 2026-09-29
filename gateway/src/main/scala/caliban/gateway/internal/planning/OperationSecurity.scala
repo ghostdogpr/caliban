@@ -3,6 +3,7 @@ package caliban.gateway.internal.planning
 import caliban.execution.{ isMetaField, Field }
 import caliban.gateway.{ innerParentTypeName, traverseOption, typesOverlap }
 import caliban.gateway.PhaseHooks.SecurityRequirement
+import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.composition.ComposedGraph.SecurityDirectiveApplication
 
 import scala.collection.compat._
@@ -10,16 +11,14 @@ import scala.collection.compat._
 /**
  * Collects security requirements from client selections.
  */
-private[gateway] final class OperationSecurity(
-  possibleTypesByName: Map[String, Set[String]],
-  securityApplications: List[SecurityDirectiveApplication]
-) {
+private[gateway] final class OperationSecurity(graph: ComposedGraph) {
+  private val securityApplications = graph.securityApplications
 
   def diagnostics: List[String] =
     securityApplications
       .filter(_.scopes.nonEmpty)
       .map(application =>
-        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an incoming authorization handler."
+        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an authorization hook."
       )
       .distinct
       .sorted
@@ -41,7 +40,8 @@ private[gateway] final class OperationSecurity(
       .map { case (target, values) =>
         target -> traverseOption(values)(_.scopes).map(SecurityDirectiveApplication.conjunction)
       }
-  private val securedTypes   = securityApplications
+
+  private val securedTypes = securityApplications
     .groupMap(_.fieldName)(_.typeName)
     .map { case (fieldName, values) => fieldName -> values.distinct.sorted }
 
@@ -54,7 +54,7 @@ private[gateway] final class OperationSecurity(
     condition: Option[Set[String]]
   ): List[Option[SecurityRequirement]] =
     requirementsAt(typeName, fieldName) ::: securedTypes.getOrElse(fieldName, Nil).flatMap { other =>
-      if (other != typeName && typesOverlap(possibleTypesByName, typeName, other, condition))
+      if (other != typeName && typesOverlap(graph.possibleTypesByName, typeName, other, condition))
         requirementsAt(other, fieldName)
       else Nil
     }

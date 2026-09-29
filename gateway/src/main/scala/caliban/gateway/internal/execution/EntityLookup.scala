@@ -3,7 +3,7 @@ package caliban.gateway.internal.execution
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, PathValue, ResponseValue }
 import caliban.execution.Field
 import caliban.gateway.internal.PrivateAliases
-import caliban.gateway.internal.composition.{ ComposedGraph, SchemaMapping }
+import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.composition.ComposedGraph.Source
 import caliban.gateway.internal.execution.EntityExecutor._
 import caliban.gateway.internal.execution.EntityLookup._
@@ -24,68 +24,55 @@ import caliban.Value.{ EnumValue, NullValue, StringValue }
  * Builds entity lookup requests together with the rules for translating and correlating their responses.
  * Generated aliases and correlation selections stay private to each call.
  */
-private[execution] object EntityLookup {
-  def prepare(batch: EntityBatch, cache: PlanExecutionCache): Option[(GraphQLRequest, Call)] = {
-    val fetch   = batch.fetch
-    val mapping = fetch.source.mapping
-    fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities                                                =>
-        val variant = cache.federationLookup(batch)(federationVariant)
+private[internal] object EntityLookup {
+  def prepare(batch: EntityBatch): Option[(GraphQLRequest, Call)] =
+    batch.variant match {
+      case variant: FederationVariant                                   =>
         val request = GraphQLRequest(
           query = Some(variant.query),
           operationName = Some(EntityOperationName),
-          variables = Some(Map(RepresentationsVariable -> representations(fetch, mapping, batch)))
+          variables = Some(Map(RepresentationsVariable -> representations(batch)))
         )
-        Some(
-          request -> new Call(batch, variant.projection, ResponseShape.Ordered(EntitiesField))
-        )
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single) =>
-        val variant = cache.graphqlLookup(batch)(graphqlVariant)
+        Some(request -> new Call(batch, variant.projection, ResponseShape.Ordered(EntitiesField)))
+      case SingleVariant(projection, field, arguments, selections)      =>
         val aliases = Vector.tabulate(batch.entries.size)(index => s"${LookupAlias}_$index")
         traverseOption(batch.entries.zip(aliases)) { case (entry, alias) =>
-          evaluateArguments(arguments, batch, Some(entry)).map(lookupField(mapping, field, alias, _, variant))
-        }.map(fields => lookupRequest(fields) -> new Call(batch, variant.projection, ResponseShape.Aliases(aliases)))
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.ByKey)  =>
-        val variant = cache.graphqlLookup(batch)(graphqlVariant)
-        evaluateArguments(arguments, batch, None).map { values =>
-          lookupRequest(List(lookupField(mapping, field, LookupAlias, values, variant))) ->
-            new Call(batch, variant.projection, ResponseShape.Keyed(LookupAlias, variant.keys))
+          argumentValues(arguments)(keyValue(entry)).map(lookupField(field, alias, _, selections))
+        }.map(fields => lookupRequest(fields) -> new Call(batch, projection, ResponseShape.Aliases(aliases)))
+      case ByKeyVariant(projection, field, arguments, keys, selections) =>
+        val values = argumentValues(arguments) { key =>
+          traverseOption(batch.entries)(entry => argumentValue(key)(keyValue(entry))).map(InputListValue(_))
+        }
+        values.map { values =>
+          lookupRequest(List(lookupField(field, LookupAlias, values, selections))) ->
+            new Call(batch, projection, ResponseShape.Keyed(LookupAlias, keys))
         }
     }
-  }
 
-  def preparePart(batch: EntityBatch, cache: PlanExecutionCache, slot: Int): (CallPart, Call) = {
-    val fetch   = batch.fetch
-    val mapping = fetch.source.mapping
-    val variant = cache.federationLookup(batch)(federationVariant)
-    val part    = CallPart(slot, variant.selections, representations(fetch, mapping, batch))
+  def preparePart(batch: EntityBatch, variant: FederationVariant, slot: Int): (CallPart, Call) = {
+    val part = CallPart(slot, variant.selections, representations(batch))
     part -> new Call(batch, variant.projection, ResponseShape.Ordered(part.alias))
   }
 
-  private def representations(fetch: EntityFetch, mapping: SchemaMapping, batch: EntityBatch): InputValue = {
-    val typename = if (fetch.source.isInterfaceObject(fetch.entityType)) Some(fetch.entityType) else None
+  private def representations(batch: EntityBatch): InputValue = {
+    val target   = batch.fetch.target
+    val typename = if (target.source.isInterfaceObject(target.entityType)) Some(target.entityType) else None
     InputListValue(
       batch.entries
-        .map(entry => mapping.representationToSource(fetch.entityType, federationRepresentation(typename, entry)))
+        .map(entry =>
+          target.source.mapping.representationToSource(target.entityType, federationRepresentation(typename, entry))
+        )
         .toList
     )
   }
 
   private def lookupField(
-    mapping: SchemaMapping,
     field: String,
     alias: String,
     arguments: Map[String, InputValue],
-    variant: GraphQLVariant
+    selections: List[Selection]
   ): Selection.Field =
-    Selection.Field(
-      Some(alias),
-      mapping.lookupFieldToSource(field),
-      mapping.lookupArgumentsToSource(field, arguments),
-      Nil,
-      variant.sourceSelections,
-      0
-    )
+    Selection.Field(Some(alias), field, arguments, Nil, selections, 0)
 
   private def lookupRequest(selections: List[Selection]): GraphQLRequest = {
     val operation = OperationDefinition(OperationType.Query, Some(LookupOperationName), Nil, Nil, selections)
@@ -202,64 +189,42 @@ private[execution] object EntityLookup {
     private def entryIndex(index: Int, value: Option[ResponseValue]): Option[Int] =
       (shape match {
         case ResponseShape.Keyed(_, keys) =>
-          value.collect { case obj: ObjectValue => readIdentity(fetch.entityType, keys, IndexedFields(obj)) }.flatten
+          value.collect { case obj: ObjectValue =>
+            readIdentity(fetch.target.entityType, keys, IndexedFields(obj))
+          }.flatten
             .flatMap(expected.get)
         case _                            => Some(index)
       }).filter(batch.entries.isDefinedAt)
 
   }
 
-  private def federationVariant(
-    fetch: EntityFetch,
-    contexts: Map[ContextualArgument, InputValue]
-  ): FederationVariant = {
-    val mapping          = fetch.source.mapping
-    val executableFields = executableEntityFields(fetch, contexts)
-    val fragments        = federationFragments(fetch, mapping, sourceSelections(mapping, executableFields))
-    FederationVariant(
-      ResponseProjection.compile(fetch.fields, executableFields, mapping.typeNames),
-      renderSelections(fragments)
+  def variant(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): Variant = {
+    val target     = fetch.target
+    val mapping    = target.source.mapping
+    val executable = target.source.prepareFields(
+      target.entityType,
+      injectContextArguments(target.source, fetch.fields, contexts)
     )
-  }
-
-  private def graphqlVariant(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): GraphQLVariant = {
-    val mapping               = fetch.source.mapping
-    val executableFields      = executableEntityFields(fetch, contexts)
-    val (keys, keySelections) = fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.GraphQLQuery(_, _, ComposedGraph.LookupResult.ByKey) =>
-        val aliases = new PrivateAliases(responseNames(executableFields))
-        val keys    = fetch.keys.map(key => RequiredSelection(key.field, aliases.next(LookupKeyAliasBase)))
-        keys -> keys.map(key => requiredSelection(mapping.requiredSelectionToSource(fetch.entityType, key)))
-      case _                                                                                  => Nil -> Nil
+    val projection = ResponseProjection.compile(fetch.fields, executable, mapping.typeNames)
+    val selections = executable.flatMap(field => targetedSelections(mapping.fieldToSource(field)))
+    target.lookup.operation match {
+      case ComposedGraph.LookupOperation.FederationEntities       =>
+        val fragment =
+          Selection.InlineFragment(
+            Some(NamedType(mapping.sourceType(target.entityType), nonNull = false)),
+            Nil,
+            selections
+          )
+        FederationVariant(projection, DocumentRenderer.selectionsRenderer.renderCompact(fragment :: Nil))
+      case ComposedGraph.LookupOperation.Single(field, arguments) =>
+        SingleVariant(projection, field, arguments, selections)
+      case ComposedGraph.LookupOperation.ByKey(field, arguments)  =>
+        val aliases = new PrivateAliases(responseNames(executable))
+        val keys    = target.keys.map(key => RequiredSelection(key.field, aliases.next(LookupKeyAliasBase)))
+        val fields  = keys.map(key => requiredSelection(mapping.requiredSelectionToSource(target.entityType, key)))
+        ByKeyVariant(projection, field, arguments, keys, selections ::: fields)
     }
-    GraphQLVariant(
-      keys,
-      sourceSelections(mapping, executableFields) ::: keySelections,
-      ResponseProjection.compile(fetch.fields, executableFields, mapping.typeNames)
-    )
   }
-
-  private def executableEntityFields(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): List[Field] =
-    fetch.source.prepareEntityFields(fetch.entityType, injectContextArguments(fetch.source, fetch.fields, contexts))
-
-  private def sourceSelections(mapping: SchemaMapping, executableFields: List[Field]): List[Selection] =
-    executableFields.flatMap(field => targetedSelections(mapping.fieldToSource(field)))
-
-  private def federationFragments(
-    fetch: EntityFetch,
-    mapping: SchemaMapping,
-    sourceSelections: List[Selection]
-  ): List[Selection] =
-    List(
-      Selection.InlineFragment(
-        Some(NamedType(mapping.sourceType(fetch.entityType), nonNull = false)),
-        Nil,
-        sourceSelections
-      )
-    )
-
-  private def renderSelections(selections: List[Selection]): String =
-    DocumentRenderer.selectionsRenderer.renderCompact(selections)
 
   private def requiredSelection(value: RequiredSelection): Selection =
     Selection.Field(
@@ -281,13 +246,13 @@ private[execution] object EntityLookup {
       fields.map { field =>
         val parent = parentTypeName(field)
         val added  = values.iterator.collect {
-          case (context, value) if context.parentType == parent && context.field == field.name =>
+          case (context, value) if context.at.typeName == parent && context.at.fieldName == field.name =>
             val expected = source
               .sourceField(parent, field.name)
-              .flatMap(_.allArgs.find(_.name == context.argument))
+              .flatMap(_.allArgs.find(_.name == context.at.argumentName))
               .map(_._type)
             val input    = expected.fold(value)(coerceInput(value, _))
-            context.argument -> input
+            context.at.argumentName -> input
         }.toMap
         field.copy(arguments = field.arguments ++ added, fields = injectContextArguments(source, field.fields, values))
       }
@@ -315,35 +280,19 @@ private[execution] object EntityLookup {
         (TypenameField -> StringValue(typename.getOrElse(entry.identity.typename)))
     )
 
-  private def evaluateArguments(
-    arguments: Map[String, ComposedGraph.LookupArgument],
-    batch: EntityBatch,
-    current: Option[EntityBatchEntry]
+  private def argumentValues[A](arguments: List[(String, Lookup.Argument[A])])(
+    leaf: A => Option[InputValue]
   ): Option[Map[String, InputValue]] =
-    traverseOption(arguments.toList) { case (name, argument) =>
-      evaluateArgument(argument, batch, current).map(name -> _)
-    }
-      .map(_.toMap)
+    traverseOption(arguments) { case (name, argument) => argumentValue(argument)(leaf).map(name -> _) }.map(_.toMap)
 
-  private def evaluateArgument(
-    argument: ComposedGraph.LookupArgument,
-    batch: EntityBatch,
-    current: Option[EntityBatchEntry]
-  ): Option[InputValue] =
+  private def argumentValue[A](argument: Lookup.Argument[A])(leaf: A => Option[InputValue]): Option[InputValue] =
     argument match {
-      case ComposedGraph.LookupArgument.Key(field, expectedType) =>
-        current
-          .flatMap(_.identity.keys.collectFirst { case (`field`, value) => value })
-          .map(coerceInput(_, expectedType))
-      case ComposedGraph.LookupArgument.ObjectMapping(fields)    =>
-        traverseOption(fields) { case (name, value) =>
-          evaluateArgument(value, batch, current).map(name -> _)
-        }
-          .map(values => InputObjectValue(values.toMap))
-      case ComposedGraph.LookupArgument.Batch(value)             =>
-        traverseOption(batch.entries)(entry => evaluateArgument(value, batch, Some(entry)))
-          .map(InputListValue.apply)
+      case Lookup.Argument.Leaf(value)           => leaf(value)
+      case Lookup.Argument.ObjectMapping(fields) => argumentValues(fields)(leaf).map(InputObjectValue(_))
     }
+
+  private def keyValue(entry: EntityBatchEntry)(key: ComposedGraph.KeyArgument): Option[InputValue] =
+    entry.identity.keys.collectFirst { case (key.field, value) => coerceInput(value, key.expectedType) }
 
   private def executionError(error: CalibanError): CalibanError.ExecutionError =
     error match {
@@ -389,16 +338,27 @@ private[execution] object EntityLookup {
       case _                                  => true
     })
 
-  final case class FederationVariant(projection: ResponseProjection, selections: String) {
+  sealed trait Variant { def projection: ResponseProjection }
+
+  final case class FederationVariant(projection: ResponseProjection, selections: String) extends Variant {
     lazy val query: String =
       entitiesQuery(List(RepresentationsVariable -> entitiesField(RepresentationsVariable, selections)))
   }
 
-  final case class GraphQLVariant(
+  final case class SingleVariant(
+    projection: ResponseProjection,
+    field: String,
+    arguments: List[(String, Lookup.Argument[ComposedGraph.KeyArgument])],
+    selections: List[Selection]
+  ) extends Variant
+
+  final case class ByKeyVariant(
+    projection: ResponseProjection,
+    field: String,
+    arguments: List[(String, Lookup.Argument[Lookup.Argument[ComposedGraph.KeyArgument]])],
     keys: List[RequiredSelection],
-    sourceSelections: List[Selection],
-    projection: ResponseProjection
-  )
+    selections: List[Selection]
+  ) extends Variant
 
   final case class CallPart(slot: Int, selections: String, representations: InputValue) {
     val alias: String    = s"${CallPart.AliasPrefix}$slot"

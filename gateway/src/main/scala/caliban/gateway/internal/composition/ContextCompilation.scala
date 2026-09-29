@@ -4,7 +4,6 @@ import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition.{ ArgumentCoordinate, FieldCoordinate, TypeCoordinate }
 import caliban.gateway.internal.composition.FederationCompilation._
-import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Selection }
 import caliban.rendering.DocumentRenderer
@@ -13,7 +12,7 @@ import caliban.schema.Types
 import scala.collection.compat._
 
 private[composition] object ContextCompilation {
-  def compile(subgraph: PreparedSubgraph): Either[List[String], FederationContexts] = {
+  def compile(subgraph: Source): Either[List[String], FederationContexts] = {
     val contexts       = subgraph.applications(FederationDirective.Context).collect {
       case FederationApplication(TypeCoordinate(typeName, _), _, directive) =>
         ContextDeclaration(typeName, ContextName(stringArgument(directive.arguments, "name").getOrElse("")))
@@ -39,7 +38,7 @@ private[composition] object ContextCompilation {
         _                 <- validateContextTypeConditions(parents, selections)
         // The last-declared context type is checked first, so its error is the one reported.
         _                 <- traverseEither(parents.reverse)(validateContextValue(subgraph, _, selections, argument._type))
-      } yield FieldCoordinate(at.typeName, at.fieldName) -> ContextArgument(argument.name, name, selections)
+      } yield FieldCoordinate(at.typeName, at.fieldName) -> ContextArgument(at, name, selections)
       result.left.map(error =>
         s"[${subgraph.name}] Invalid Federation @fromContext application at '${at.display}': $error"
       )
@@ -61,7 +60,7 @@ private[composition] object ContextCompilation {
   }
 
   private def validateContextReceiver(
-    subgraph: PreparedSubgraph,
+    subgraph: Source,
     parent: __Type,
     typeName: String,
     fieldName: String
@@ -75,7 +74,7 @@ private[composition] object ContextCompilation {
   }
 
   private def validateSelections(
-    subgraph: PreparedSubgraph,
+    subgraph: Source,
     values: List[Selection],
     topLevel: Boolean
   ): Either[String, Unit] =
@@ -97,7 +96,7 @@ private[composition] object ContextCompilation {
         Left("fragment spreads are not allowed in a context selection.")
     }.map(_ => ())
 
-  private def contextParents(subgraph: PreparedSubgraph, contextTypes: List[String]): Either[String, List[__Type]] =
+  private def contextParents(subgraph: Source, contextTypes: List[String]): Either[String, List[__Type]] =
     traverseEither(contextTypes) { contextType =>
       if (subgraph.isInterfaceObject(contextType))
         Left(s"context type '$contextType' cannot be an @interfaceObject.")
@@ -105,7 +104,7 @@ private[composition] object ContextCompilation {
     }
 
   private def validateContextValue(
-    subgraph: PreparedSubgraph,
+    subgraph: Source,
     parent: __Type,
     selections: List[Selection],
     argumentType: __Type
@@ -119,7 +118,7 @@ private[composition] object ContextCompilation {
     }
 
   private def contextSelectionTypes(
-    subgraph: PreparedSubgraph,
+    subgraph: Source,
     parent: __Type,
     selections: List[Selection]
   ): Either[String, List[__Type]] = {

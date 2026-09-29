@@ -3,7 +3,7 @@ package caliban.gateway.internal.acquisition
 import caliban.{ CalibanError, GraphQLRequest, ResponseValue }
 import caliban.CalibanError.ParsingError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ NullValue, StringValue }
+import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway._
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.Subgraph.SchemaInput
@@ -46,7 +46,7 @@ private[gateway] object RemoteSchemaAcquisition {
     scope: RedirectScope
   )(accepts: Status => Boolean, onErrors: List[CalibanError] => E)(implicit
     trace: Trace
-  ): IO[E, ObjectValue] =
+  ): IO[E, JsonObject] =
     followRedirects(endpoint, config, scope)(http.post(_, writeToArray(request), _, config.maxResponseBytes)).flatMap {
       reply =>
         reply.body match {
@@ -60,10 +60,10 @@ private[gateway] object RemoteSchemaAcquisition {
         }
     }.flatMap { response =>
       ZIO.fromEither(for {
-        envelope <- asObject(response, "$")
-        errors   <- responseErrors(envelope)
+        envelope <- Json(response, "$").obj
+        errors   <- responseErrors(envelope.value)
         _        <- if (errors.isEmpty) Right(()) else Left(onErrors(errors))
-        data     <- objectField(envelope, "data", "$")
+        data     <- envelope.obj("data")
       } yield data)
     }
 
@@ -133,27 +133,55 @@ private[gateway] object RemoteSchemaAcquisition {
       case _                => Left(InvalidResponse("$.errors"))
     }
 
-  private[acquisition] def asObject(value: ResponseValue, path: String): Either[InvalidResponse, ObjectValue] =
-    value match {
-      case obj: ObjectValue => Right(obj)
-      case _                => Left(InvalidResponse(path))
-    }
+  /**
+   * A response value and its JSON path, which every decoding failure reports. A missing field is `null`.
+   */
+  private[acquisition] final case class Json(value: ResponseValue, path: String) {
+    def invalid: InvalidResponse = InvalidResponse(path)
 
-  private[acquisition] def objectField(
-    obj: ObjectValue,
-    field: String,
-    path: String
-  ): Either[InvalidResponse, ObjectValue] =
-    asObject(obj.getOrNull(field), s"$path.$field")
+    def obj: Either[InvalidResponse, JsonObject] =
+      value match {
+        case obj: ObjectValue => Right(JsonObject(obj, path))
+        case _                => Left(invalid)
+      }
 
-  private[acquisition] def string(obj: ObjectValue, field: String, path: String): Either[InvalidResponse, String] =
-    asString(obj.getOrNull(field), s"$path.$field")
+    def string: Either[InvalidResponse, String] =
+      value match {
+        case StringValue(value) => Right(value)
+        case _                  => Left(invalid)
+      }
 
-  private[acquisition] def asString(value: ResponseValue, path: String): Either[InvalidResponse, String] =
-    value match {
-      case StringValue(value) => Right(value)
-      case _                  => Left(InvalidResponse(path))
-    }
+    def booleanOrFalse: Either[InvalidResponse, Boolean] =
+      value match {
+        case null | NullValue    => Right(false)
+        case BooleanValue(value) => Right(value)
+        case _                   => Left(invalid)
+      }
+
+    def optional[E, A](read: Json => Either[E, A]): Either[E, Option[A]] =
+      value match {
+        case null | NullValue => Right(None)
+        case _                => read(this).map(Some(_))
+      }
+
+    def list[A](read: Json => Either[SchemaAcquisitionError, A]): Either[SchemaAcquisitionError, List[A]] =
+      value match {
+        case ListValue(items) =>
+          traverseEither(items.zipWithIndex) { case (item, index) => read(Json(item, s"$path[$index]")) }
+        case _                => Left(invalid)
+      }
+
+    def listOrNil[A](read: Json => Either[SchemaAcquisitionError, A]): Either[SchemaAcquisitionError, List[A]] =
+      optional(_.list(read)).map(_.getOrElse(Nil))
+  }
+
+  private[acquisition] final case class JsonObject(value: ObjectValue, path: String) {
+    def apply(field: String): Json = Json(value.getOrNull(field), s"$path.$field")
+
+    def obj(field: String): Either[InvalidResponse, JsonObject] = apply(field).obj
+
+    def string(field: String): Either[InvalidResponse, String] = apply(field).string
+  }
 
   private[gateway] def parseSdl(sdl: String): Either[SchemaParsingFailed, Document] =
     Parser.parseQuery(sdl).left.map(SchemaParsingFailed(_))

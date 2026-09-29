@@ -4,7 +4,7 @@ import caliban.GraphQL
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition
 import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition.parseSdl
-import caliban.gateway.internal.composition.SchemaComposer
+import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer }
 import caliban.gateway.internal.execution.{ LocalSubgraphExecutor, RemoteSubgraphExecutor, SubgraphExecutor }
 import caliban.parsing.adt.Document
 import zio.{ IO, Scope, Trace, ZIO }
@@ -181,7 +181,7 @@ object Subgraph {
   }
 
   private[gateway] final case class Executable[-R](
-    prepared: SchemaComposer.PreparedSubgraph,
+    prepared: ComposedGraph.Source,
     executor: SubgraphExecutor[R]
   )
 

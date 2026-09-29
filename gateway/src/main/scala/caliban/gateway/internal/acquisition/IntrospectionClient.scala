@@ -1,7 +1,7 @@
 package caliban.gateway.internal.acquisition
 
-import caliban.{ GraphQLRequest, InputValue, ResponseValue }
-import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SchemaAcquisitionError, SubgraphAcquisitionError }
+import caliban.{ GraphQLRequest, InputValue }
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SubgraphAcquisitionError }
 import caliban.gateway.SchemaAcquisitionError.InvalidResponse
 import caliban.gateway.SubgraphAcquisitionError.IntrospectionErrors
 import caliban.gateway.internal.GatewayHttpClient
@@ -13,8 +13,7 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.parsers.Parsers
 import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
-import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.Value.StringValue
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
 
@@ -31,14 +30,14 @@ private[gateway] object IntrospectionClient {
     )
       .flatMap(data => ZIO.fromEither(decode(data, config.maxParsingDepth)))
 
-  private def decode(data: ObjectValue, maxDepth: Int): Either[SchemaAcquisitionError, Document] =
+  private def decode(data: JsonObject, maxDepth: Int): Either[SchemaAcquisitionError, Document] =
     for {
-      schema           <- objectField(data, "__schema", "$.data")
-      queryType        <- optional(schema, "queryType", "$.data.__schema")(namedType)
-      mutationType     <- optional(schema, "mutationType", "$.data.__schema")(namedType)
-      subscriptionType <- optional(schema, "subscriptionType", "$.data.__schema")(namedType)
-      types            <- list(schema, "types", "$.data.__schema")(typeDefinition(maxDepth))
-      directives       <- list(schema, "directives", "$.data.__schema")(directive(maxDepth))
+      schema           <- data.obj("__schema")
+      queryType        <- schema("queryType").optional(namedType)
+      mutationType     <- schema("mutationType").optional(namedType)
+      subscriptionType <- schema("subscriptionType").optional(namedType)
+      types            <- schema("types").list(typeDefinition(maxDepth))
+      directives       <- schema("directives").list(directive(maxDepth))
     } yield {
       val definition =
         SchemaDefinition(Nil, queryType.map(_.name), mutationType.map(_.name), subscriptionType.map(_.name), None)
@@ -46,19 +45,17 @@ private[gateway] object IntrospectionClient {
       Document(definition :: userTypes ++ directives, SourceMapper.empty)
     }
 
-  private def typeDefinition(
-    maxDepth: Int
-  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, TypeDefinition] =
+  private def typeDefinition(maxDepth: Int)(json: Json): Either[SchemaAcquisitionError, TypeDefinition] =
     for {
-      obj           <- asObject(value, path)
-      kind          <- string(obj, "kind", path)
-      name          <- string(obj, "name", path)
-      description   <- optional(obj, "description", path)(asString)
-      fields        <- listOrNil(obj, "fields", path)(field(maxDepth))
-      inputFields   <- listOrNil(obj, "inputFields", path)(inputValue(maxDepth))
-      interfaces    <- listOrNil(obj, "interfaces", path)(namedType)
-      enumValues    <- listOrNil(obj, "enumValues", path)(enumValue)
-      possibleTypes <- listOrNil(obj, "possibleTypes", path)(namedType)
+      obj           <- json.obj
+      kind          <- obj.string("kind")
+      name          <- obj.string("name")
+      description   <- obj("description").optional(_.string)
+      fields        <- obj("fields").listOrNil(field(maxDepth))
+      inputFields   <- obj("inputFields").listOrNil(inputValue(maxDepth))
+      interfaces    <- obj("interfaces").listOrNil(namedType)
+      enumValues    <- obj("enumValues").listOrNil(enumValue)
+      possibleTypes <- obj("possibleTypes").listOrNil(namedType)
       definition    <- kind match {
                          case "SCALAR"       => Right(ScalarTypeDefinition(description, name, Nil))
                          case "OBJECT"       => Right(ObjectTypeDefinition(description, name, interfaces, Nil, fields))
@@ -66,77 +63,69 @@ private[gateway] object IntrospectionClient {
                          case "UNION"        => Right(UnionTypeDefinition(description, name, Nil, possibleTypes.map(_.name)))
                          case "ENUM"         => Right(EnumTypeDefinition(description, name, Nil, enumValues))
                          case "INPUT_OBJECT" => Right(InputObjectTypeDefinition(description, name, Nil, inputFields))
-                         case _              => Left(InvalidResponse(s"$path.kind"))
+                         case _              => Left(obj("kind").invalid)
                        }
     } yield definition
 
-  private def field(
-    maxDepth: Int
-  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, FieldDefinition] =
+  private def field(maxDepth: Int)(json: Json): Either[SchemaAcquisitionError, FieldDefinition] =
     for {
-      obj         <- asObject(value, path)
-      name        <- string(obj, "name", path)
-      description <- optional(obj, "description", path)(asString)
-      args        <- listOrNil(obj, "args", path)(inputValue(maxDepth))
-      tpe         <- typeRef(obj.getOrNull("type"), s"$path.type")
-      deprecation <- deprecationDirectives(obj, path)
+      obj         <- json.obj
+      name        <- obj.string("name")
+      description <- obj("description").optional(_.string)
+      args        <- obj("args").listOrNil(inputValue(maxDepth))
+      tpe         <- typeRef(obj("type"))
+      deprecation <- deprecationDirectives(obj)
     } yield FieldDefinition(description, name, args, tpe, deprecation)
 
-  private def inputValue(
-    maxDepth: Int
-  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, InputValueDefinition] =
+  private def inputValue(maxDepth: Int)(json: Json): Either[SchemaAcquisitionError, InputValueDefinition] =
     for {
-      obj          <- asObject(value, path)
-      name         <- string(obj, "name", path)
-      description  <- optional(obj, "description", path)(asString)
-      tpe          <- typeRef(obj.getOrNull("type"), s"$path.type")
-      defaultValue <- optional(obj, "defaultValue", path)((raw, rawPath) =>
-                        asString(raw, rawPath).flatMap(parseWithinDepth(_, maxDepth)(Parser.parseInputValue))
-                      )
-      deprecation  <- deprecationDirectives(obj, path)
+      obj          <- json.obj
+      name         <- obj.string("name")
+      description  <- obj("description").optional(_.string)
+      tpe          <- typeRef(obj("type"))
+      defaultValue <-
+        obj("defaultValue").optional(_.string.flatMap(parseWithinDepth(_, maxDepth)(Parser.parseInputValue)))
+      deprecation  <- deprecationDirectives(obj)
     } yield InputValueDefinition(description, name, tpe, defaultValue, deprecation)
 
-  private def enumValue(value: ResponseValue, path: String): Either[InvalidResponse, EnumValueDefinition] =
+  private def enumValue(json: Json): Either[InvalidResponse, EnumValueDefinition] =
     for {
-      obj         <- asObject(value, path)
-      name        <- string(obj, "name", path)
-      description <- optional(obj, "description", path)(asString)
-      deprecation <- deprecationDirectives(obj, path)
+      obj         <- json.obj
+      name        <- obj.string("name")
+      description <- obj("description").optional(_.string)
+      deprecation <- deprecationDirectives(obj)
     } yield EnumValueDefinition(description, name, deprecation)
 
-  private def directive(
-    maxDepth: Int
-  )(value: ResponseValue, path: String): Either[SchemaAcquisitionError, DirectiveDefinition] =
+  private def directive(maxDepth: Int)(json: Json): Either[SchemaAcquisitionError, DirectiveDefinition] =
     for {
-      obj         <- asObject(value, path)
-      name        <- string(obj, "name", path)
-      description <- optional(obj, "description", path)(asString)
-      locations   <- list(obj, "locations", path)(directiveLocation)
-      args        <- listOrNil(obj, "args", path)(inputValue(maxDepth))
-      repeatable  <- booleanOrFalse(obj, "isRepeatable", path)
+      obj         <- json.obj
+      name        <- obj.string("name")
+      description <- obj("description").optional(_.string)
+      locations   <- obj("locations").list(directiveLocation)
+      args        <- obj("args").listOrNil(inputValue(maxDepth))
+      repeatable  <- obj("isRepeatable").booleanOrFalse
     } yield DirectiveDefinition(description, name, args, repeatable, locations.toSet)
 
-  private def typeRef(value: ResponseValue, path: String): Either[InvalidResponse, Type] =
+  private def typeRef(json: Json): Either[InvalidResponse, Type] =
     for {
-      obj  <- asObject(value, path)
-      kind <- string(obj, "kind", path)
+      obj  <- json.obj
+      kind <- obj.string("kind")
       tpe  <- kind match {
                 case "NON_NULL" =>
-                  typeRef(obj.getOrNull("ofType"), s"$path.ofType")
-                    .filterOrElse(_.nullable, InvalidResponse(s"$path.ofType.kind"))
-                    .map(_.toNonNullable)
-                case "LIST"     => typeRef(obj.getOrNull("ofType"), s"$path.ofType").map(ListType(_, nonNull = false))
-                case _          => namedType(obj, path)
+                  val ofType = obj("ofType")
+                  typeRef(ofType).filterOrElse(_.nullable, InvalidResponse(s"${ofType.path}.kind")).map(_.toNonNullable)
+                case "LIST"     => typeRef(obj("ofType")).map(ListType(_, nonNull = false))
+                case _          => obj.string("name").map(NamedType(_, nonNull = false))
               }
     } yield tpe
 
-  private def namedType(value: ResponseValue, path: String): Either[InvalidResponse, NamedType] =
-    asObject(value, path).flatMap(string(_, "name", path)).map(NamedType(_, nonNull = false))
+  private def namedType(json: Json): Either[InvalidResponse, NamedType] =
+    json.obj.flatMap(_.string("name")).map(NamedType(_, nonNull = false))
 
-  private def deprecationDirectives(obj: ObjectValue, path: String): Either[InvalidResponse, List[Directive]] =
+  private def deprecationDirectives(obj: JsonObject): Either[InvalidResponse, List[Directive]] =
     for {
-      deprecated <- booleanOrFalse(obj, "isDeprecated", path)
-      reason     <- optional(obj, "deprecationReason", path)(asString)
+      deprecated <- obj("isDeprecated").booleanOrFalse
+      reason     <- obj("deprecationReason").optional(_.string)
     } yield
       if (!deprecated) Nil
       else
@@ -147,44 +136,12 @@ private[gateway] object IntrospectionClient {
           )
         )
 
-  private def directiveLocation(value: ResponseValue, path: String): Either[InvalidResponse, DirectiveLocation] =
-    asString(value, path).flatMap { name =>
+  private def directiveLocation(json: Json): Either[InvalidResponse, DirectiveLocation] =
+    json.string.flatMap { name =>
       fastparse.parse(name, Parsers.directiveLocation(_)) match {
         case fastparse.Parsed.Success(location, index) if index == name.length => Right(location)
-        case _                                                                 => Left(InvalidResponse(path))
+        case _                                                                 => Left(json.invalid)
       }
-    }
-
-  private def optional[E, A](obj: ObjectValue, field: String, path: String)(
-    read: (ResponseValue, String) => Either[E, A]
-  ): Either[E, Option[A]] =
-    obj.getOrNull(field) match {
-      case null | NullValue => Right(None)
-      case value            => read(value, s"$path.$field").map(Some(_))
-    }
-
-  private def booleanOrFalse(obj: ObjectValue, field: String, path: String): Either[InvalidResponse, Boolean] =
-    obj.getOrNull(field) match {
-      case null | NullValue    => Right(false)
-      case BooleanValue(value) => Right(value)
-      case _                   => Left(InvalidResponse(s"$path.$field"))
-    }
-
-  private def list[A](obj: ObjectValue, field: String, path: String)(
-    read: (ResponseValue, String) => Either[SchemaAcquisitionError, A]
-  ): Either[SchemaAcquisitionError, List[A]] =
-    obj.getOrNull(field) match {
-      case ListValue(items) =>
-        traverseEither(items.zipWithIndex) { case (item, index) => read(item, s"$path.$field[$index]") }
-      case _                => Left(InvalidResponse(s"$path.$field"))
-    }
-
-  private def listOrNil[A](obj: ObjectValue, field: String, path: String)(
-    read: (ResponseValue, String) => Either[SchemaAcquisitionError, A]
-  ): Either[SchemaAcquisitionError, List[A]] =
-    obj.getOrNull(field) match {
-      case null | NullValue => Right(Nil)
-      case _                => list(obj, field, path)(read)
     }
 
   private final val OperationName = "__CalibanGatewayIntrospection"

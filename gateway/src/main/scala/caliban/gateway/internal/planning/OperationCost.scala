@@ -24,79 +24,44 @@ private[gateway] final class OperationCost(
   import OperationCost._
 
   def estimate(plan: OperationPlan): Either[String, Long] = {
-    val hasListSizes = costMetadata.listSizes.nonEmpty
-    plan.passthroughSubgraph match {
-      case Some(source) =>
-        val fields = plan.fields.map(field => field.copy(fields = collectedFields(field)))
-        val error  = if (hasListSizes) validateListSizes(fields, source) else None
-        error.toLeft(bounded(operationBase(plan.operationType) + fieldsCost(fields, source)))
-      case None         =>
-        val error =
-          if (!hasListSizes) None
-          else
-            firstError(
-              plan.roots.iterator.map(fetch => validateListSizes(fetch.downstream, fetch.source)) ++
-                plan.entities.iterator.map(fetch => validateListSizes(fetch.fields, fetch.source))
-            )
-        error.toLeft {
-          val multipliers = if (hasListSizes) representationMultipliers(plan) else NoMultipliers
-          val rootCost    = plan.roots.foldLeft(BigInt(0)) { (total, fetch) =>
-            total + operationBase(plan.operationType) + fieldsCost(fetch.downstream, fetch.source)
-          }
-          val entityCost  = plan.entities
-            .groupBy(fetch => fetch.root -> fetch.mergePath)
-            .values
-            .foldLeft(BigInt(0))((total, fetches) => total + entityFetchesCost(fetches, multipliers))
-          bounded(rootCost + entityCost)
-        }
+    val walk       = new Walk(sized && plan.entities.nonEmpty)
+    val rootCost   = plan.roots.foldLeft(BigInt(0)) { (total, fetch) =>
+      total + operationBase(plan.operationType) +
+        walk.fieldsCost(fetch.downstream.mapConserve(collected), fetch.source, Vector.empty, BigInt(1), Nil)
     }
+    // A fetch sizes only paths below its merge path, so shorter merge paths go first.
+    val entityCost = plan.entities
+      .groupBy(fetch => fetch.root -> fetch.mergePath)
+      .toList
+      .sortBy(_._1._2.length)
+      .foldLeft(BigInt(0)) { case (total, (_, fetches)) => total + walk.entityFetchesCost(fetches) }
+    walk.error.toLeft(bounded(rootCost + entityCost))
   }
 
-  private def collectedFields(parent: Field): List[Field] =
-    if (parent.allFieldsUniqueNameAndCondition)
-      parent.fields.map(field => field.copy(fields = collectedFields(field)))
-    else {
-      val name          = parent.fieldType.innerType.name.getOrElse("")
-      val possibleTypes = possibleTypesByName.getOrElse(name, Set(name))
-      val fields        = mutable.LinkedHashMap.empty[Field, Set[String]]
-      possibleTypes.toList.sorted.foreach { runtime =>
-        parent.collectFields(runtime).foreach { field =>
-          val shared = field.copy(_condition = None)
-          fields.update(shared, fields.getOrElse(shared, Set.empty) + runtime)
+  private val sized = costMetadata.listSizes.nonEmpty
+
+  private def collected(field: Field): Field =
+    if (field.allFieldsUniqueNameAndCondition) {
+      val fields = field.fields.mapConserve(collected)
+      if (fields eq field.fields) field else field.copy(fields = fields)
+    } else
+      field.copy(fields = {
+        val name          = field.fieldType.innerType.name.getOrElse("")
+        val possibleTypes = possibleTypesByName.getOrElse(name, Set(name))
+        val fields        = mutable.LinkedHashMap.empty[Field, Set[String]]
+        possibleTypes.toList.sorted.foreach { runtime =>
+          field.collectFields(runtime).foreach { child =>
+            val shared = child.copy(_condition = None)
+            fields.update(shared, fields.getOrElse(shared, Set.empty) + runtime)
+          }
         }
-      }
-      fields.iterator.map { case (field, members) =>
-        val condition = if (members == possibleTypes) None else Some(members)
-        field.copy(fields = collectedFields(field), _condition = condition)
-      }.toList
-    }
+        fields.iterator.map { case (child, members) =>
+          collected(child.copy(_condition = if (members == possibleTypes) None else Some(members)))
+        }.toList
+      })
 
   private def operationBase(operation: OperationType): BigInt =
     if (operation == OperationType.Mutation) BigInt(10) else BigInt(0)
-
-  private def fieldsCost(fields: List[Field], source: Source, paths: List[SizedPath] = Nil): BigInt =
-    conditionalCost(
-      fields.map(field => field._condition -> fieldCost(field, source, paths)),
-      (entry: (Option[Set[String]], BigInt)) => entry._1
-    )((entry, _) => entry._2)
-
-  private def entityFetchCost(
-    fetch: EntityFetch,
-    multipliers: FetchMultipliers,
-    runtimeType: Option[String]
-  ): BigInt = {
-    val entity     = types.get(fetch.entityType).fold(BigInt(1))(outputTypeCost).max(BigInt(0))
-    val fields     =
-      runtimeType.fold(fetch.fields)(runtime => fetch.fields.filter(_._condition.forall(_.contains(runtime))))
-    val selections = fieldsCost(fields, fetch.source, multipliers.sizedFields.getOrElse(fetch.mergePath, Nil))
-    multipliers.representations.getOrElse(fetch.mergePath, BigInt(1)) * (entity + selections)
-  }
-
-  private def entityFetchesCost(fetches: List[EntityFetch], multipliers: FetchMultipliers): BigInt =
-    conditionalCost(
-      fetches,
-      (fetch: EntityFetch) => Some(fetch.fields.flatMap(_._condition.toList.flatten).toSet).filter(_.nonEmpty)
-    )(entityFetchCost(_, multipliers, _))
 
   private def conditionalCost[A](values: List[A], conditions: A => Option[Set[String]])(
     cost: (A, Option[String]) => BigInt
@@ -138,23 +103,83 @@ private[gateway] final class OperationCost(
       possibleTypesByName.getOrElse(innerParentTypeName(field), Set.empty)
     else Set.empty
 
-  private def fieldCost(field: Field, source: Source, paths: List[SizedPath]): BigInt = {
-    val (size, nestedPaths) = sizing(field, source, paths)
-    val nested              = fieldsCost(field.fields, source, nestedPaths)
-    maximumFieldCost(field)(_.total(size, nested))
+  // Merge paths use response aliases; pending sized paths use schema field names.
+  private final class Walk(tracksPaths: Boolean) {
+    private val representations = mutable.HashMap.empty[Vector[String], BigInt]
+    private val pendingByPath   = mutable.HashMap.empty[Vector[String], List[SizedPath]]
+    var error: Option[String]   = None
+
+    def fieldsCost(
+      fields: List[Field],
+      source: Source,
+      base: Vector[String],
+      inherited: BigInt,
+      paths: List[SizedPath]
+    ): BigInt =
+      conditionalCost(
+        fields.map(field => field._condition -> fieldCost(field, source, base, inherited, paths)),
+        (entry: (Option[Set[String]], BigInt)) => entry._1
+      )((entry, _) => entry._2)
+
+    def entityFetchesCost(fetches: List[EntityFetch]): BigInt =
+      conditionalCost(
+        fetches,
+        (fetch: EntityFetch) => Some(fetch.fields.flatMap(_._condition.toList.flatten).toSet).filter(_.nonEmpty)
+      )(entityFetchCost)
+
+    private def entityFetchCost(fetch: EntityFetch, runtimeType: Option[String]): BigInt = {
+      val entity     = types.get(fetch.target.entityType).fold(BigInt(1))(outputTypeCost).max(BigInt(0))
+      val fields     =
+        runtimeType.fold(fetch.fields)(runtime => fetch.fields.filter(_._condition.forall(_.contains(runtime))))
+      val inherited  = representations.getOrElse(fetch.mergePath, BigInt(1))
+      val pending    = pendingByPath.getOrElse(fetch.mergePath, Nil)
+      val selections =
+        fieldsCost(fields.mapConserve(collected), fetch.target.source, fetch.mergePath, inherited, pending)
+      inherited * (entity + selections)
+    }
+
+    private def fieldCost(
+      field: Field,
+      source: Source,
+      base: Vector[String],
+      inherited: BigInt,
+      paths: List[SizedPath]
+    ): BigInt = {
+      val (size, nestedPaths) = sizing(field, source, paths)
+      val multiplier          = inherited * size
+      val path                = if (tracksPaths) record(base :+ field.aliasedName, multiplier, nestedPaths) else base
+      val nested              = fieldsCost(field.fields, source, path, multiplier, nestedPaths)
+      maximumFieldCost(field)(_.total(size, nested))
+    }
+
+    private def record(path: Vector[String], multiplier: BigInt, nestedPaths: List[SizedPath]): Vector[String] = {
+      representations.update(path, representations.get(path).fold(multiplier)(_ max multiplier))
+      pendingByPath.update(path, maximumSizedPaths(pendingByPath.getOrElse(path, Nil) ::: nestedPaths))
+      path
+    }
+
+    private def sizing(field: Field, source: Source, paths: List[SizedPath]): (BigInt, List[SizedPath]) =
+      if (!sized) Unsized
+      else {
+        val definitions            = fieldListSizes(field, source)
+        val (activated, remaining) = matchingSizedPaths(field.name, paths).partition(_.path.isEmpty)
+        val direct                 = definitions.filter(_.sizedFields.isEmpty).map(resolvedListSize(field, _))
+        val declared               = definitions.flatMap { definition =>
+          val size = resolvedListSize(field, definition)
+          definition.sizedFields.map(SizedPath(_, size))
+        }
+        if (error.isEmpty && definitions.exists(invalidSlicing(field, _)))
+          error = Some(
+            s"Exactly one slicing argument must be supplied for field '${innerParentTypeName(field)}.${field.name}'."
+          )
+        activated.map(_.size).reduceOption(_ max _).orElse(direct.reduceOption(_ max _)).getOrElse(BigInt(1)) ->
+          preferSizedPaths(declared, remaining)
+      }
   }
 
-  private def sizing(field: Field, source: Source, paths: List[SizedPath]): (BigInt, List[SizedPath]) = {
-    val definitions            = fieldListSizes(field, source)
-    val (activated, remaining) = matchingSizedPaths(field.name, paths).partition(_.path.isEmpty)
-    val direct                 = definitions.filter(_.sizedFields.isEmpty).map(resolvedListSize(field, _))
-    val declared               = definitions.flatMap { definition =>
-      val size = resolvedListSize(field, definition)
-      definition.sizedFields.map(SizedPath(_, size))
-    }
-    activated.map(_.size).reduceOption(_ max _).orElse(direct.reduceOption(_ max _)).getOrElse(BigInt(1)) ->
-      preferSizedPaths(declared, remaining)
-  }
+  private def invalidSlicing(field: Field, listSize: ListSize): Boolean =
+    listSize.requireOneSlicingArgument && listSize.slicingArguments.nonEmpty &&
+      listSize.slicingArguments.count(argument => slicingValue(field, argument).nonEmpty) != 1
 
   // A nearer @listSize replaces an inherited size for the same path.
   private def preferSizedPaths(primary: List[SizedPath], fallback: List[SizedPath]): List[SizedPath] = {
@@ -178,57 +203,8 @@ private[gateway] final class OperationCost(
       (direct ::: concrete).distinct
     }
 
-  private def representationMultipliers(plan: OperationPlan): FetchMultipliers = {
-    // Merge paths use response aliases; pending sized paths use schema field names.
-    var representations = Map.empty[Vector[String], BigInt]
-    var pendingByPath   = Map.empty[Vector[String], List[SizedPath]]
-
-    def record(path: Vector[String], multiplier: BigInt, pending: List[SizedPath]): Unit = {
-      representations = representations.updated(path, representations.get(path).fold(multiplier)(_ max multiplier))
-      pendingByPath = pendingByPath.updated(path, maximumSizedPaths(pendingByPath.getOrElse(path, Nil) ::: pending))
-    }
-
-    def collect(
-      fields: List[Field],
-      source: Source,
-      basePath: Vector[String],
-      inherited: BigInt,
-      pending: List[SizedPath]
-    ): Unit =
-      fields.foreach { field =>
-        val path                  = basePath :+ field.aliasedName
-        val (size, nestedPending) = sizing(field, source, pending)
-        val multiplier            = inherited * size
-        record(path, multiplier, nestedPending)
-        collect(field.fields, source, path, multiplier, nestedPending)
-      }
-
-    plan.roots.foreach(fetch => collect(fetch.downstream, fetch.source, Vector.empty, BigInt(1), Nil))
-    plan.entities.foreach { fetch =>
-      val inherited = representations.getOrElse(fetch.mergePath, BigInt(1))
-      collect(fetch.fields, fetch.source, fetch.mergePath, inherited, pendingByPath.getOrElse(fetch.mergePath, Nil))
-    }
-    new FetchMultipliers(representations, pendingByPath)
-  }
-
   private def matchingSizedPaths(name: String, paths: List[SizedPath]): List[SizedPath] =
     paths.filter(_.path.headOption.contains(name)).map(value => SizedPath(value.path.drop(1), value.size))
-
-  private def validateListSizes(fields: List[Field], source: Source): Option[String] =
-    firstError(fields.iterator.map(validateListSize(_, source)))
-
-  private def validateListSize(field: Field, source: Source): Option[String] = {
-    val invalid = fieldListSizes(field, source).exists { listSize =>
-      listSize.requireOneSlicingArgument && listSize.slicingArguments.nonEmpty &&
-      listSize.slicingArguments.count(argument => slicingValue(field, argument).nonEmpty) != 1
-    }
-    if (invalid)
-      Some(s"Exactly one slicing argument must be supplied for field '${innerParentTypeName(field)}.${field.name}'.")
-    else validateListSizes(field.fields, source)
-  }
-
-  private def firstError(errors: Iterator[Option[String]]): Option[String] =
-    errors.collectFirst { case Some(error) => error }
 
   private def resolvedListSize(field: Field, listSize: ListSize): BigInt =
     listSize.slicingArguments
@@ -346,10 +322,5 @@ private object OperationCost {
 
   private final case class SizedPath(path: Vector[String], size: BigInt)
 
-  private final class FetchMultipliers(
-    val representations: Map[Vector[String], BigInt],
-    val sizedFields: Map[Vector[String], List[SizedPath]]
-  )
-
-  private val NoMultipliers = new FetchMultipliers(Map.empty, Map.empty)
+  private val Unsized: (BigInt, List[SizedPath]) = (BigInt(1), Nil)
 }

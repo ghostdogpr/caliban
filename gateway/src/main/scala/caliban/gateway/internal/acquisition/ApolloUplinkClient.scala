@@ -7,7 +7,6 @@ import caliban.gateway.SchemaAcquisitionError.InvalidResponse
 import caliban.gateway.SupergraphAcquisitionError.UplinkFetchFailed
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition._
-import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ NullValue, StringValue }
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
@@ -50,22 +49,20 @@ private[acquisition] object ApolloUplinkClient {
       )
     )
 
-  private def decode(data: ObjectValue): Either[SupergraphAcquisitionError, UplinkResponse] = {
-    val path = "$.data.routerConfig"
-    objectField(data, "routerConfig", "$.data").flatMap { routerConfig =>
-      string(routerConfig, TypenameField, path).flatMap {
+  private def decode(data: JsonObject): Either[SupergraphAcquisitionError, UplinkResponse] =
+    data.obj("routerConfig").flatMap { routerConfig =>
+      routerConfig.string(TypenameField).flatMap {
         case "RouterConfigResult" =>
           for {
-            id  <- string(routerConfig, "id", path)
-            sdl <- string(routerConfig, "supergraphSDL", path)
+            id  <- routerConfig.string("id")
+            sdl <- routerConfig.string("supergraphSDL")
           } yield UplinkResponse.Updated(id, sdl)
         // The code is a fixed enum and safe to render; the message beside it is remote free text.
-        case "FetchError"         => string(routerConfig, "code", path).flatMap(code => Left(UplinkFetchFailed(code)))
+        case "FetchError"         => routerConfig.string("code").flatMap(code => Left(UplinkFetchFailed(code)))
         case "Unchanged"          => Right(UplinkResponse.Unchanged)
-        case _                    => Left(InvalidResponse(s"$path.$TypenameField"))
+        case _                    => Left(routerConfig(TypenameField).invalid)
       }
     }
-  }
 
   private final val OperationName = "SupergraphSdl"
 

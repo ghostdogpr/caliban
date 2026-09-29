@@ -164,10 +164,10 @@ object CompositionSpec extends ZIOSpecDefault {
                                  """{"data":{"value":"replacement","other":"replacement"}}"""
                                else """{"data":{"other":"replacement"}}"""
                              )
-          resolver         = PhaseHooks.overrideLabels(PhaseHandler.incoming { ev =>
+          resolver         = PhaseHooks.overrideLabels[Any] { ev =>
                                seen.update(_ :+ ev.reached) *>
                                  enabled.get.map(value => ev.activate(if (value) ev.reached + "unknown" else Set.empty[String]))
-                             })
+                             }
           runtime         <- progressiveGateway(original, originalSchema, replacement, replacementSchema)
                                .withPhaseHooks(resolver)
                                .interpreter
@@ -187,6 +187,52 @@ object CompositionSpec extends ZIOSpecDefault {
           resolvedLabels == Vector(Set("rollout"), Set("rollout")),
           originalSent.size == 1,
           replacementSent.size == 3
+        )
+      },
+      test("reaches only the override labels of the selected field coordinates") {
+        val originalSchema    = progressiveSchema(
+          """type Query { product: Product user: User }
+            |type Product @key(fields: "id") { id: ID! name: String }
+            |type User @key(fields: "id") { id: ID! name: String }""".stripMargin,
+          "@key"
+        )
+        val replacementSchema = progressiveSchema(
+          """type Query { featured: Product }
+            |type Product @key(fields: "id") { id: ID! name: String @override(from: "original", label: "rollout") }""".stripMargin,
+          "@key"
+        )
+
+        for {
+          seen        <- Ref.make(Vector.empty[Set[String]])
+          original    <- stub("""{"data":{"user":{"name":"user"},"product":{"name":"product"}}}""")
+          replacement <- stub("""{"data":{}}""")
+          runtime     <- progressiveGateway(original, originalSchema, replacement, replacementSchema)
+                           .withPhaseHooks(PhaseHooks.overrideLabels[Any](ev => seen.update(_ :+ ev.reached).as(ev)))
+                           .interpreter
+          _           <- runtime.execute("{ user { name } }")
+          _           <- runtime.execute("{ product { ...fields } } fragment fields on Product { name }")
+          reached     <- seen.get
+        } yield assertTrue(reached == Vector(Set("rollout")))
+      },
+      test("routes an override whose field only its replacement can reach") {
+        val originalSchema    = progressiveSchema("type Query { legacy: Product } type Product { added: String }")
+        val replacementSchema = progressiveSchema(
+          """type Query { product: Product }
+            |type Product { added: String @override(from: "original", label: "percent(100)") }""".stripMargin
+        )
+
+        for {
+          original        <- stub("""{"data":{}}""")
+          replacement     <- stub("""{"data":{"product":{"added":"replacement"}}}""")
+          runtime         <- progressiveGateway(original, originalSchema, replacement, replacementSchema).interpreter
+          response        <- runtime.execute("{ product { added } }")
+          originalSent    <- original.requests.get
+          replacementSent <- replacement.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "added")).contains(StringValue("replacement")),
+          originalSent.isEmpty,
+          replacementSent.size == 1
         )
       },
       test("keeps unresolved custom override labels inactive") {
@@ -220,9 +266,7 @@ object CompositionSpec extends ZIOSpecDefault {
           replacement <- stub("""{"data":{"value":"replacement"}}""")
           runtime     <- progressiveGateway(original, originalSchema, replacement, replacementSchema)
                            .withPhaseHooks(
-                             PhaseHooks.overrideLabels(
-                               PhaseHandler.incoming(_ => ZIO.fail(new RuntimeException(secret)))
-                             )
+                             PhaseHooks.overrideLabels[Any](_ => ZIO.fail(new RuntimeException(secret)))
                            )
                            .interpreter
           response    <- runtime.execute("{ value }")
@@ -255,7 +299,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
         assertTrue(result.toOption.exists { graph =>
-          val labels = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).iterator.next())
+          val labels = fields.map(i => graph.progressiveOverrides("Query", s"f$i").head)
           (0 until 64).forall { mask =>
             val selected = graph.resolveOverrides(
               labels.zipWithIndex.collect { case (label, bit) if (mask & (1 << bit)) != 0 => label }.toSet

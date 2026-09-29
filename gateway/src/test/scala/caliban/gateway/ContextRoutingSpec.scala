@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.Value.IntValue.IntNumber
-import caliban.Value.StringValue
+import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import zio.{ Scope, ZIO }
 import zio.test._
@@ -126,6 +126,32 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         sent.lastOption
           .flatMap(_.query)
           .exists(query => query.contains("currency:\"USD\"") && query.contains("region:\"US\""))
+      )
+    },
+    test("treats a type-conditioned context without its typename as unreadable") {
+      val schema =
+        s"""
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
+           |type Query { user: User }
+           |type User @key(fields: "id") @context(name: "userContext") {
+           |  id: ID!
+           |  region: String!
+           |  amount(region: String @fromContext(field: "$$userContext ... on User { region }")): Int
+           |}
+           |""".stripMargin
+
+      for {
+        remote   <-
+          stubByRequest(_ =>
+            """{"data":{"user":{"_caliban_gateway_requirement_region_User":"US","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}"""
+          )
+        runtime  <- Gateway.compose(Subgraph.federation("users", remote.endpoint, schema)).interpreter
+        response <- runtime.execute("{ user { amount } }")
+        sent     <- remote.requests.get
+      } yield assertTrue(
+        sent.size == 1,
+        field(response.data, "user").flatMap(field(_, "amount")).contains(NullValue),
+        response.errors.nonEmpty
       )
     },
     test("keeps an unconditioned context selection apart from a type-conditioned one on the same field") {

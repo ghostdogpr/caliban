@@ -25,20 +25,11 @@ private[gateway] object SupergraphAcquisition {
     trace: Trace
   ): UIO[IO[SupergraphAcquisitionError, Document]] =
     source match {
-      case Supergraph.Source.Sdl(value)             => ZIO.succeed(constant(parseSdl(value)))
-      case Supergraph.Source.Parsed(value)          => ZIO.succeed(constant(Right(value)))
+      case Supergraph.Source.Pinned(document)       => ZIO.succeed(ZIO.fromEither(document))
       case Supergraph.Source.File(path)             => ZIO.succeed(file(path))
       case Supergraph.Source.Http(endpoint, config) => remote(endpoint, config, http)
       case Supergraph.Source.Uplink(config)         => uplink(config, http)
     }
-
-  /**
-   * Static SDL is parsed once when the loader is created; any parse error is reported by every load.
-   */
-  private def constant(result: Either[SupergraphAcquisitionError, Document])(implicit
-    trace: Trace
-  ): IO[SupergraphAcquisitionError, Document] =
-    ZIO.fromEither(result)
 
   /**
    * Re-read on every load so the next reload picks up a supergraph replaced on disk.

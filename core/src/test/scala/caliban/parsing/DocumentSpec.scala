@@ -27,10 +27,15 @@ object DocumentSpec extends ZIOSpecDefault {
         document <- ZIO.fromEither(Parser.parseQuery(query))
         visited  <- ZIO.succeed {
                       var count = 0
-                      document.foreachSelection(None) {
-                        case _: Selection.Field => count += 1
-                        case _                  => ()
-                      }
+                      document
+                        .operationDefinition(None)
+                        .foreach(document.existsSelection(_) { selection =>
+                          selection match {
+                            case _: Selection.Field => count += 1
+                            case _                  => ()
+                          }
+                          false
+                        })
                       (count, Introspector.hasIntrospection(document, None))
                     }.disconnect
       } yield assertTrue(visited == ((expectedFields, false)))

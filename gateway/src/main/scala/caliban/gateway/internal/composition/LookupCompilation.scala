@@ -1,14 +1,14 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
-import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.introspection.adt._
 
-private[composition] final class LookupCompilation private (subgraph: PreparedSubgraph, lookup: Lookup) {
+private[composition] final class LookupCompilation private (subgraph: Source, lookup: Lookup) {
   private val prefix      = s"[${subgraph.name}]"
-  private val targetType  = subgraph.rootType.types.get(lookup.typeName)
-  private val sourceField = fieldDefinition(subgraph.rootType.queryType, lookup.field)
+  private val schema      = subgraph.mapping.sourceRootType
+  private val targetType  = schema.types.get(lookup.typeName)
+  private val sourceField = fieldDefinition(schema.queryType, lookup.field)
   private val keys        = lookup.keyFields.flatMap(name => targetType.flatMap(fieldDefinition(_, name)).map(name -> _)).toMap
 
   def compile: Either[List[String], LookupOperation.GraphQLQuery] = {
@@ -22,7 +22,7 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
             validated(
               shapeDiagnostics(isTarget(resultType), s"'${lookup.typeName}'"),
               compileFields(lookup.field, "argument", field.allArgs, arguments)(compileKey)
-            ).map(_ -> LookupResult.Single)
+            ).map(LookupOperation.Single(lookup.field, _))
           case Lookup.ByKey(_, _, arguments)  =>
             val isTargetList =
               resultType.kind == __TypeKind.LIST && resultType.ofType.map(nullableType).exists(isTarget)
@@ -32,11 +32,9 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
                 s"$prefix By-key lookup field 'Query.${lookup.field}' must return non-null items."
               ),
               compileFields(lookup.field, "argument", field.allArgs, arguments)(compileBatch)
-            ).map(_ -> LookupResult.ByKey)
+            ).map(LookupOperation.ByKey(lookup.field, _))
         }
-        validated(targetDiagnostics, compiled).map { case (arguments, result) =>
-          LookupOperation.GraphQLQuery(lookup.field, arguments.toMap, result)
-        }
+        validated(targetDiagnostics, compiled)
     }
   }
 
@@ -72,37 +70,41 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
   private def shapeDiagnostics(valid: Boolean, shape: String): List[String] =
     check(valid, s"$prefix Lookup field 'Query.${lookup.field}' must return $shape.")
 
-  private def compileArgument[A](path: String, mapping: Lookup.Argument[A], expected: __Type)(
-    leaf: (String, A, __Type) => Either[List[String], LookupArgument]
-  ): Either[List[String], LookupArgument] = {
+  private def compileArgument[A, B](path: String, mapping: Lookup.Argument[A], expected: __Type)(
+    leaf: (String, A, __Type) => Either[List[String], B]
+  ): Either[List[String], Lookup.Argument[B]] = {
     val valueType = nullableType(expected)
     mapping match {
-      case Lookup.Argument.Leaf(value)                                                   => leaf(path, value, valueType)
+      case Lookup.Argument.Leaf(value)                                                   =>
+        leaf(path, value, valueType).map(Lookup.Argument.Leaf(_))
       case Lookup.Argument.ObjectMapping(_) if valueType.kind != __TypeKind.INPUT_OBJECT =>
         Left(List(s"$prefix Lookup argument '$path' maps an object into a non-input-object value."))
       case Lookup.Argument.ObjectMapping(fields)                                         =>
-        compileFields(path, "input field", valueType.allInputFields, fields)(leaf).map(LookupArgument.ObjectMapping(_))
+        compileFields(path, "input field", valueType.allInputFields, fields)(leaf).map(Lookup.Argument.ObjectMapping(_))
     }
   }
 
-  private def compileKey(path: String, key: Lookup.Key, valueType: __Type): Either[List[String], LookupArgument] =
+  private def compileKey(path: String, key: Lookup.Key, valueType: __Type): Either[List[String], KeyArgument] =
     if (keys.get(key.field).exists(field => !compatibleValueType(field._type, valueType)))
       Left(List(s"$prefix Lookup argument '$path' is incompatible with key field '${key.field}'."))
-    else Right(LookupArgument.Key(key.field, valueType))
+    else Right(KeyArgument(subgraph.mapping.clientField(lookup.typeName, key.field), valueType))
 
-  private def compileBatch(path: String, batch: Lookup.Batch, valueType: __Type): Either[List[String], LookupArgument] =
+  private def compileBatch(
+    path: String,
+    batch: Lookup.Batch,
+    valueType: __Type
+  ): Either[List[String], Lookup.Argument[KeyArgument]] =
     if (!valueType.isList) Left(List(s"$prefix Lookup argument '$path' maps a batch into a non-list value."))
-    else
-      compileArgument(path, batch.value, valueType.ofType.getOrElse(valueType))(compileKey).map(LookupArgument.Batch(_))
+    else compileArgument(path, batch.value, valueType.ofType.getOrElse(valueType))(compileKey)
 
-  private def compileFields[A](
+  private def compileFields[A, B](
     path: String,
     noun: String,
     definitions: List[__InputValue],
     fields: List[(String, Lookup.Argument[A])]
   )(
-    leaf: (String, A, __Type) => Either[List[String], LookupArgument]
-  ): Either[List[String], List[(String, LookupArgument)]] = {
+    leaf: (String, A, __Type) => Either[List[String], B]
+  ): Either[List[String], List[(String, Lookup.Argument[B])]] = {
     val byName   = definitions.map(definition => definition.name -> definition).toMap
     val mapped   = fields.map(_._1)
     val unknown  = mapped.collect {
@@ -122,10 +124,10 @@ private[composition] final class LookupCompilation private (subgraph: PreparedSu
 
 private[composition] object LookupCompilation {
 
-  def compile(subgraph: PreparedSubgraph, lookup: Lookup): Either[List[String], LookupOperation.GraphQLQuery] =
+  def compile(subgraph: Source, lookup: Lookup): Either[List[String], LookupOperation.GraphQLQuery] =
     new LookupCompilation(subgraph, lookup).compile
 
-  def declarationDiagnostics(subgraph: PreparedSubgraph): List[String] = {
+  def declarationDiagnostics(subgraph: Source): List[String] = {
     val federation = check(
       !subgraph.federation || subgraph.lookups.isEmpty,
       s"[${subgraph.name}] Ordinary GraphQL lookups cannot be declared on a Federation subgraph."

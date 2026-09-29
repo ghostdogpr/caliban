@@ -21,7 +21,7 @@ import caliban.Value.{ EnumValue, NullValue, StringValue }
 import scala.collection.compat._
 
 private[gateway] final class SchemaMapping private (
-  private val sourceRootType: RootType,
+  private[composition] val sourceRootType: RootType,
   mappings: SchemaMapping.Mappings
 ) {
   import SchemaMapping._
@@ -85,14 +85,6 @@ private[gateway] final class SchemaMapping private (
     )
   }
 
-  def lookupFieldToSource(field: String): String =
-    sourceField(QueryRoot, field)
-
-  def lookupArgumentsToSource(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] =
-    arguments.map { case (name, value) =>
-      sourceArguments.getOrElse(ArgumentCoordinate(QueryRoot, field, name), name) -> value
-    }
-
   def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue =
     if (mappings.renamesNothing) value
     else mapRepresentation(typeName, value)
@@ -119,7 +111,7 @@ private[gateway] final class SchemaMapping private (
     ArgumentCoordinate(clientType(tpe), clientField(tpe, field), renamed) -> argument
   }
 
-  private def clientField(typeName: String, field: String): String =
+  private[composition] def clientField(typeName: String, field: String): String =
     mappings.renames.getOrElse(FieldTarget(typeName, field), field)
 
   private def sourceField(typeName: String, field: String): String =
@@ -127,23 +119,6 @@ private[gateway] final class SchemaMapping private (
 
   private def clientArgument(typeName: String, field: String, argument: String): String =
     mappings.renames.getOrElse(ArgumentTarget(typeName, field, argument), argument)
-
-  def transform(lookup: Lookup): Lookup = {
-    def key(value: Lookup.Key) = Lookup.Key(clientField(lookup.typeName, value.field))
-
-    def arguments[A](values: List[(String, Lookup.Argument[A])])(leaf: A => A) = values.map { case (name, value) =>
-      clientArgument(sourceType(QueryRoot), lookup.field, name) -> value.map(leaf)
-    }
-
-    val typeName = clientType(lookup.typeName)
-    val field    = clientField(sourceType(QueryRoot), lookup.field)
-
-    lookup match {
-      case Lookup.Single(_, _, values) => Lookup.Single(typeName, field, arguments(values)(key))
-      case Lookup.ByKey(_, _, values)  =>
-        Lookup.ByKey(typeName, field, arguments(values)(batch => Lookup.Batch(batch.value.map(key))))
-    }
-  }
 
   private def mapRepresentation(typeName: String, value: InputObjectValue): InputObjectValue =
     InputObjectValue(value.fields.map {
