@@ -8,7 +8,7 @@ import caliban.Value._
 import caliban.introspection.adt.__Introspection
 import caliban.schema.Schema.auto._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
-import zio.{ Ref, ZIO }
+import zio._
 import zio.test._
 
 object IntrospectionSpec extends ZIOSpecDefault {
@@ -121,6 +121,7 @@ object IntrospectionSpec extends ZIOSpecDefault {
               query Mixed {
                 character(name: "Amos Burton") { name }
                 __schema { queryType { name } }
+                __type(name: "Character") { name }
               }
             """)
 
@@ -187,30 +188,6 @@ object IntrospectionSpec extends ZIOSpecDefault {
           )
         }
       },
-      test("mixes introspection and application fields") {
-        val interpreter = graphQL(resolverIO).interpreter
-        val query       = gqldoc("""
-              query {
-                character(name: "Amos Burton") {
-                  name
-                }
-                __schema {
-                  queryType { name }
-                }
-                __type(name: "Character") {
-                  name
-                }
-              }
-            """)
-
-        interpreter.flatMap(_.execute(query)).map { response =>
-          assertTrue(
-            response.errors.isEmpty,
-            response.data.toString ==
-              """{"character":{"name":"Amos Burton"},"__schema":{"queryType":{"name":"QueryIO"}},"__type":{"name":"Character"}}"""
-          )
-        }
-      },
       test("runs introspection wrappers only when introspection is selected") {
         val applicationQuery = gqldoc("""
               query {
@@ -221,6 +198,7 @@ object IntrospectionSpec extends ZIOSpecDefault {
               query {
                 character(name: "Amos Burton") { name }
                 __schema { queryType { name } }
+                __type(name: "Character") { name }
               }
             """)
 
@@ -241,6 +219,8 @@ object IntrospectionSpec extends ZIOSpecDefault {
           application.errors.isEmpty,
           afterApp == 0,
           mixed.errors.isEmpty,
+          mixed.data.toString ==
+            """{"character":{"name":"Amos Burton"},"__schema":{"queryType":{"name":"QueryIO"}},"__type":{"name":"Character"}}""",
           afterMixed == 1
         )
       },

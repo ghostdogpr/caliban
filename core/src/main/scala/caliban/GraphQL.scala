@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban.execution.{ ExecutionRequest, Executor, Feature, RequestPreparation }
+import caliban.execution.{ isIntrospectionField, ExecutionRequest, Executor, Feature, RequestPreparation }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
@@ -114,14 +114,9 @@ trait GraphQL[-R] { self =>
 
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
-        private lazy val schemaWithIntrospection: RootSchema[R] = {
-          val query = Operation(
-            introspectionRootSchema.query.opType |+| schema.query.opType,
-            Step.mergeRootSteps(schema.query.plan, introspectionRootSchema.query.plan)
-          )
-          RootSchema(query, schema.mutation, schema.subscription)
-        }
         private lazy val rootTypeWithIntrospection: RootType    = Introspector.withIntrospection(rootType)
+        private lazy val queryWithIntrospection: Step[R]        =
+          Step.mergeRootSteps(schema.query.plan, introspectionRootSchema.query.plan)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           RequestPreparation.parse(query).flatMap(Validator.validate(_, rootTypeWithIntrospection))
@@ -134,6 +129,7 @@ trait GraphQL[-R] { self =>
               wrap((request: GraphQLRequest) =>
                 (for {
                   doc          <- wrap(RequestPreparation.parse)(parsingWrappers, request.query.getOrElse(""))
+                  _            <- RequestPreparation.checkIntrospection(doc, request.operationName)
                   coercedVars  <- RequestPreparation.coerceVariables(doc, request, rootTypeWithIntrospection)
                   executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(fieldWrappers))(executionWrappers, executionReq)
@@ -147,24 +143,24 @@ trait GraphQL[-R] { self =>
           req: GraphQLRequest,
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-          RequestPreparation.prepareParsed(req, doc, coercedVars, rootTypeWithIntrospection, skipValidation = false)
+          RequestPreparation.prepareParsed(req, doc, coercedVars, rootTypeWithIntrospection)
 
         private def execution[R1 <: R](
           fieldWrappers: List[FieldWrapper[R1]]
         )(request: ExecutionRequest)(implicit trace: Trace) = {
-          val schemaToExecute =
-            if (request.isIntrospection) introspectionRootSchema
-            else if (request.hasIntrospection) schemaWithIntrospection
-            else schema
-          val op              = request.operationType match {
-            case OperationType.Query        => schemaToExecute.query
-            case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-            case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+          val plan = request.operationType match {
+            case OperationType.Query        =>
+              val fields = request.field.fields
+              if (!fields.exists(isIntrospectionField)) schema.query.plan
+              else if (fields.forall(isIntrospectionField)) introspectionRootSchema.query.plan
+              else queryWithIntrospection
+            case OperationType.Mutation     => schema.mutation.getOrElse(schema.query).plan
+            case OperationType.Subscription => schema.subscription.getOrElse(schema.query).plan
           }
           Configurator.ref.getWith { config =>
             Executor.executeRequest(
               request,
-              op.plan,
+              plan,
               fieldWrappers,
               config.queryExecution,
               features,

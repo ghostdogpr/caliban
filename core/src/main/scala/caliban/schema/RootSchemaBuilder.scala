@@ -22,12 +22,7 @@ case class RootSchemaBuilder[-R](
     )
 
   def types: List[__Type] =
-    Types.collectRootTypes(
-      additionalTypes,
-      query.map(_.opType),
-      mutation.map(_.opType),
-      subscription.map(_.opType)
-    )
+    Types.collectRootTypes(additionalTypes, (query.toList ++ mutation ++ subscription).map(_.opType))
 
   def visit(visitor: TypeVisitor): RootSchemaBuilder[R] =
     copy(

@@ -241,15 +241,17 @@ object GatewaySpec extends ZIOSpecDefault {
       },
       test("isolates local request-error classification from the gateway request") {
         for {
-          runtime    <- Gateway
-                          .compose(Subgraph.graphql("local", localGraph(ZIO.succeed("ok")) @@ maxDepth(0)))
-                          .interpreter
-          classified <- GraphQLResponseContext.capture(runtime.execute("{ value }"))
-        } yield assertTrue(
-          classified.value.data == NullValue,
-          classified.value.errors.map(_.msg) == List("Query is too deep: 1. Max depth: 0."),
-          classified.outcome == GraphQLResponseContext.Outcome.Executed
-        )
+          runtime <- Gateway
+                       .compose(Subgraph.graphql("local", localGraph(ZIO.succeed("ok")) @@ maxDepth(0)))
+                       .interpreter
+          result  <- GraphQLResponseContext.capture(runtime.execute("{ value }")) { (response, outcome) =>
+                       assertTrue(
+                         response.data == NullValue,
+                         response.errors.map(_.msg) == List("Query is too deep: 1. Max depth: 0."),
+                         outcome == GraphQLResponseContext.Outcome.Executed
+                       )
+                     }
+        } yield result
       },
       test("strips client extensions before executing a local subgraph") {
         val request = GraphQLRequest(

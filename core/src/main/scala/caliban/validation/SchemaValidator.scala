@@ -20,13 +20,13 @@ private[caliban] object SchemaValidator {
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] =
     for {
+      query <- schema.query.toRight(missingQueryRoot)
       _     <- validateSchema(
-                 schema.types.sorted,
-                 schema.query.map(_.opType),
+                 schema.additionalTypes,
+                 query.opType,
                  schema.mutation.map(_.opType),
                  schema.subscription.map(_.opType)
                )
-      query <- schema.query.toRight(missingQueryRoot)
     } yield RootSchema(query, schema.mutation, schema.subscription)
 
   private[caliban] val missingQueryRoot: ValidationError =
@@ -37,14 +37,12 @@ private[caliban] object SchemaValidator {
 
   private[caliban] def validateDocument(
     document: Document,
-    queryType: Option[String],
-    mutationType: Option[String],
-    subscriptionType: Option[String]
+    rootTypeNames: List[String]
   ): Either[ValidationError, Unit] = {
     val duplicate  = document.typeDefinitions.groupBy(_.name).collectFirst { case (name, _ :: _ :: _) => name }
     val names      = document.typeDefinitions.iterator.map(_.name).toSet
     val references =
-      queryType.iterator ++ mutationType.iterator ++ subscriptionType.iterator ++
+      rootTypeNames.iterator ++
         document.typeDefinitions.iterator.flatMap(typeReferences) ++
         document.directiveDefinitions.iterator.flatMap(_.args.iterator.map(argument => Type.innerType(argument.ofType)))
     val missing    = references.find(name => !names.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
@@ -55,43 +53,39 @@ private[caliban] object SchemaValidator {
       .toLeft(())
   }
 
-  private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] = {
-    val types = Types
-      .collectRootTypes(
-        rootType.additionalTypes,
-        Some(rootType.queryType),
-        rootType.mutationType,
-        rootType.subscriptionType
-      )
-      .sorted
-
-    validateSchema(types, Some(rootType.queryType), rootType.mutationType, rootType.subscriptionType)
-  }
+  private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] =
+    validateSchema(rootType.additionalTypes, rootType.queryType, rootType.mutationType, rootType.subscriptionType)
 
   private def validateSchema(
-    types: List[__Type],
-    query: Option[__Type],
-    mutation: Option[__Type],
-    subscription: Option[__Type]
-  ): Either[ValidationError, Unit] =
-    for {
-      _ <- validateDistinctRootTypes(query, mutation, subscription)
-      _ <- validateAllDiscard(types)(validateType)
-      _ <- validateClashingTypes(types)
-      _ <- validateDirectives(types)
-      _ <- validateRootMutationType(mutation)
-      _ <- validateRootSubscriptionType(subscription)
-      _ <- validateRootQueryType(query)
-    } yield ()
-
-  private def validateDistinctRootTypes(
-    query: Option[__Type],
+    additionalTypes: List[__Type],
+    query: __Type,
     mutation: Option[__Type],
     subscription: Option[__Type]
   ): Either[ValidationError, Unit] = {
-    val duplicate = List(query, mutation, subscription).flatten.flatMap(_.name).groupBy(identity).collectFirst {
-      case (name, _ :: _ :: _) => name
-    }
+    val roots = query :: mutation.toList ::: subscription.toList
+    val types = Types.collectRootTypes(additionalTypes, roots).sorted
+    for {
+      _ <- validateDistinctRootTypes(roots)
+      _ <- validateAllDiscard(types)(validateType)
+      _ <- validateClashingTypes(types)
+      _ <- validateDirectives(types)
+      _ <- failWhen(mutation.exists(_.kind != OBJECT))(
+             "The mutation root operation is not an object type.",
+             "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
+           )
+      _ <- failWhen(subscription.exists(_.kind != OBJECT))(
+             "The mutation root subscription is not an object type.",
+             "The mutation root subscription type is optional; if it is not provided, the service does not support subscriptions. If it is provided, it must be an Object type."
+           )
+      _ <- failWhen(query.kind != OBJECT)(
+             "The query root operation is not an object type.",
+             "The query root operation type must be provided and must be an Object type."
+           )
+    } yield ()
+  }
+
+  private def validateDistinctRootTypes(roots: List[__Type]): Either[ValidationError, Unit] = {
+    val duplicate = roots.flatMap(_.name).groupBy(identity).collectFirst { case (name, _ :: _ :: _) => name }
 
     duplicate.fold[Either[ValidationError, Unit]](unit)(name =>
       failValidation(
@@ -517,39 +511,6 @@ private[caliban] object SchemaValidator {
       s"$errorContext can't start with '__'",
       """Names cannot begin with the characters "__" (two underscores)"""
     )
-
-  private def validateRootQueryType(query: Option[__Type]): Either[ValidationError, Unit] =
-    query match {
-      case None        => Left(missingQueryRoot)
-      case Some(query) =>
-        if (query.kind == __TypeKind.OBJECT)
-          unit
-        else
-          failValidation(
-            "The query root operation is not an object type.",
-            "The query root operation type must be provided and must be an Object type."
-          )
-    }
-
-  private def validateRootMutationType(mutation: Option[__Type]): Either[ValidationError, Unit] =
-    mutation match {
-      case Some(mutation) if mutation.kind != __TypeKind.OBJECT =>
-        failValidation(
-          "The mutation root operation is not an object type.",
-          "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
-        )
-      case _                                                    => unit
-    }
-
-  private def validateRootSubscriptionType(subscription: Option[__Type]): Either[ValidationError, Unit] =
-    subscription match {
-      case Some(subscription) if subscription.kind != __TypeKind.OBJECT =>
-        failValidation(
-          "The mutation root subscription is not an object type.",
-          "The mutation root subscription type is optional; if it is not provided, the service does not support subscriptions. If it is provided, it must be an Object type."
-        )
-      case _                                                            => unit
-    }
 
   private def failValidation(msg: String, explanatoryText: String): Either[ValidationError, Nothing] =
     Left(ValidationError(msg, explanatoryText))

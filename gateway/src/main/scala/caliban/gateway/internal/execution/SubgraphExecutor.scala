@@ -1,6 +1,5 @@
 package caliban.gateway.internal.execution
 
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.execution.Field
 import caliban.gateway.PhaseHooks
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
@@ -38,17 +37,14 @@ private[gateway] object SubgraphExecutor {
   def subscriptionResponses(
     response: GraphQLResponse[CalibanError]
   ): ZStream[Any, Throwable, GraphQLResponse[CalibanError]] =
-    response.data match {
-      // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
-      case StreamValue(stream) if response.hasNext.isEmpty =>
-        stream.mapZIO(value =>
+    HttpUtils.subscriptionEvents(response) match {
+      case Some(subscription) =>
+        subscription.events.mapZIO(value =>
           ZIO
             .fromOption(GraphQLResponse.fromResponseValue(value))
             .orElseFail(CalibanError.ExecutionError("Invalid subscription response."))
         )
-      case ObjectValue((name, StreamValue(stream)) :: Nil) =>
-        stream.map(value => response.copy(data = ObjectValue(List(name -> value))))
-      case _                                               => ZStream.succeed(response)
+      case None               => ZStream.succeed(response)
     }
 
   def failureOutcome(failure: Failure): Outcome =
@@ -155,7 +151,7 @@ private[gateway] final class LocalSubgraphExecutor[-R](
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     hooks.subgraphCall.run(Event.SubgraphCall(name, operationType))(
-      GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None))).map(_.value)
+      GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None)))((r, _) => r)
     )(SubgraphExecutor.resultFromExit)
 
   override def subscribe(request: GraphQLRequest)(implicit

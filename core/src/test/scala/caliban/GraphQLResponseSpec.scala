@@ -51,8 +51,7 @@ object GraphQLResponseSpec extends ZIOSpecDefault {
             for {
               interpreter <- (graphQL(RootResolver(Query("ok"))) @@ shortCircuit(error)).interpreter.orDie
               outcome     <- GraphQLResponseContext
-                               .captureResponse(interpreter.executeRequest(GraphQLRequest(query = Some("{ value }"))))
-                               .map(_.outcome)
+                               .capture(interpreter.executeRequest(GraphQLRequest(query = Some("{ value }"))))((_, o) => o)
             } yield outcome -> expected
           }
           .map(outcomes => assertTrue(outcomes.forall { case (actual, expected) => actual == expected }))

@@ -55,7 +55,7 @@ class JsonEncodingBenchmark {
   def jsoniter(): Unit = writeToString(testData)
 
   @Benchmark
-  def jsoniterDirectResponse(): Array[Byte] =
+  def jsoniterDirectResponse(): Option[Array[Byte]] =
     GraphQLResponseJsoniter.writeToArray(
       smallResponse,
       16 * 1024 * 1024,

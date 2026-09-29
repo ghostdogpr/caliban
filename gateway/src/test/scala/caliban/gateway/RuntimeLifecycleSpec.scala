@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext }
-import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
+import caliban.GraphQLResponseContext.ServerFailure
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.{ GatewayExecutionControl, GatewayInterpreterImpl }
@@ -214,15 +214,15 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         _        <- started.await
         closing  <- scope.close(Exit.unit).fork
         _        <- awaitDrain(runtime)
-        rejected <- GraphQLResponseContext.capture(runtime.execute("{ value }"))
+        rejected <- GraphQLResponseContext.capture(runtime.execute("{ value }"))((r, o) => (r, o))
         _        <- release.succeed(())
         result   <- accepted.join
         _        <- closing.join
       } yield assertTrue(
         result.errors.isEmpty,
         field(result.data, "value").contains(StringValue("done")),
-        rejected.value.errors.map(_.msg) == List("Gateway is shutting down."),
-        rejected.outcome == Outcome.ServerError(ServerFailure.Unavailable)
+        rejected._1.errors.map(_.msg) == List("Gateway is shutting down."),
+        rejected._2 == ServerFailure.Unavailable
       )
     },
     test("interrupts cooperative work after the drain timeout without detaching it") {

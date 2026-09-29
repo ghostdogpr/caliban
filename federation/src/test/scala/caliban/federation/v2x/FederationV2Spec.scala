@@ -115,7 +115,7 @@ object FederationV2Spec extends ZIOSpecDefault {
       test("renders a progressive override label") {
         import caliban.federation.v2_7._
 
-        val progressive = GQLProgressiveOverride("products", "percent(12.5)").directive
+        val progressive = new GQLProgressiveOverride("products", "percent(12.5)").directive
         val raw         = ProgressiveOverride("products", "percent(12.5)")
         val immediate   = GQLOverride("products").directive
 

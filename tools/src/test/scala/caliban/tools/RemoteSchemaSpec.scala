@@ -14,8 +14,6 @@ import caliban.Macros.gqldoc
 import caliban.execution.Feature
 import caliban.transformers.Transformer
 
-import scala.util.Try
-
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
   case object EnumValue1 extends EnumType
@@ -56,16 +54,10 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
     RootResolver(queries)
   )
 
-  def spec = suite("RemoteSchemaSpec")(
-    test("reports a built-in scalar used as a root type without throwing") {
-      val result = Try {
-        Parser
-          .parseQuery("schema { query: String } type Foo { id: ID }")
-          .flatMap(RemoteSchema.normalize(_).map(_.rootType))
-      }
+  private def normalize(schema: String): Either[CalibanError, RootType] =
+    Parser.parseQuery(schema).flatMap(RemoteSchema.normalize(_).map(_.rootType))
 
-      assertTrue(result.isSuccess, result.toOption.exists(_.isLeft))
-    },
+  def spec = suite("RemoteSchemaSpec")(
     test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
@@ -182,7 +174,8 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
     test("preserves metadata on object types reached through an interface") {
       val schema =
         """
-          |type Query { node: Node }
+          |type Query { node: Node status: Status }
+          |"Product status" enum Status { ACTIVE }
           |interface Node { id: ID! }
           |type Product implements Node {
           |  id: ID!
@@ -193,8 +186,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
           |""".stripMargin
 
       for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
+        rootType <- ZIO.fromEither(normalize(schema))
         product   = rootType.types
                       .get("Node")
                       .flatMap(_.possibleTypes)
@@ -206,100 +198,28 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       } yield assertTrue(
         !visible.exists(_.name == "legacy"),
         legacy.flatMap(_.deprecationReason).contains("No longer supported"),
-        url.flatMap(_.specifiedByURL).contains("https://example.com/url")
+        url.flatMap(_.specifiedByURL).contains("https://example.com/url"),
+        rootType.types.get("Status").flatMap(_.description).contains("Product status")
       )
     },
-    test("builds a validated RootType from conventional roots and extensions") {
-      val schema =
+    test("builds a validated RootType from conventional roots and extensions, with or without schema metadata") {
+      val types    =
         """
-          |type Query {
-          |  value: String
-          |}
-          |
-          |extend type Query {
-          |  version: String
-          |}
-          |
-          |type Mutation {
-          |  update: Boolean
-          |}
-          |
-          |type Subscription {
-          |  events: String
-          |}
-          |""".stripMargin
-
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
-        fields    = rootType.queryType.fields(__DeprecatedArgs()).toList.flatten.map(_.name)
-      } yield assertTrue(
-        rootType.queryType.name.contains("Query"),
-        rootType.mutationType.flatMap(_.name).contains("Mutation"),
-        rootType.subscriptionType.flatMap(_.name).contains("Subscription"),
-        fields == List("value", "version")
-      )
-    },
-    test("retains conventional roots when schema metadata is supplied by an extension") {
-      val schema =
-        """
-          |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3")
           |type Query { value: String }
+          |extend type Query { version: String }
           |type Mutation { update: Boolean }
           |type Subscription { events: String }
           |""".stripMargin
+      val withLink = "extend schema @link(url: \"https://specs.apollo.dev/federation/v2.3\")\n" + types
 
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
-      } yield assertTrue(
-        rootType.queryType.name.contains("Query"),
-        rootType.mutationType.flatMap(_.name).contains("Mutation"),
-        rootType.subscriptionType.flatMap(_.name).contains("Subscription")
-      )
-    },
-    test("rejects conflicting operation roots across schema declarations") {
-      val schema =
-        """
-          |schema { query: Query }
-          |extend schema { query: RootQuery }
-          |type Query { value: String }
-          |type RootQuery { value: String }
-          |""".stripMargin
-
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.normalize(document).map(_.rootType)
-      } yield assertTrue(
-        result.left.exists(_.msg == "Conflicting query root types are declared: 'Query', 'RootQuery'.")
-      )
-    },
-    test("does not infer Query when a schema definition omits the query root") {
-      val schema =
-        """
-          |schema { mutation: Mutation }
-          |type Query { value: String }
-          |type Mutation { update: Boolean }
-          |""".stripMargin
-
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.normalize(document).map(_.rootType)
-      } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
-    },
-    test("reports a missing query root before other document errors") {
-      val schema =
-        """
-          |schema { mutation: Mutation }
-          |type Mutation { update: Missing }
-          |type Duplicate { value: String }
-          |type Duplicate { value: String }
-          |""".stripMargin
-
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.normalize(document).map(_.rootType)
-      } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
+      ZIO.foreach(List(types, withLink))(schema => ZIO.fromEither(normalize(schema))).map { rootTypes =>
+        assertTrue(rootTypes.forall { rootType =>
+          rootType.queryType.name.contains("Query") &&
+          rootType.mutationType.flatMap(_.name).contains("Mutation") &&
+          rootType.subscriptionType.flatMap(_.name).contains("Subscription") &&
+          rootType.queryType.fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("value", "version")
+        })
+      }
     },
     test("preserves and validates OneOf input objects") {
       val validSchema   =
@@ -314,37 +234,28 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
           |""".stripMargin
 
       for {
-        validDocument   <- ZIO.fromEither(Parser.parseQuery(validSchema))
-        invalidDocument <- ZIO.fromEither(Parser.parseQuery(invalidSchema))
-        rootType        <- ZIO.fromEither(RemoteSchema.normalize(validDocument).map(_.rootType))
-        oneOf            = rootType.additionalTypes.find(_.name.contains("Choice")).flatMap(_.isOneOf)
-        invalid          = RemoteSchema.normalize(invalidDocument).map(_.rootType)
-      } yield assertTrue(oneOf.contains(true), invalid.isLeft)
+        rootType <- ZIO.fromEither(normalize(validSchema))
+        oneOf     = rootType.additionalTypes.find(_.name.contains("Choice")).flatMap(_.isOneOf)
+      } yield assertTrue(oneOf.contains(true), normalize(invalidSchema).isLeft)
     },
-    test("rejects multiple schema definitions") {
-      val schema =
-        """
-          |schema { query: Query }
-          |schema { query: Query }
-          |type Query { value: String }
-          |""".stripMargin
+    test("rejects invalid schema documents with a precise error") {
+      val cases = List(
+        "schema { query: String } type Foo { id: ID }"                                                                                      -> "The query root type 'String' must be an object type.",
+        "schema { query: Query } extend schema { query: RootQuery } type Query { value: String } type RootQuery { value: String }"          ->
+          "Conflicting query root types are declared: 'Query', 'RootQuery'.",
+        "schema { mutation: Mutation } type Query { value: String } type Mutation { update: Boolean }"                                      ->
+          "The query root operation is missing.",
+        "schema { mutation: Mutation } type Mutation { update: Missing } type Duplicate { value: String } type Duplicate { value: String }" ->
+          "The query root operation is missing.",
+        "type Mutation { update: Boolean }"                                                                                                 -> "The query root operation is missing.",
+        "schema { query: Query } schema { query: Query } type Query { value: String }"                                                      -> "Schema is defined multiple times.",
+        "schema { query: Root mutation: Root } type Root { value: String }"                                                                 -> "Root operation type 'Root' is used more than once."
+      )
 
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.normalize(document).map(_.rootType)
-      } yield assertTrue(result.left.exists(_.msg == "Schema is defined multiple times."))
-    },
-    test("rejects a type shared by multiple root operations") {
-      val schema =
-        """
-          |schema { query: Root mutation: Root }
-          |type Root { value: String }
-          |""".stripMargin
-
-      for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.normalize(document).map(_.rootType)
-      } yield assertTrue(result.left.exists(_.msg == "Root operation type 'Root' is used more than once."))
+      assertTrue(
+        cases.map { case (schema, _) => normalize(schema).left.toOption.map(_.msg) } ==
+          cases.map { case (_, message) => Some(message) }
+      )
     }
   )
 

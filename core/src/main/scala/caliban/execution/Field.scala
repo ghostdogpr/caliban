@@ -1,7 +1,7 @@
 package caliban.execution
 
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
-import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
+import caliban.introspection.adt.{ __InputValue, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
@@ -10,6 +10,7 @@ import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinit
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
@@ -191,7 +192,7 @@ object Field {
       if (variableDefinitions eq Nil) Map.empty[String, VariableDefinition]
       else variableDefinitions.map(v => v.name -> v).toMap
     val resolveDirectives: Directive => Directive =
-      resolveDirectiveVariables(variableValues, variableDefinitionsMap)
+      resolveDirectiveVariables(variableValues, variableDefinitionsMap, rootType)
 
     def loop(
       selectionSet: List[Selection],
@@ -216,7 +217,8 @@ object Field {
 
           if (checkDirectives(resolvedDirectives)) {
             // default only case where it's not found is __typename
-            val t = if (selected eq null) Types.string else selected._type
+            val t           = if (selected eq null) Types.string else selected._type
+            val definitions = if (selected eq null) Nil else selected.allArgs
 
             val fields =
               if (selectionSet.nonEmpty)
@@ -231,7 +233,7 @@ object Field {
                 alias,
                 fields,
                 targets = targets,
-                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues, selected),
+                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues, definitions),
                 directives = resolvedDirectives,
                 _condition = condition,
                 _locationInfo = () => sourceMapper.getLocation(index),
@@ -305,16 +307,20 @@ object Field {
 
   private def resolveDirectiveVariables(
     variableValues: Map[String, InputValue],
-    variableDefinitions: Map[String, VariableDefinition]
+    variableDefinitions: Map[String, VariableDefinition],
+    rootType: RootType
   )(directive: Directive): Directive =
     if (directive.arguments.isEmpty) directive
-    else directive.copy(arguments = resolveVariables(directive.arguments, variableDefinitions, variableValues))
+    else {
+      val args = rootType.additionalDirectives.filter(_.name == directive.name).flatMap(_.allArgs)
+      directive.copy(arguments = resolveVariables(directive.arguments, variableDefinitions, variableValues, args))
+    }
 
   private def resolveVariables(
     arguments: Map[String, InputValue],
     variableDefinitions: Map[String, VariableDefinition],
     variableValues: Map[String, InputValue],
-    field: __Field = null
+    definitions: List[__InputValue]
   ): Map[String, InputValue] = {
     def resolveVariable(value: InputValue): Option[InputValue] =
       value match {
@@ -333,12 +339,18 @@ object Field {
     if (arguments.isEmpty) Map.empty[String, InputValue]
     else
       arguments.flatMap { case (name, value) =>
-        resolveVariable(value).map { resolved =>
-          val definition = if (field eq null) null else field.getArgOrNull(name)
-          name -> (if (definition eq null) resolved else coerceArgument(resolved, definition._type))
-        }
+        resolveVariable(value).map(resolved => name -> coerceNamedArgument(resolved, name, definitions))
       }
   }
+
+  @tailrec
+  private def coerceNamedArgument(value: InputValue, name: String, definitions: List[__InputValue]): InputValue =
+    definitions match {
+      case definition :: others =>
+        if (definition.name == name) coerceArgument(value, definition._type)
+        else coerceNamedArgument(value, name, others)
+      case Nil                  => value
+    }
 
   // Returns the same instance when nothing needs coercion, so that unchanged arguments are not copied.
   private def coerceArgument(value: InputValue, expected: __Type): InputValue =

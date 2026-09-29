@@ -55,7 +55,7 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
         }
     }
 
-  private[caliban] def existsSelection(operationName: Option[String])(
+  private[caliban] def existsSelection(operation: OperationDefinition)(
     predicate: Selection => Boolean,
     fragmentPredicate: FragmentDefinition => Boolean = (_: FragmentDefinition) => false
   ): Boolean = {
@@ -74,16 +74,14 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
         })
       }
 
-    operationDefinition(operationName).exists(operation => loop(operation.selectionSet))
+    loop(operation.selectionSet)
   }
 
-  private[caliban] def foreachSelection(operationName: Option[String])(f: Selection => Unit): Unit = {
-    existsSelection(operationName) { selection =>
+  private[caliban] def foreachSelection(operationName: Option[String])(f: Selection => Unit): Unit =
+    operationDefinition(operationName).foreach(existsSelection(_) { selection =>
       f(selection)
       false
-    }
-    ()
-  }
+    })
 
   private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
     def selectionHasDirective(selection: Selection): Boolean =
@@ -96,7 +94,7 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     operationDefinition(operationName).exists(operation =>
       operation.directives.exists(predicate) ||
         operation.variableDefinitions.exists(_.directives.exists(predicate)) ||
-        existsSelection(operationName)(selectionHasDirective, _.directives.exists(predicate))
+        existsSelection(operation)(selectionHasDirective, _.directives.exists(predicate))
     )
   }
 

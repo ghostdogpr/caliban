@@ -25,7 +25,14 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       routes  <- TestApi.api.interpreter.map { interpreter =>
-                   val default       = QuickAdapter(interpreter).configureSse(SseConfig(Some(1.second)))
+                   val coded         = interpreter.mapError {
+                     case e: CalibanError.ValidationError =>
+                       e.copy(extensions =
+                         Some(ResponseValue.ObjectValue(List("code" -> Value.StringValue("BAD_REQUEST"))))
+                       )
+                     case e                               => e
+                   }
+                   val default       = QuickAdapter(coded).configureSse(SseConfig(Some(1.second)))
                    val existing      = default.configureHttp(HttpConfig.default.withMaxRequestBodyBytes(Int.MaxValue - 2))
                    val smallResponse = default.configureHttp(HttpConfig.default.withMaxResponseBodyBytes(64))
 
@@ -62,113 +69,52 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   }
 
   private val regressionSuite = suite("HTTP compatibility and limits")(
-    test("treats Accept */* like an absent Accept header") {
-      val endpoint = uri"http://localhost:8090/api/graphql"
-      val body     = """{"query":"{ characters { name } }"}"""
-
-      def send(accept: Option[String]) = {
-        val request = basicRequest
-          .post(endpoint)
-          .contentType("application/json")
-          .body(body)
-          .response(asStringAlways)
-        execute(accept.fold(request)(request.header("Accept", _)))
-      }
-
+    test("negotiates the response media type from Accept like an absent Accept header") {
+      val json     = "application/json"
+      val expected = List(
+        "*/*"                                                  -> json,
+        "*/*;charset=utf-8"                                    -> json,
+        "text/plain, */*"                                      -> json,
+        "application/json, text/plain, */*"                    -> json,
+        "text/event-stream, */*"                               -> "text/event-stream",
+        "multipart/mixed;deferSpec=20220824, application/json" -> json,
+        "application/json; charset=utf-8"                      -> json,
+        "application/json; charset=UTF8"                       -> json,
+        "application/json; charset=iso-8859-1"                 -> json,
+        "application/json; profile=custom"                     -> json
+      )
       for {
-        absent        <- send(None)
-        wildcard      <- send(Some("*/*"))
-        mixedWildcard <- send(Some("text/plain, */*"))
-        explicitJson  <- send(Some("application/json, text/plain, */*"))
-        eventStream   <- send(Some("text/event-stream, */*"))
-        apolloDefer   <- send(Some("multipart/mixed;deferSpec=20220824, application/json"))
+        absent     <- execute(postQuery(apiUri))
+        negotiated <- ZIO.foreach(expected) { case (accept, _) =>
+                        execute(postQuery(apiUri).header("Accept", accept)).map(r => (r.code.code, r.contentType))
+                      }
       } yield assertTrue(
-        absent.code == wildcard.code,
-        absent.contentType == wildcard.contentType,
-        absent.contentType.contains("application/json"),
+        absent.is200,
+        absent.contentType.contains(json),
         absent.body.contains("\"data\""),
-        wildcard.body.contains("\"data\""),
-        mixedWildcard.contentType.contains("application/json"),
-        explicitJson.contentType.contains("application/json"),
-        eventStream.contentType.contains("text/event-stream"),
-        apolloDefer.contentType.contains("application/json")
+        absent.header("Cache-Control").nonEmpty,
+        !absent.body.contains("cacheControl"),
+        negotiated == expected.map { case (_, mediaType) => (200, Some(mediaType)) }
       )
     },
-    test("accepts the legacy application/graphql+json POST media type") {
-      val body = """{"query":"{ characters { name } }"}"""
-
-      for {
-        response <- execute(
-                      basicRequest
-                        .post(uri"http://localhost:8090/api/graphql")
-                        .contentType("application/graphql+json")
-                        .body(body)
-                        .response(asStringAlways)
-                    )
-      } yield assertTrue(response.is200, response.body.contains("\"data\""))
-    },
-    test("rejects text/plain and decodes other request media types as JSON") {
-      val body = """{"query":"{ characters { name } }"}"""
-
-      def send(contentType: String) =
-        execute(
-          basicRequest
-            .post(uri"http://localhost:8090/api/graphql")
-            .contentType(contentType)
-            .body(body)
-            .response(asStringAlways)
+    test("rejects text/plain and decodes other request media types, including legacy graphql+json, as JSON") {
+      val expected = List(
+        "application/graphql+json"          -> 200,
+        "text/plain;charset=UTF-8"          -> 415,
+        "application/x-www-form-urlencoded" -> 200
+      )
+      ZIO.foreach(expected) { case (contentType, _) => execute(postQuery(apiUri, contentType)) }.map { responses =>
+        assertTrue(
+          responses.map(_.code.code) == expected.map(_._2),
+          responses.filter(_.is200).forall(_.body.contains("\"data\""))
         )
-
-      for {
-        text <- send("text/plain;charset=UTF-8")
-        form <- send("application/x-www-form-urlencoded")
-      } yield assertTrue(
-        text.code.code == 415,
-        form.is200,
-        form.body.contains("\"data\"")
-      )
-    },
-    test("accepts UTF-8 charset parameters and falls back to JSON for other media constraints") {
-      val endpoint = uri"http://localhost:8090/api/graphql"
-      val body     = """{"query":"{ characters { name } }"}"""
-
-      def send(accept: String) =
-        execute(
-          basicRequest
-            .post(endpoint)
-            .contentType("application/json")
-            .header("Accept", accept)
-            .body(body)
-            .response(asStringAlways)
-        )
-
-      for {
-        utf8    <- send("application/json; charset=utf-8")
-        alias   <- send("application/json; charset=UTF8")
-        latin1  <- send("application/json; charset=iso-8859-1")
-        profile <- send("application/json; profile=custom")
-      } yield assertTrue(
-        utf8.is200,
-        alias.is200,
-        utf8.contentType.contains("application/json"),
-        alias.contentType.contains("application/json"),
-        latin1.is200,
-        profile.is200,
-        latin1.contentType.contains("application/json"),
-        profile.contentType.contains("application/json")
-      )
+      }
     },
     test("accepts a known-length JSON body within the configured limit") {
-      val body = """{"query":"{ characters { name } }"}"""
-
       for {
         response <- execute(
-                      basicRequest
-                        .post(uri"http://localhost:8090/api/graphql-default")
-                        .contentType("application/json")
-                        .body(body)
-                        .contentLength(body.getBytes.length.toLong)
-                        .response(asStringAlways)
+                      postQuery(defaultUri)
+                        .contentLength(CharactersQuery.getBytes.length.toLong)
                     )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
@@ -203,22 +149,62 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         response <- execute(basicRequest.post(endpoint).response(asStringAlways))
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
-    test("returns an observable error when response encoding exceeds its limit") {
-      val body = """{"query":"{ characters { name } }"}"""
-
+    test("keeps 405 for a mutation over GET when mapError rewrites the error") {
+      val query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
       for {
-        response <- execute(
-                      basicRequest
-                        .post(uri"http://localhost:8090/api/graphql-small-response")
-                        .contentType("application/json")
-                        .body(body)
-                        .response(asStringAlways)
-                    )
+        response <- execute(basicRequest.get(uri"$defaultUri?query=$query").response(asStringAlways))
+      } yield assertTrue(response.code.code == 405, response.header("Allow").contains("POST"))
+    },
+    test("returns an observable error, or an SSE error event, when response encoding exceeds its limit") {
+      for {
+        json <- execute(postQuery(smallResponseUri))
+        sse  <- execute(postQuery(smallResponseUri).header("Accept", "text/event-stream"))
       } yield assertTrue(
-        response.code.code == 500,
-        response.body.nonEmpty,
-        response.body.contains("exceeds the configured limit")
+        json.code.code == 500,
+        json.contentType.contains("application/json"),
+        json.body.contains("exceeds the configured limit"),
+        sse.code.code == 200,
+        sse.body.contains("event: next"),
+        sse.body.contains("exceeds the configured limit")
       )
+    },
+    test("ends an @defer response after a payload exceeds the response limit") {
+      val query =
+        """{ characters { ... on Character @defer(label: "character") { name ... @defer(label: "nicknames") { labels } } } }"""
+      for {
+        response <-
+          execute(
+            basicRequest.post(smallResponseUri).contentType("application/graphql").body(query).response(asStringAlways)
+          )
+      } yield assertTrue(
+        response.body.split("exceeds the configured limit", -1).length == 2,
+        !response.body.contains("incremental")
+      )
+    },
+    test("rejects a subscription over JSON with a GraphQL error response") {
+      def reject(data: ResponseValue) = {
+        val interpreter = new GraphQLInterpreter[Any, CalibanError] {
+          def check(query: String)(implicit trace: Trace)                    = ZIO.unit
+          def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = ZIO.succeed(GraphQLResponse(data, Nil))
+        }
+        for {
+          response <- QuickAdapter(interpreter).handlers.api
+                        .runZIO(
+                          Request
+                            .post(URL.empty, Body.fromString(CharactersQuery))
+                            .addHeader(Header.ContentType(MediaType.application.json))
+                        )
+          body     <- response.body.asString
+        } yield assertTrue(
+          response.status == Status.BadRequest,
+          response.headers.get(Header.ContentType).exists(_.mediaType == MediaType.application.json),
+          body == """{"data":null,"errors":[{"message":"Subscriptions require text/event-stream or WebSocket."}]}"""
+        )
+      }
+      val stream                      = ResponseValue.StreamValue(zio.stream.ZStream.empty)
+      (reject(stream) <*> reject(ResponseValue.ObjectValue(List("characterDeleted" -> stream)))).map { case (a, b) =>
+        a && b
+      }
     },
     test("keeps GraphQL request errors on an SSE response at status 200") {
       for {
@@ -233,26 +219,16 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         response.body.contains("event: next"),
         response.body.contains("errors")
       )
-    },
-    test("emits an SSE error event when response encoding exceeds its limit") {
-      val body = """{"query":"{ characters { name } }"}"""
-
-      for {
-        response <- execute(
-                      basicRequest
-                        .post(uri"http://localhost:8090/api/graphql-small-response")
-                        .contentType("application/json")
-                        .header("Accept", "text/event-stream")
-                        .body(body)
-                        .response(asStringAlways)
-                    )
-      } yield assertTrue(
-        response.code.code == 200,
-        response.body.contains("event: next"),
-        response.body.contains("exceeds the configured limit")
-      )
     }
   )
+
+  private val CharactersQuery  = """{"query":"{ characters { name } }"}"""
+  private val apiUri           = uri"http://localhost:8090/api/graphql"
+  private val smallResponseUri = uri"http://localhost:8090/api/graphql-small-response"
+  private val defaultUri       = uri"http://localhost:8090/api/graphql-default"
+
+  private def postQuery(endpoint: sttp.model.Uri, contentType: String = "application/json") =
+    basicRequest.post(endpoint).contentType(contentType).body(CharactersQuery).response(asStringAlways)
 
   private def execute[T](request: sttp.client4.Request[T]): Task[sttp.client4.Response[T]] =
     ZIO.scoped[Any](HttpClientZioBackend.scoped().flatMap(request.send(_)))

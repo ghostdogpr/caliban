@@ -22,17 +22,15 @@ private[caliban] object RequestPreparation {
     trace: Trace
   ): IO[ValidationError, Map[String, InputValue]] =
     Configurator.ref.getWith { config =>
-      if (isIntrospectionDisabled(config, document, request.operationName)) introspectionDisabled
-      else
-        Exit.fromEither(
-          VariablesCoercer.coerceVariables(
-            request.variables.getOrElse(Map.empty),
-            document,
-            rootType,
-            config.skipValidation,
-            request.operationName
-          )
+      Exit.fromEither(
+        VariablesCoercer.coerceVariables(
+          request.variables.getOrElse(Map.empty),
+          document,
+          rootType,
+          config.skipValidation,
+          request.operationName
         )
+      )
     }
 
   def prepareParsed(
@@ -40,7 +38,6 @@ private[caliban] object RequestPreparation {
     document: Document,
     variables: Map[String, InputValue],
     rootType: RootType,
-    skipValidation: Boolean,
     validations: Option[List[Validator.QueryValidation]] = None
   )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
     Configurator.ref.getWith { config =>
@@ -49,7 +46,7 @@ private[caliban] object RequestPreparation {
         rootType,
         request.operationName,
         variables,
-        config.skipValidation || skipValidation,
+        config.skipValidation,
         validations.getOrElse(config.validations)
       ) match {
         case Right(execution) => checkHttpMethod(config, request, execution)
@@ -61,19 +58,10 @@ private[caliban] object RequestPreparation {
     trace: Trace
   ): IO[ValidationError, Unit] =
     Configurator.ref.getWith { config =>
-      if (isIntrospectionDisabled(config, document, operationName)) introspectionDisabled
+      if (!config.enableIntrospection && Introspector.hasIntrospection(document, operationName))
+        Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
       else Exit.unit
     }
-
-  private def introspectionDisabled: IO[ValidationError, Nothing] =
-    Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-
-  private def isIntrospectionDisabled(
-    config: ExecutionConfiguration,
-    document: Document,
-    operationName: Option[String]
-  ): Boolean =
-    !config.enableIntrospection && Introspector.hasIntrospection(document, operationName)
 
   private def checkHttpMethod(
     config: ExecutionConfiguration,

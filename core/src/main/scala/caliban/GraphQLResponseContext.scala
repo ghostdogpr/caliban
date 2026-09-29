@@ -7,12 +7,12 @@ private[caliban] object GraphQLResponseContext {
   sealed trait Outcome
 
   object Outcome {
-    case object Executed                                 extends Outcome
-    case object RequestError                             extends Outcome
-    final case class ServerError(failure: ServerFailure) extends Outcome
+    case object Executed        extends Outcome
+    case object RequestError    extends Outcome
+    case object MutationOverGet extends Outcome
   }
 
-  sealed trait ServerFailure
+  sealed trait ServerFailure extends Outcome
 
   object ServerFailure {
     case object Internal    extends ServerFailure
@@ -20,42 +20,30 @@ private[caliban] object GraphQLResponseContext {
     case object TimedOut    extends ServerFailure
   }
 
-  final case class Classified[+A](value: A, outcome: Outcome)
+  private val ExecutedMark = Some(Outcome.Executed)
 
-  private final case class Classification(outcome: Outcome, definitive: Boolean)
+  private val current: FiberRef[Option[Outcome]] =
+    Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(None))
 
-  private val initial = Classification(Outcome.Executed, definitive = false)
+  def capture[R, E, A, B](effect: ZIO[R, E, GraphQLResponse[A]])(f: (GraphQLResponse[A], Outcome) => B): ZIO[R, E, B] =
+    current.locally(None)(effect.zipWith(current.get) { (response, marked) =>
+      f(response, marked.getOrElse(outcome(response)))
+    })
 
-  private val current: FiberRef[Classification] =
-    Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(initial))
-
-  def capture[R, E, A](effect: ZIO[R, E, A]): ZIO[R, E, Classified[A]] =
-    captureWith(effect)((value, classification) => Classified(value, classification.outcome))
-
-  def captureResponse[R, E, A](effect: ZIO[R, E, GraphQLResponse[A]]): ZIO[R, E, Classified[GraphQLResponse[A]]] =
-    captureWith(effect) { (response, classification) =>
-      val outcome =
-        if (!classification.definitive && response.errors.exists(isRequestError)) Outcome.RequestError
-        else classification.outcome
-      Classified(response, outcome)
-    }
+  def outcome(response: GraphQLResponse[Any]): Outcome =
+    response.errors.collectFirst(requestOutcome).getOrElse(Outcome.Executed)
 
   def markRequestError(error: CalibanError): UIO[Unit] =
-    if (isRequestError(error)) current.set(Classification(Outcome.RequestError, definitive = true))
-    else ZIO.unit
+    requestOutcome.lift(error).fold(ZIO.unit)(outcome => current.set(Some(outcome)))
 
   def markServerError(failure: ServerFailure): UIO[Unit] =
-    current.set(Classification(Outcome.ServerError(failure), definitive = true))
+    current.set(Some(failure))
 
   def markExecuted: UIO[Unit] =
-    current.set(Classification(Outcome.Executed, definitive = true))
+    current.set(ExecutedMark)
 
-  private def captureWith[R, E, A, B](effect: ZIO[R, E, A])(f: (A, Classification) => B): ZIO[R, E, B] =
-    current.locally(initial)(effect.zipWith(current.get)(f))
-
-  private def isRequestError(error: Any): Boolean =
-    error match {
-      case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
-      case _                                                              => false
-    }
+  private val requestOutcome: PartialFunction[Any, Outcome] = {
+    case HttpUtils.MutationOverGetError                                 => Outcome.MutationOverGet
+    case _: CalibanError.ParsingError | _: CalibanError.ValidationError => Outcome.RequestError
+  }
 }

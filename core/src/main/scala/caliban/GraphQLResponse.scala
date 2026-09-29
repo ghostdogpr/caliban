@@ -56,42 +56,28 @@ object GraphQLResponse {
     value match {
       case response: ObjectValue =>
         for {
-          errors     <- response.getOrNull("errors") match {
-                          case null | NullValue  => AbsentField
-                          case ListValue(values) => Some(Some(decodeErrors(values)))
-                          case _                 => None
-                        }
-          extensions <- response.getOrNull("extensions") match {
-                          case null | NullValue        => AbsentField
-                          case extensions: ObjectValue => Some(Some(extensions))
-                          case _                       => None
-                        }
-          hasNext    <- response.getOrNull("hasNext") match {
-                          case null | NullValue      => AbsentField
-                          case BooleanValue(hasNext) => Some(Some(hasNext))
-                          case _                     => None
-                        }
-          decoded    <- fromDecoded(Option(response.getOrNull("data")), errors, extensions, hasNext)
-        } yield decoded
+          errors     <- optionalField(response, "errors") { case ListValue(values) => decodeErrors(values) }
+          extensions <- optionalField(response, "extensions") { case extensions: ObjectValue => extensions }
+          hasNext    <- optionalField(response, "hasNext") { case BooleanValue(hasNext) => hasNext }
+          data        = response.getOrNull("data")
+          if (data ne null) || errors.nonEmpty
+        } yield GraphQLResponse(if (data eq null) NullValue else data, errors.getOrElse(Nil), extensions, hasNext)
       case _                     => None
     }
 
-  private[caliban] def fromDecoded(
-    data: Option[ResponseValue],
-    errors: Option[List[CalibanError]],
-    extensions: Option[ObjectValue],
-    hasNext: Option[Boolean]
-  ): Option[GraphQLResponse[CalibanError]] =
-    (data, errors) match {
-      case (None, None) => None
-      case _            => Some(GraphQLResponse(data.getOrElse(NullValue), errors.getOrElse(Nil), extensions, hasNext))
-    }
-
-  private[caliban] def decodeErrors(values: List[ResponseValue]): List[CalibanError] =
+  private def decodeErrors(values: List[ResponseValue]): List[CalibanError] =
     values.map(value => CalibanError.fromResponseValue(value).getOrElse(malformedRemoteError))
 
   private val malformedRemoteError: CalibanError.ExecutionError =
     CalibanError.ExecutionError(CalibanError.RemoteErrorMessage)
+
+  private def optionalField[A](response: ObjectValue, name: String)(
+    decode: PartialFunction[ResponseValue, A]
+  ): Option[Option[A]] =
+    response.getOrNull(name) match {
+      case null | NullValue => AbsentField
+      case value            => decode.lift(value).map(Some(_))
+    }
 
   private val AbsentField: Some[None.type] = Some(None)
 

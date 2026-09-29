@@ -5,7 +5,7 @@ import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
-import caliban.interop.jsoniter.BoundedOutputStream
+import caliban.interop.jsoniter.GraphQLResponseJsoniter
 import caliban.parsing.adt.OperationType
 import caliban._
 import com.github.plokhotnyuk.jsoniter_scala.core._
@@ -222,16 +222,10 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     }
 
   private def encode(request: GraphQLRequest)(implicit trace: Trace): IO[SubgraphExecutor.Failure, Array[Byte]] =
-    ZIO.suspendSucceed {
-      val output = new BoundedOutputStream(execution.maxRequestBytes)
-      ZIO.attempt {
-        writeToStream(request, output)
-        output.toByteArray
-      }.refineOrDie {
-        case BoundedOutputStream.LimitExceeded => SubgraphExecutor.RequestTooLarge
-        case NonFatal(_)                       => SubgraphExecutor.InvalidRequest
-      }
-    }
+    ZIO
+      .attempt(GraphQLResponseJsoniter.writeToArray(request, execution.maxRequestBytes, GraphQLRequest.jsoniterCodec))
+      .orElseFail(SubgraphExecutor.InvalidRequest)
+      .someOrFail(SubgraphExecutor.RequestTooLarge)
 
   private def decode(
     response: GatewayHttpClient.Reply,

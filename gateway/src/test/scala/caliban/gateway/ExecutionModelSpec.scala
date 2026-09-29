@@ -257,8 +257,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         graph       <- composeSingle("products", "type Query { name: String }")
         document    <- RequestPreparation.parse(query)
         execution   <-
-          RequestPreparation
-            .prepareParsed(GraphQLRequest(query = Some(query)), document, Map.empty, graph.rootType, false)
+          RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), document, Map.empty, graph.rootType)
         fields       = execution.field.fields
         executor     = new PlanExecutor[Any](graph, Map.empty, PhaseHooks.empty)
         roots        = graph.sources.map(RootFetch(FetchId(0), _, fields, fields))

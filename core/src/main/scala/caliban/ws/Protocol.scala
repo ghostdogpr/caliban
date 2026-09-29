@@ -1,6 +1,6 @@
 package caliban.ws
 
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban._
 import zio.stm.{ STM, TMap }
@@ -358,26 +358,15 @@ object Protocol {
         ZStream
           .fromZIO(interpreter.executeRequest(payload))
           .flatMap { res =>
-            val initialErrors =
-              if (res.errors.isEmpty) ZStream.empty
-              else ZStream.succeed(self.toResponse(id, GraphQLResponse(Value.NullValue, res.errors)))
-            res.data match {
-              // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
-              case StreamValue(stream) if res.hasNext.isEmpty           =>
+            HttpUtils.subscriptionEvents(res) match {
+              case Some(subscription) =>
+                val frame = self.toResponse(id, GraphQLResponse(Value.NullValue, Nil))
                 ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
-                  case Some(p) =>
-                    val frame = self.toResponse(id, res)
-                    (initialErrors ++ stream.map(value => frame.copy(payload = Some(value)))).interruptWhen(p)
+                  case Some(p) => subscription.events.map(value => frame.copy(payload = Some(value))).interruptWhen(p)
                   case None    => ZStream.empty
                 }
-              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
-                  case Some(p) =>
-                    (initialErrors ++ stream.map(self.toResponse(id, fieldName, _, Nil))).interruptWhen(p)
-                  case None    => ZStream.empty
-                }
-              case other                                                =>
-                ZStream.succeed(self.toResponse(id, GraphQLResponse(other, res.errors)))
+              case None               =>
+                ZStream.succeed(self.toResponse(id, GraphQLResponse(res.data, res.errors)))
             }
           }
 

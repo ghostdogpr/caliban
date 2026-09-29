@@ -19,7 +19,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     streams: Streams[S]
   ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S]
 
-  protected def executeRequest[BS](
+  protected[tapir] def executeRequest[BS](
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
@@ -115,7 +115,7 @@ object HttpUploadInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
+      executeHttpRequest[R, E, BS](interpreter, graphQLRequest, serverRequest)
   }
 
   private case class Intercepted[R1, R, E](

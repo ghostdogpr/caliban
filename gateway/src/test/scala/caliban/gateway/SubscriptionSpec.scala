@@ -58,6 +58,25 @@ object SubscriptionSpec extends ZIOSpecDefault {
         )
       }
     },
+    test("subscription events carry wrapper errors once, as core transports send them") {
+      val errors    = List(CalibanError.ExecutionError("wrapper"))
+      val event     = GraphQLResponse(ResponseValue.ObjectValue(List("event" -> Value.IntValue(1))), Nil)
+      val responses = List(
+        GraphQLResponse(ResponseValue.StreamValue(ZStream(event.toResponseValue)), errors),
+        GraphQLResponse(
+          ResponseValue.ObjectValue(List("event" -> ResponseValue.StreamValue(ZStream(Value.IntValue(1))))),
+          errors
+        )
+      )
+      ZIO
+        .foreach(responses) { response =>
+          for {
+            events <- SubgraphExecutor.subscriptionResponses(response).runCollect
+            sse    <- HttpUtils.ServerSentEvents.transformResponse(response, Some(_), None).runCollect
+          } yield assertTrue(events.map(_.toResponseValue) == sse.flatten)
+        }
+        .map(_.reduce(_ && _))
+    },
     test("incremental streams are not decoded as subscription envelopes for either hasNext value") {
       ZIO
         .foreach(List(true, false)) { hasNext =>

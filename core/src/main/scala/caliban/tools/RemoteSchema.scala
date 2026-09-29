@@ -15,7 +15,9 @@ import caliban.validation.ValidationOps.validateAll
 
 object RemoteSchema {
 
-  private final case class RootNames(query: Option[String], mutation: Option[String], subscription: Option[String])
+  private final case class RootNames(query: String, mutation: Option[String], subscription: Option[String]) {
+    def names: List[String] = query :: mutation.toList ::: subscription.toList
+  }
   private[caliban] final case class Normalized(rootType: RootType, document: Document)
 
   /**
@@ -47,10 +49,9 @@ object RemoteSchema {
   ): Either[ValidationError, Normalized] =
     for {
       normalized <- normalizeExtensions(document, extensionsCanDefineTypes)
-      roots       = rootNames(normalized)
-      queryName  <- roots.query.toRight(SchemaValidator.missingQueryRoot)
-      _          <- SchemaValidator.validateDocument(normalized, roots.query, roots.mutation, roots.subscription)
-      rootType   <- buildRootType(normalized, roots, queryName)
+      roots      <- rootNames(normalized)
+      _          <- SchemaValidator.validateDocument(normalized, roots.names)
+      rootType   <- buildRootType(normalized, roots)
       _          <- SchemaValidator.validateRootType(rootType)
     } yield Normalized(rootType, normalized)
 
@@ -61,7 +62,7 @@ object RemoteSchema {
     val defined        = if (extensionsCanDefineTypes) defineMissingTypes(document) else document
     val knownTypes     = defined.typeDefinitions.iterator.map(_.name).toSet
     val typeExtensions = defined.typeExtensions.collect { case extension: TypeExtension => extension }
-      .groupBy(extensionName)
+      .groupBy(asDefinition(_).name)
 
     typeExtensions.keys.find(!knownTypes.contains(_)) match {
       case Some(name) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
@@ -85,9 +86,11 @@ object RemoteSchema {
     val definedNames     = document.typeDefinitions.iterator.map(_.name).toSet
     val (_, definitions) =
       document.definitions.foldLeft((definedNames, List.empty[Definition])) {
-        case ((names, definitions), extension: TypeExtension) if !names.contains(extensionName(extension)) =>
-          (names + extensionName(extension), asDefinition(extension) :: definitions)
-        case ((names, definitions), definition)                                                            =>
+        case ((names, definitions), extension: TypeExtension) =>
+          val definition = asDefinition(extension)
+          if (names.contains(definition.name)) (names, extension :: definitions)
+          else (names + definition.name, definition :: definitions)
+        case ((names, definitions), definition)               =>
           (names, definition :: definitions)
       }
     Document(definitions.reverse, document.sourceMapper)
@@ -124,17 +127,14 @@ object RemoteSchema {
                           definitions.map(_.subscription) ::: extensions.map(_.subscription)
                         )
       } yield {
-        val declared = RootNames(query, mutation, subscription)
-        val roots    = if (definitions.isEmpty) inferConventionalRoots(document, declared) else declared
-        Some(
-          SchemaDefinition(
-            definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives),
-            roots.query,
-            roots.mutation,
-            roots.subscription,
-            definitions.flatMap(_.description).headOption
-          )
+        val declared = SchemaDefinition(
+          definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives),
+          query,
+          mutation,
+          subscription,
+          definitions.flatMap(_.description).headOption
         )
+        Some(if (definitions.isEmpty) withConventionalRoots(document, declared) else declared)
       }
   }
 
@@ -199,23 +199,12 @@ object RemoteSchema {
         Left(ValidationError(s"Schema extension kind does not match type '${definition.name}'.", ""))
     }
 
-  private def extensionName(extension: TypeExtension): String =
-    extension match {
-      case ScalarTypeExtension(name, _)         => name
-      case ObjectTypeExtension(name, _, _, _)   => name
-      case InterfaceTypeExtension(name, _, _)   => name
-      case UnionTypeExtension(name, _, _)       => name
-      case EnumTypeExtension(name, _, _)        => name
-      case InputObjectTypeExtension(name, _, _) => name
-    }
-
   private def buildRootType(
     document: Document,
-    roots: RootNames,
-    queryName: String
+    roots: RootNames
   ): Either[ValidationError, RootType] = {
     val definitions   = document.typeDefinitions
-    val rootTypeNames = roots.query.toSet ++ roots.mutation ++ roots.subscription
+    val rootTypeNames = roots.names.toSet
     val converter     = new Converter(definitions, includeDeprecatedByDefault = false)
 
     def rootDefinition(operation: String, name: String): Either[ValidationError, ObjectTypeDefinition] =
@@ -230,7 +219,7 @@ object RemoteSchema {
       }
 
     for {
-      queryDefinition <- rootDefinition("query", queryName)
+      queryDefinition <- rootDefinition("query", roots.query)
       mutation        <- optionalRoot("mutation", roots.mutation)
       subscription    <- optionalRoot("subscription", roots.subscription)
     } yield RootType(
@@ -245,22 +234,22 @@ object RemoteSchema {
     )
   }
 
-  private def rootNames(document: Document): RootNames =
-    document.schemaDefinition match {
-      case Some(SchemaDefinition(_, query, mutation, subscription, _)) => RootNames(query, mutation, subscription)
-      case None                                                        =>
-        inferConventionalRoots(document, RootNames(Some("Query"), None, None))
-    }
+  private def rootNames(document: Document): Either[ValidationError, RootNames] = {
+    val schema = document.schemaDefinition.getOrElse(
+      withConventionalRoots(document, SchemaDefinition(Nil, None, None, None, None))
+    )
+    schema.query.map(RootNames(_, schema.mutation, schema.subscription)).toRight(SchemaValidator.missingQueryRoot)
+  }
 
-  private def inferConventionalRoots(document: Document, declared: RootNames): RootNames = {
+  private def withConventionalRoots(document: Document, declared: SchemaDefinition): SchemaDefinition = {
     val names = document.typeDefinitions.iterator.map(_.name).toSet
 
     def conventional(name: String): Option[String] = Some(name).filter(names.contains)
 
-    RootNames(
-      declared.query.orElse(conventional("Query")),
-      declared.mutation.orElse(conventional("Mutation")),
-      declared.subscription.orElse(conventional("Subscription"))
+    declared.copy(
+      query = declared.query.orElse(conventional("Query")),
+      mutation = declared.mutation.orElse(conventional("Mutation")),
+      subscription = declared.subscription.orElse(conventional("Subscription"))
     )
   }
 
@@ -292,7 +281,7 @@ object RemoteSchema {
         description = definition.description,
         interfaces = toInterfaces(definition.implements),
         directives = toDirectives(definition.directives),
-        fields = toFields(definition.fields)
+        fields = deprecatable(definition.fields)(toField)(_.isDeprecated)
       )
 
     private def toInterfaceType(definition: InterfaceTypeDefinition): __Type = {
@@ -307,7 +296,7 @@ object RemoteSchema {
         description = definition.description,
         interfaces = toInterfaces(definition.implements),
         possibleTypes = Some(implementations),
-        fields = toFields(definition.fields),
+        fields = deprecatable(definition.fields)(toField)(_.isDeprecated),
         directives = toDirectives(definition.directives)
       )
     }
@@ -316,10 +305,8 @@ object RemoteSchema {
       __Type(
         kind = __TypeKind.ENUM,
         name = Some(definition.name),
-        enumValues = (args: __DeprecatedArgs) =>
-          if (definition.enumValuesDefinition.nonEmpty)
-            Some(filterDeprecated(definition.enumValuesDefinition.map(toEnumValue), args)(_.isDeprecated))
-          else None,
+        description = definition.description,
+        enumValues = deprecatable(definition.enumValuesDefinition)(toEnumValue)(_.isDeprecated),
         directives = toDirectives(definition.directives)
       )
 
@@ -328,10 +315,7 @@ object RemoteSchema {
         kind = __TypeKind.INPUT_OBJECT,
         name = Some(definition.name),
         description = definition.description,
-        inputFields = (args: __DeprecatedArgs) =>
-          if (definition.fields.nonEmpty)
-            Some(filterDeprecated(definition.fields.map(toInputValue), args)(_.isDeprecated))
-          else None,
+        inputFields = deprecatable(definition.fields)(toInputValue)(_.isDeprecated),
         directives = toDirectives(definition.directives),
         isOneOf = Some(Directives.isOneOf(definition.directives))
       )
@@ -356,12 +340,6 @@ object RemoteSchema {
           .flatMap(_.arguments.get("url"))
           .collect { case StringValue(url) => url }
       )
-
-    private def toFields(fields: List[FieldDefinition]): __DeprecatedArgs => Option[List[__Field]] =
-      (args: __DeprecatedArgs) =>
-        if (fields.nonEmpty)
-          Some(filterDeprecated(fields.map(toField), args)(_.isDeprecated))
-        else None
 
     private def toField(definition: FieldDefinition): __Field =
       __Field(
@@ -445,9 +423,14 @@ object RemoteSchema {
     private def filterDeprecated[A](values: List[A], args: __DeprecatedArgs)(isDeprecated: A => Boolean): List[A] =
       if (args.includeDeprecated.getOrElse(includeDeprecatedByDefault)) values else values.filterNot(isDeprecated)
 
+    private def deprecatable[D, A](definitions: List[D])(convert: D => A)(
+      isDeprecated: A => Boolean
+    ): __DeprecatedArgs => Option[List[A]] =
+      args => if (definitions.nonEmpty) Some(filterDeprecated(definitions.map(convert), args)(isDeprecated)) else None
+
     private def deprecationReason(directives: List[Directive]): Option[String] =
       if (Directives.isDeprecated(directives))
-        Directives.deprecationReason(directives).orElse(Some(Directives.DefaultDeprecationReason))
+        Directives.deprecationReason(directives).orElse(Some("No longer supported"))
       else None
   }
 }

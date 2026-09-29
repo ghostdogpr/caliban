@@ -14,7 +14,7 @@ case class RootType(
 
   val types: Map[String, __Type] =
     Types
-      .collectRootTypes(additionalTypes, Some(queryType), mutationType, subscriptionType, primitiveTypes)
+      .collectRootTypes(additionalTypes ++ primitiveTypes, queryType :: mutationType.toList ::: subscriptionType.toList)
       .map(t => t.name.getOrElse("") -> t)
       .toMap
 }

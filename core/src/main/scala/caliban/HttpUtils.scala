@@ -12,6 +12,36 @@ object HttpUtils {
   val MutationOverGetError: ValidationError =
     ValidationError("Mutations are not allowed for GET requests", "")
 
+  private[caliban] val SubscriptionOverJsonError: ResponseValue =
+    GraphQLResponse(
+      NullValue,
+      List(CalibanError.ExecutionError("Subscriptions require text/event-stream or WebSocket."))
+    ).toResponseValue
+
+  private[caliban] final class SubscriptionEvents(
+    val events: ZStream[Any, Throwable, ResponseValue],
+    val failed: Throwable => ResponseValue
+  )
+
+  private[caliban] def subscriptionEvents(
+    response: GraphQLResponse[Any]
+  )(implicit trace: Trace): Option[SubscriptionEvents] = {
+    // Report errors in an initial event sent immediately.
+    def withErrors(events: ZStream[Any, Throwable, ResponseValue]) =
+      if (response.errors.isEmpty) events
+      else ZStream.succeed(GraphQLResponse(NullValue, response.errors).toResponseValue) ++ events
+    response.data match {
+      // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
+      case StreamValue(stream) if response.hasNext.isEmpty      =>
+        Some(new SubscriptionEvents(withErrors(stream), e => GraphQLResponse(NullValue, List(e)).toResponseValue))
+      case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+        def event(value: ResponseValue, errors: List[Throwable]) =
+          GraphQLResponse(ObjectValue(List(fieldName -> value)), errors).toResponseValue
+        Some(new SubscriptionEvents(withErrors(stream.map(event(_, Nil))), error => event(NullValue, List(error))))
+      case _                                                    => None
+    }
+  }
+
   object DeferMultipart {
     private val Newline        = "\r\n"
     private val ContentType    = "Content-Type: application/json; charset=utf-8"
@@ -52,23 +82,10 @@ object HttpUtils {
       done: Sse,
       heartbeater: Option[ZStream[Any, Nothing, Sse]] = None
     )(implicit trace: Trace): UStream[Sse] = {
-      def initialErrors =
-        if (resp.errors.isEmpty) ZStream.empty
-        else ZStream.succeed(GraphQLResponse(NullValue, resp.errors).toResponseValue)
-      val values        = resp.data match {
-        // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
-        case StreamValue(stream) if resp.hasNext.isEmpty          =>
-          (initialErrors ++ stream)
-            .catchAll(error => ZStream.succeed(GraphQLResponse(NullValue, List(error)).toResponseValue))
-        case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-          // Report errors in an initial event sent immediately.
-          initialErrors ++ stream.either.map {
-            case Right(r)  => GraphQLResponse(ObjectValue(List(fieldName -> r)), Nil).toResponseValue
-            case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err)).toResponseValue
-          }
-        case _                                                    => ZStream.succeed(resp.toResponseValue)
-      }
-      val stream        = values.map(toSse)
+      val stream = (subscriptionEvents(resp) match {
+        case Some(subscription) => subscription.events.catchAll(error => ZStream.succeed(subscription.failed(error)))
+        case None               => ZStream.succeed(resp.toResponseValue)
+      }).map(toSse)
 
       (heartbeater match {
         case None    => stream

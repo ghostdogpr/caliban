@@ -63,7 +63,12 @@ abstract class ArgBuilder[T] { self =>
       .map(
         Parser
           .parseInputValue(_)
-          .flatMap(build)
+          .flatMap {
+            // ID input coercion turns an Int into a string, so retry a rejected Int default as a string.
+            case int: IntValue =>
+              build(int).left.flatMap(e => build(StringValue(int.toBigInt.toString)).left.map(_ => e))
+            case value         => build(value)
+          }
           .left
           .map(e => ExecutionError(e.getMessage(), innerThrowable = Some(InvalidInputArgument)))
       )

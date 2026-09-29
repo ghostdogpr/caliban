@@ -116,7 +116,7 @@ private[gateway] final class OperationPreparation[-R] private (
           val variables = symbolicVariables(document, request.operationName)
           for {
             execution <-
-              RequestPreparation.prepareParsed(request, document, variables, rootType, skipValidation = true)
+              RequestPreparation.prepareParsed(request, document, variables, rootType, validations = Some(Nil))
             plan      <- buildPlan(document, execution, key.activeOverrides)
           } yield {
             val cached: CachedOperation =
@@ -150,7 +150,6 @@ private[gateway] final class OperationPreparation[-R] private (
                      document,
                      variables,
                      rootType,
-                     skipValidation = false,
                      validations = if (documentValidated) VariableValidation else None
                    )
       plan      <- getPlan(variables, execution)

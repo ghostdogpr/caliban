@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Document, OperationType, Selection }
-import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
+import caliban.parsing.adt.Selection.Field
 import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
@@ -119,20 +119,10 @@ object Introspector extends IntrospectionDerivation {
       case _                                             => true
     }
 
-  private[caliban] def hasIntrospection(document: Document, operationName: Option[String]): Boolean = {
-    def loop(selections: List[Selection], visited: Set[String]): Boolean =
-      selections.exists {
-        case InlineFragment(_, _, selectionSet) => loop(selectionSet, visited)
-        case FragmentSpread(name, _)            =>
-          !visited.contains(name) &&
-          document.fragmentDefinitions.find(_.name == name).exists(f => loop(f.selectionSet, visited + name))
-        case field                              => isIntrospectionField(field)
-      }
-
+  private[caliban] def hasIntrospection(document: Document, operationName: Option[String]): Boolean =
     document
       .operationDefinition(operationName)
-      .exists(operation => operation.operationType == OperationType.Query && loop(operation.selectionSet, Set.empty))
-  }
+      .exists(op => op.operationType == OperationType.Query && document.existsSelection(op)(isIntrospectionField))
 
   private def isIntrospectionField(selection: Selection): Boolean =
     selection match {

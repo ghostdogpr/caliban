@@ -1,6 +1,7 @@
 package caliban.interop.tapir
 
 import caliban.ResponseValue.StreamValue
+import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban._
 import caliban.wrappers.Caching
 import sttp.capabilities.zio.ZioStreams
@@ -103,9 +104,34 @@ object TapirAdapter {
     response: GraphQLResponse[E]
   )(implicit
     streamConstructor: StreamConstructor[BS]
-  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
+  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) =
+    buildHttpResponse(request, response, GraphQLResponseContext.outcome(response))
+
+  private[tapir] def executeHttpRequest[R, E, BS](
+    interpreter: GraphQLInterpreter[R, E],
+    request: GraphQLRequest,
+    serverRequest: ServerRequest
+  )(implicit streamConstructor: StreamConstructor[BS]): URIO[R, CalibanResponse[BS]] =
+    IncomingRequestHeaders.locally(headerValues(serverRequest))(
+      GraphQLResponseContext.capture(interpreter.executeRequest(request))(buildHttpResponse[E, BS](serverRequest, _, _))
+    )
+
+  private def buildHttpResponse[E, BS](
+    request: ServerRequest,
+    response: GraphQLResponse[E],
+    outcome: Outcome
+  )(implicit streamConstructor: StreamConstructor[BS]): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
     val accepts        = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
+
+    val status = outcome match {
+      case ServerFailure.Internal                      => StatusCode.InternalServerError
+      case ServerFailure.Unavailable                   => StatusCode.ServiceUnavailable
+      case ServerFailure.TimedOut                      => StatusCode.GatewayTimeout
+      case Outcome.MutationOverGet                     => StatusCode.BadRequest
+      case Outcome.RequestError if accepts.graphQLJson => StatusCode.BadRequest
+      case _                                           => StatusCode.Ok
+    }
 
     // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
     response match {
@@ -119,42 +145,32 @@ object TapirAdapter {
       case resp if accepts.serverSentEvents                           =>
         (
           MediaType.TextEventStream,
-          StatusCode.Ok,
+          status,
           None,
           encodeTextEventStreamResponse(resp)
         )
-      case GraphQLResponse(_: StreamValue, _, _, None)                =>
+      case resp if HttpUtils.subscriptionEvents(resp).isDefined       =>
         (
           MediaType.ApplicationJson,
           StatusCode.BadRequest,
           None,
-          Left(
-            GraphQLResponse(
-              Value.NullValue,
-              List(CalibanError.ExecutionError("Subscriptions require text/event-stream or WebSocket."))
-            ).toResponseValue
-          )
+          Left(HttpUtils.SubscriptionOverJsonError)
         )
       case resp if accepts.graphQLJson                                =>
-        val isBadRequest = response.errors.exists {
-          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
-          case _                                                              => false
-        }
         (
           GraphqlResponseJson.mediaType,
-          if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,
+          status,
           cacheDirective,
           encodeSingleResponse(
             resp,
-            keepDataOnErrors = !isBadRequest,
+            keepDataOnErrors = outcome == Outcome.Executed,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
       case resp                                                       =>
-        val isBadRequest = response.errors.contains(HttpUtils.MutationOverGetError: Any)
         (
           MediaType.ApplicationJson,
-          if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,
+          status,
           cacheDirective,
           encodeSingleResponse(
             resp,

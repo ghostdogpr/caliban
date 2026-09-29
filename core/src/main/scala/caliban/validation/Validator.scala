@@ -87,10 +87,7 @@ object Validator {
       val operation = document.operationDefinition(operationName) match {
         case Some(op) => Right(op)
         case None     =>
-          operationName match {
-            case Some(name) => failValidation(s"Unknown operation $name.", "")
-            case None       => failValidation("Operation name is required.", "")
-          }
+          failValidation(operationName.fold("Operation name is required.")(name => s"Unknown operation $name."), "")
       }
 
       operation.flatMap { op =>

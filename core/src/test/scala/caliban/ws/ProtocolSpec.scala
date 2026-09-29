@@ -195,6 +195,6 @@ object ProtocolSpec extends ZIOSpecDefault {
                   ).runDrain.timeoutFail(new RuntimeException("output stream did not terminate"))(5.seconds)
         } yield assertCompletes
       }
-    )
+    ) @@ TestAspect.withLiveClock
   )
 }

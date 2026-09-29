@@ -62,7 +62,7 @@ object OperationCostSpec extends ZIOSpecDefault {
     for {
       operation <- RequestPreparation.parse(query)
       request   <-
-        RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
+        RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root)
       graph     <- parseSdl("type Query { ok: Int }").flatMap(document =>
                      ZIO
                        .fromEither(composeDocuments(List("nodes" -> document), federation = false))

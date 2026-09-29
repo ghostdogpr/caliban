@@ -694,7 +694,6 @@ private[gateway] object GatewayTestSupport {
                           document,
                           variables,
                           validationRoot,
-                          skipValidation = false,
                           validations = Some(Validator.AllValidations)
                         )
     } yield ()
