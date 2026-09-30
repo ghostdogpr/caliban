@@ -1,0 +1,18 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@external"])
+
+type Query {
+  episode(season: Int!, episode: Int!): Episode
+  episodes(seaons: Int): [Episode!]!
+}
+
+type Character @key(fields: "name") {
+  name: String! @external
+  isCaptain: Boolean!
+}
+
+type Episode @key(fields: "season episode") {
+  season: Int!
+  episode: Int!
+  name: String!
+}

@@ -1,7 +1,7 @@
 package caliban.execution
 
-import caliban.Value.BooleanValue
-import caliban.introspection.adt.__Type
+import caliban.Value.{ BooleanValue, IntValue, StringValue }
+import caliban.introspection.adt.{ __InputValue, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
@@ -10,8 +10,10 @@ import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinit
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters._
 
 /**
  * Represents a field used during the execution of a query
@@ -66,6 +68,46 @@ case class Field(
     val fields0 = fields
     fields0.isEmpty || fields0.tail.isEmpty || inner(fields0)
   }
+
+  private[caliban] def collectFields(typeName: String): List[Field] = {
+    def matchesType(field: Field): Boolean =
+      field._condition.isEmpty || field._condition.get.contains(typeName)
+
+    if (allFieldsUniqueNameAndCondition) {
+      if (fields.isEmpty || !matchesType(fields.head)) Nil else fields
+    } else {
+      val capacity  = calculateMapCapacity(fields.size)
+      val collected = new java.util.LinkedHashMap[String, Field](capacity)
+      val nil       = Nil
+      var remaining = fields
+
+      while (remaining ne nil) {
+        val field = remaining.head
+        if (matchesType(field))
+          collected.compute(
+            field.aliasedName,
+            (_, existing) =>
+              if (existing eq null) field
+              else existing.copy(fields = existing.fields ::: field.fields)
+          )
+        remaining = remaining.tail
+      }
+
+      collected.values().asScala.toList
+    }
+  }
+
+  /**
+   * The behaviour of mutable Maps (both Java and Scala) is to resize once the number of entries exceeds
+   * the capacity * loadFactor (default of 0.75d) threshold in order to prevent hash collisions.
+   *
+   * This method is a helper method to estimate the initial map size depending on the number of elements the Map is
+   * expected to hold
+   *
+   * NOTE: This method is the same as java.util.HashMap.calculateHashMapCapacity on JDK19+
+   */
+  private def calculateMapCapacity(nMappings: Int): Int =
+    Math.ceil(nMappings / 0.75d).toInt
 
   def combine(other: Field): Field =
     self.copy(
@@ -150,7 +192,7 @@ object Field {
       if (variableDefinitions eq Nil) Map.empty[String, VariableDefinition]
       else variableDefinitions.map(v => v.name -> v).toMap
     val resolveDirectives: Directive => Directive =
-      resolveDirectiveVariables(variableValues, variableDefinitionsMap)
+      resolveDirectiveVariables(variableValues, variableDefinitionsMap, rootType)
 
     def loop(
       selectionSet: List[Selection],
@@ -175,7 +217,8 @@ object Field {
 
           if (checkDirectives(resolvedDirectives)) {
             // default only case where it's not found is __typename
-            val t = if (selected eq null) Types.string else selected._type
+            val t           = if (selected eq null) Types.string else selected._type
+            val definitions = if (selected eq null) Nil else selected.allArgs
 
             val fields =
               if (selectionSet.nonEmpty)
@@ -190,7 +233,7 @@ object Field {
                 alias,
                 fields,
                 targets = targets,
-                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues),
+                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues, definitions),
                 directives = resolvedDirectives,
                 _condition = condition,
                 _locationInfo = () => sourceMapper.getLocation(index),
@@ -264,15 +307,20 @@ object Field {
 
   private def resolveDirectiveVariables(
     variableValues: Map[String, InputValue],
-    variableDefinitions: Map[String, VariableDefinition]
+    variableDefinitions: Map[String, VariableDefinition],
+    rootType: RootType
   )(directive: Directive): Directive =
     if (directive.arguments.isEmpty) directive
-    else directive.copy(arguments = resolveVariables(directive.arguments, variableDefinitions, variableValues))
+    else {
+      val args = rootType.additionalDirectives.filter(_.name == directive.name).flatMap(_.allArgs)
+      directive.copy(arguments = resolveVariables(directive.arguments, variableDefinitions, variableValues, args))
+    }
 
   private def resolveVariables(
     arguments: Map[String, InputValue],
     variableDefinitions: Map[String, VariableDefinition],
-    variableValues: Map[String, InputValue]
+    variableValues: Map[String, InputValue],
+    definitions: List[__InputValue]
   ): Map[String, InputValue] = {
     def resolveVariable(value: InputValue): Option[InputValue] =
       value match {
@@ -289,8 +337,55 @@ object Field {
           Some(value)
       }
     if (arguments.isEmpty) Map.empty[String, InputValue]
-    else arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
+    else
+      arguments.flatMap { case (name, value) =>
+        resolveVariable(value).map(resolved => name -> coerceNamedArgument(resolved, name, definitions))
+      }
   }
+
+  @tailrec
+  private def coerceNamedArgument(value: InputValue, name: String, definitions: List[__InputValue]): InputValue =
+    definitions match {
+      case definition :: others =>
+        if (definition.name == name) coerceArgument(value, definition._type)
+        else coerceNamedArgument(value, name, others)
+      case Nil                  => value
+    }
+
+  // Returns the same instance when nothing needs coercion, so that unchanged arguments are not copied.
+  private def coerceArgument(value: InputValue, expected: __Type): InputValue =
+    expected.kind match {
+      case __TypeKind.NON_NULL                               =>
+        expected.ofType.fold(value)(coerceArgument(value, _))
+      case __TypeKind.LIST                                   =>
+        expected.ofType.fold(value) { element =>
+          value match {
+            case InputValue.ListValue(values) =>
+              if (values.exists(v => coerceArgument(v, element) ne v))
+                InputValue.ListValue(values.map(coerceArgument(_, element)))
+              else value
+            case single                       => coerceArgument(single, element)
+          }
+        }
+      case __TypeKind.INPUT_OBJECT                           =>
+        value match {
+          case InputValue.ObjectValue(fields) =>
+            def coerceField(name: String, nested: InputValue): InputValue = {
+              val field = expected.getInputFieldOrNull(name)
+              if (field eq null) nested else coerceArgument(nested, field._type)
+            }
+            if (fields.exists { case (name, nested) => coerceField(name, nested) ne nested })
+              InputValue.ObjectValue(fields.map { case (name, nested) => name -> coerceField(name, nested) })
+            else value
+          case other                          => other
+        }
+      case __TypeKind.SCALAR if expected.name.contains("ID") =>
+        value match {
+          case int: IntValue => StringValue(int.toBigInt.toString)
+          case other         => other
+        }
+      case _                                                 => value
+    }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[Set[String]] = {
     def loop(sb: mutable.Builder[String, Set[String]], `type`: Option[__Type]): mutable.Builder[String, Set[String]] =

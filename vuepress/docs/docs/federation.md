@@ -2,6 +2,8 @@
 
 **Federation** is an optional module which can be included in your configuration to enroll with a federated schema.
 
+To combine Federation subgraphs into one API, see [Caliban Gateway](gateway/subgraphs.md#federation-subgraphs).
+
 ## Dependencies
 
 `caliban-federation` only depends on `caliban-core` and is very unobtrusive.
@@ -170,9 +172,12 @@ by using `caliban.federation.v2_x` where `x` is the minor version of the specifi
 | `@shareable`        | `@GQLShareable`       | v2.0    | `caliban.federation.v2_0` |
 | `@inaccessible`     | `@GQLInaccessible`    | v2.0    | `caliban.federation.v2_0` |
 | `@override`         | `@GQLOverride`        | v2.0    | `caliban.federation.v2_0` |
+| `@override(label:)` | `@GQLProgressiveOverride` | v2.7 | `caliban.federation.v2_7` |
 | `@tag`              | `@GQLTag`             | v2.0    | `caliban.federation.v2_0` |
 | `@composeDirective` | `ComposeDirective`    | v2.1    | `caliban.federation.v2_1` |
 | `@interfaceObject`  | `@GQLInterfaceObject` | v2.3    | `caliban.federation.v2_3` |
+| `@cost`             | `@GQLCost`            | v2.9    | `caliban.federation.v2_9` |
+| `@listSize`         | `@GQLListSize`        | v2.9    | `caliban.federation.v2_9` |
 
 The `GQLKey` field now also supports the `resolvable` argument. 
 

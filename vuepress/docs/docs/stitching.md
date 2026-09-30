@@ -1,8 +1,10 @@
 # Stitching
 
-**Stitching** can be used to use parts of another GraphQL API from an API you're building in situations where using Apollo federation isn't an option. You can also use it to fully subsume and proxy another GraphQL schema.
+::: tip
+For new applications, use [Caliban Gateway](gateway.md) to combine GraphQL services into one API. It supports ordinary GraphQL services, Federation subgraphs, and local Caliban APIs. Your services do not need to use Federation.
+:::
 
-In general, Federation should be your preferred choice.
+Stitching lets you use parts of another GraphQL API inside your own API, or proxy an entire remote schema. The examples below use `caliban-stitching`.
 
 You should also be careful when using stitching since it's very easy to pull in large parts of an external schema's types and structure into your API. This can make it error prone since the likelihood that you'll get type clashes between your API and the API you're stitching in quickly increases.
 

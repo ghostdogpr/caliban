@@ -105,6 +105,16 @@ object ResponseValue {
         case o: ObjectValue => (this eq o) || (o.hashCode == hashCode && o.fields == fields)
         case _              => false
       }
+
+    private[caliban] def getOrNull(name: String): ResponseValue = {
+      var remaining = fields
+      while (remaining ne Nil) {
+        val head = remaining.head
+        if (head._1.equals(name)) return head._2
+        remaining = remaining.tail
+      }
+      null
+    }
   }
   object ObjectValue {
     val empty: ObjectValue = ObjectValue(Nil)

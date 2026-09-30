@@ -60,7 +60,8 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
-    sseSupport: Boolean = true
+    sseSupport: Boolean = true,
+    mutationOverGetStatus: Int = 400
   ): Spec[TestService, Throwable] = suite(label) {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
@@ -273,11 +274,11 @@ object TapirAdapterSpec {
               )
               .map(r => assertTrue(r.code.code == 400))
           },
-          test("returns 400 for mutations over GET methods") {
+          test(s"returns $mutationOverGetStatus for mutations over GET methods") {
             runHttpRequest(
               method = Method.GET.method,
               query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
-            ).map(r => assertTrue(r.code.code == 400))
+            ).map(r => assertTrue(r.code.code == mutationOverGetStatus))
           },
           test("very long field values in mutations") {
             val name = "A".repeat(ReaderConfig.maxCharBufSize + 1)

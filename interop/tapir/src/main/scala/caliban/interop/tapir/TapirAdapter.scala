@@ -1,6 +1,7 @@
 package caliban.interop.tapir
 
-import caliban.ResponseValue.StreamValue
+import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
+import caliban.HttpUtils.Delivery
 import caliban._
 import caliban.wrappers.Caching
 import sttp.capabilities.zio.ZioStreams
@@ -103,48 +104,63 @@ object TapirAdapter {
     response: GraphQLResponse[E]
   )(implicit
     streamConstructor: StreamConstructor[BS]
-  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
+  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) =
+    buildHttpResponse(request, response, GraphQLResponseContext.outcome(response))
+
+  private[tapir] def executeHttpRequest[R, E, BS](
+    interpreter: GraphQLInterpreter[R, E],
+    request: GraphQLRequest,
+    serverRequest: ServerRequest
+  )(implicit streamConstructor: StreamConstructor[BS]): URIO[R, CalibanResponse[BS]] =
+    IncomingRequestHeaders.locally(headerValues(serverRequest))(
+      GraphQLResponseContext.capture(interpreter.executeRequest(request))(buildHttpResponse[E, BS](serverRequest, _, _))
+    )
+
+  private def buildHttpResponse[E, BS](
+    request: ServerRequest,
+    response: GraphQLResponse[E],
+    outcome: Outcome
+  )(implicit streamConstructor: StreamConstructor[BS]): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
     val accepts        = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
 
-    response match {
-      case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
-        (
-          deferMultipartMediaType,
-          StatusCode.Ok,
-          None,
-          encodeMultipartMixedResponse(resp, stream)
-        )
-      case resp if accepts.serverSentEvents                     =>
-        (
-          MediaType.TextEventStream,
-          StatusCode.Ok,
-          None,
-          encodeTextEventStreamResponse(resp)
-        )
-      case resp if accepts.graphQLJson                          =>
-        val isBadRequest = response.errors.exists {
-          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
-          case _                                                              => false
-        }
+    val status = outcome match {
+      case ServerFailure.Internal                      => StatusCode.InternalServerError
+      case ServerFailure.Unavailable                   => StatusCode.ServiceUnavailable
+      case ServerFailure.TimedOut                      => StatusCode.GatewayTimeout
+      case Outcome.MutationOverGet                     => StatusCode.BadRequest
+      case Outcome.RequestError if accepts.graphQLJson => StatusCode.BadRequest
+      case _                                           => StatusCode.Ok
+    }
+
+    def sse(events: ZStream[Any, Nothing, ResponseValue]) =
+      (MediaType.TextEventStream, status, None, encodeTextEventStreamResponse(events))
+
+    HttpUtils.delivery(response, outcome) match {
+      case Delivery.Incremental(responses)                                 =>
+        (deferMultipartMediaType, StatusCode.Ok, None, encodeMultipartMixedResponse(responses))
+      case subscription: Delivery.Subscription if accepts.serverSentEvents => sse(subscription.recovered)
+      case _: Delivery.Subscription                                        =>
+        (MediaType.ApplicationJson, StatusCode.BadRequest, None, Left(HttpUtils.SubscriptionOverJsonError))
+      case _ if accepts.graphQLJson                                        =>
         (
           GraphqlResponseJson.mediaType,
-          if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,
+          status,
           cacheDirective,
           encodeSingleResponse(
-            resp,
-            keepDataOnErrors = !isBadRequest,
+            response,
+            keepDataOnErrors = status == StatusCode.Ok,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
-      case resp                                                 =>
-        val isBadRequest = response.errors.contains(HttpUtils.MutationOverGetError: Any)
+      case _ if accepts.serverSentEvents                                   => sse(ZStream.succeed(response.toResponseValue))
+      case _                                                               =>
         (
           MediaType.ApplicationJson,
-          if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,
+          status,
           cacheDirective,
           encodeSingleResponse(
-            resp,
+            response,
             keepDataOnErrors = true,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
@@ -159,18 +175,14 @@ object TapirAdapter {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
   }
 
-  private def encodeMultipartMixedResponse[E, BS](
-    resp: GraphQLResponse[E],
-    stream: ZStream[Any, Throwable, ResponseValue]
+  private def encodeMultipartMixedResponse[BS](
+    responses: ZStream[Any, Throwable, ResponseValue]
   )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
     import HttpUtils.DeferMultipart._
 
-    val pipeline = HttpUtils.DeferMultipart.createPipeline(resp)
-
     Right(
       streamConstructor(
-        stream
-          .via(pipeline)
+        responses
           .map(responseCodec.encode)
           .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
           .mapConcat(_.getBytes(StandardCharsets.UTF_8))
@@ -178,13 +190,14 @@ object TapirAdapter {
     )
   }
 
-  private def encodeTextEventStreamResponse[E, BS](
-    resp: GraphQLResponse[E]
+  private def encodeTextEventStreamResponse[BS](
+    events: ZStream[Any, Nothing, ResponseValue]
   )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
-    val response = HttpUtils.ServerSentEvents.transformResponse(
-      resp,
+    val response = HttpUtils.ServerSentEvents.fromEvents(
+      events,
       v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
-      ServerSentEvent(None, Some("complete"))
+      ServerSentEvent(None, Some("complete")),
+      None
     )
     Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
@@ -234,5 +247,8 @@ object TapirAdapter {
 
   def isFtv1Header(r: Header): Boolean =
     r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
+
+  private[tapir] def headerValues(request: ServerRequest): List[(String, String)] =
+    request.headers.map(header => header.name -> header.value).toList
 
 }

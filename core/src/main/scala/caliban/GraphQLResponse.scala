@@ -52,6 +52,35 @@ case class GraphQLResponse[+E](
 }
 
 object GraphQLResponse {
+  private[caliban] def fromResponseValue(value: ResponseValue): Option[GraphQLResponse[CalibanError]] =
+    value match {
+      case response: ObjectValue =>
+        for {
+          errors     <- optionalField(response, "errors") { case ListValue(values) => decodeErrors(values) }
+          extensions <- optionalField(response, "extensions") { case extensions: ObjectValue => extensions }
+          hasNext    <- optionalField(response, "hasNext") { case BooleanValue(hasNext) => hasNext }
+          data        = response.getOrNull("data")
+          if (data ne null) || errors.nonEmpty
+        } yield GraphQLResponse(if (data eq null) NullValue else data, errors.getOrElse(Nil), extensions, hasNext)
+      case _                     => None
+    }
+
+  private def decodeErrors(values: List[ResponseValue]): List[CalibanError] =
+    values.map(value => CalibanError.fromResponseValue(value).getOrElse(malformedRemoteError))
+
+  private val malformedRemoteError: CalibanError.ExecutionError =
+    CalibanError.ExecutionError(CalibanError.RemoteErrorMessage)
+
+  private def optionalField[A](response: ObjectValue, name: String)(
+    decode: PartialFunction[ResponseValue, A]
+  ): Option[Option[A]] =
+    response.getOrNull(name) match {
+      case null | NullValue => AbsentField
+      case value            => decode.lift(value).map(Some(_))
+    }
+
+  private val AbsentField: Some[None.type] = Some(None)
+
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
 

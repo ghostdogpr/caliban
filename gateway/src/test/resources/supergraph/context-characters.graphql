@@ -1,0 +1,18 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@context", "@fromContext"])
+
+type Query {
+  characters: [Character!]!
+}
+
+type Character @key(fields: "name") @context(name: "viewer") {
+  name: String!
+  currency: String!
+  locale: String!
+  ship: Ship!
+}
+
+type Ship @key(fields: "id") {
+  id: ID!
+  fare(currency: String @fromContext(field: "$viewer { currency }"), size: Int!, locale: String @fromContext(field: "$viewer { locale }")): Int!
+}

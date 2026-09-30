@@ -2,12 +2,14 @@ package caliban.interop.jsoniter
 
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ IntValue, StringValue }
+import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import caliban.{ CalibanError, GraphQLResponse, PathValue, ResponseValue, TestUtils }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
+
+import scala.util.Try
 
 object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
 
@@ -46,6 +48,27 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
         )
 
         assertTrue(writeToString(response) == """{"data":"data"}""")
+      },
+      test("direct encoding matches the materialized response envelope [jsoniter]") {
+        val responses: List[GraphQLResponse[Any]] = List(
+          GraphQLResponse(ObjectValue(List("nested" -> ListValue(List(IntValue(1), NullValue)))), Nil),
+          GraphQLResponse(NullValue, List(ExecutionError("boom"))),
+          GraphQLResponse(StringValue("data"), Nil, Some(ObjectValue(Nil)), Some(false))
+        )
+        val errorWithTrace: GraphQLResponse[Any]  =
+          GraphQLResponse(
+            NullValue,
+            List(ExecutionError("boom")),
+            Some(ObjectValue(List("traceId" -> StringValue("trace-1"))))
+          )
+
+        assertTrue(
+          (errorWithTrace :: responses).forall(response =>
+            writeToString(response) == writeToString(response.toResponseValue)
+          ),
+          writeToString(errorWithTrace)(GraphQLResponseJsoniter.codec(keepDataOnErrors = false)) ==
+            """{"errors":[{"message":"boom"}],"extensions":{"traceId":"trace-1"}}"""
+        )
       },
       test("can be parsed from JSON [jsoniter]") {
         val req =
@@ -93,6 +116,32 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
               )
             )
           )
+        )
+      },
+      test("decodes response envelopes, null metadata and malformed error entries [jsoniter]") {
+        def decode(json: String) = Try(readFromString[GraphQLResponse[CalibanError]](json)).toOption
+        val trace                = Some(ObjectValue(List("traceId" -> StringValue("trace-1"))))
+        val empty                = GraphQLResponse(NullValue, Nil)
+        val valid                = List(
+          """{"data":{"value":42},"extensions":{"traceId":"trace-1"}}"""                           ->
+            GraphQLResponse(ObjectValue(List("value" -> IntValue(42))), Nil, trace),
+          """{"errors":[{"message":"boom"}],"extensions":{"traceId":"trace-1"},"hasNext":false}""" ->
+            GraphQLResponse(NullValue, List(ExecutionError("boom")), trace, Some(false)),
+          """{"data":null}"""                                                                      -> empty,
+          """{"errors":[]}"""                                                                      -> empty,
+          """{"data":null,"errors":null}"""                                                        -> empty,
+          """{"data":null,"extensions":null}"""                                                    -> empty,
+          """{"data":null,"hasNext":null}"""                                                       -> empty,
+          """{"errors":[null]}"""                                                                  -> GraphQLResponse(NullValue, List(ExecutionError("Remote GraphQL request failed."))),
+          """{"errors":[{"message":"boom","path":null,"locations":null,"extensions":null}]}"""     ->
+            GraphQLResponse(NullValue, List(ExecutionError("boom")))
+        )
+        val invalid              =
+          List("{}", """{"errors":{}}""", """{"data":null,"extensions":[]}""", """{"data":null,"hasNext":"false"}""")
+
+        assertTrue(
+          valid.map { case (json, _) => decode(json) } == valid.map { case (_, response) => Some(response) },
+          invalid.forall(decode(_).isEmpty)
         )
       },
       test("should correctly write keys containing UTF-8") {

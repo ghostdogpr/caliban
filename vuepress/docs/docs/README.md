@@ -2,7 +2,7 @@
 
 **Caliban** is a purely functional library for creating GraphQL servers and clients in Scala.
 
-For more details on Caliban Client, see the [dedicated section](client.md). The rest of this page focuses on the backend part of the library.
+For client applications, see [Caliban Client](client.md). To combine services behind one GraphQL endpoint, see [Caliban Gateway](gateway.md). The rest of this page covers building a GraphQL server.
 
 The design principles of Caliban are the following:
 
@@ -111,6 +111,9 @@ If you have any specific server requirements or need to interop with other libra
 "com.github.ghostdogpr" %% "caliban-reporting"  % "3.1.5" // apollo schema reporting
 "com.github.ghostdogpr" %% "caliban-tracing"    % "3.1.5" // open-telemetry
 "com.github.ghostdogpr" %% "caliban-stitching"  % "3.1.5" // stitching
+
+"com.github.ghostdogpr" %% "caliban-gateway"         % "3.1.5" // gateway over multiple GraphQL services
+"com.github.ghostdogpr" %% "caliban-gateway-tracing" % "3.1.5" // open-telemetry for the gateway
 ```
 
 ## Where to go next?

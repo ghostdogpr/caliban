@@ -1,0 +1,47 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@inaccessible"])
+
+type Query {
+  characters(origin: Origin): [Character!]!
+  character(name: String!): Character
+}
+
+type Character @key(fields: "name") {
+  name: String!
+  nicknames: [String!]!
+  origin: Origin!
+  role: Role
+  starredIn: [Episode!]!
+  biography: String @inaccessible
+}
+
+type Episode @key(fields: "season episode") {
+  season: Int!
+  episode: Int!
+  characters: [Character!]!
+  leader: Character
+}
+
+union Role = Captain | Pilot | Engineer | Mechanic
+
+type Captain {
+  shipName: String!
+}
+
+type Pilot {
+  shipName: String!
+}
+
+type Engineer {
+  shipName: String!
+}
+
+type Mechanic {
+  shipName: String!
+}
+
+enum Origin {
+  EARTH
+  MARS
+  BELT
+}

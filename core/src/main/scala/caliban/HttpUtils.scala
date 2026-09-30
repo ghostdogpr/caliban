@@ -12,6 +12,44 @@ object HttpUtils {
   val MutationOverGetError: ValidationError =
     ValidationError("Mutations are not allowed for GET requests", "")
 
+  private[caliban] val SubscriptionOverJsonError: ResponseValue =
+    GraphQLResponse(
+      NullValue,
+      List(CalibanError.ExecutionError("Subscriptions require text/event-stream or WebSocket."))
+    ).toResponseValue
+
+  private[caliban] sealed trait Delivery
+
+  private[caliban] object Delivery {
+    final case class Incremental(responses: ZStream[Any, Throwable, ResponseValue]) extends Delivery
+    final case class Subscription(events: ZStream[Any, Throwable, ResponseValue], failed: Throwable => ResponseValue)
+        extends Delivery {
+      def recovered(implicit trace: Trace): UStream[ResponseValue] =
+        events.catchAll(error => ZStream.succeed(failed(error)))
+    }
+    case object Single extends Delivery
+  }
+
+  private[caliban] def delivery(response: GraphQLResponse[Any], outcome: GraphQLResponseContext.Outcome)(implicit
+    trace: Trace
+  ): Delivery = {
+    // Report errors in an initial event sent immediately.
+    def withErrors(events: ZStream[Any, Throwable, ResponseValue]) =
+      if (response.errors.isEmpty) events
+      else ZStream.succeed(GraphQLResponse(NullValue, response.errors).toResponseValue) ++ events
+    response.data match {
+      case StreamValue(stream) if outcome ne GraphQLResponseContext.Outcome.Subscribed =>
+        Delivery.Incremental(stream.via(DeferMultipart.createPipeline(response)))
+      case StreamValue(stream)                                                         =>
+        Delivery.Subscription(withErrors(stream), e => GraphQLResponse(NullValue, List(e)).toResponseValue)
+      case ObjectValue((fieldName, StreamValue(stream)) :: Nil)                        =>
+        def event(value: ResponseValue, errors: List[Throwable]) =
+          GraphQLResponse(ObjectValue(List(fieldName -> value)), errors).toResponseValue
+        Delivery.Subscription(withErrors(stream.map(event(_, Nil))), error => event(NullValue, List(error)))
+      case _                                                                           => Delivery.Single
+    }
+  }
+
   object DeferMultipart {
     private val Newline        = "\r\n"
     private val ContentType    = "Content-Type: application/json; charset=utf-8"
@@ -52,18 +90,20 @@ object HttpUtils {
       done: Sse,
       heartbeater: Option[ZStream[Any, Nothing, Sse]] = None
     )(implicit trace: Trace): UStream[Sse] = {
-      val stream = (resp.data match {
-        case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-          // Report errors in an initial event sent immediately
-          val init =
-            if (resp.errors.isEmpty) ZStream.empty else ZStream.succeed(GraphQLResponse(NullValue, resp.errors))
-          init ++ stream.either.map {
-            case Right(r)  => GraphQLResponse(ObjectValue(List(fieldName -> r)), Nil)
-            case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err))
-          }
-        case _                                                    => ZStream.succeed(resp)
-      }).map(v => toSse(v.toResponseValue))
+      val events = delivery(resp, GraphQLResponseContext.Outcome.Subscribed) match {
+        case subscription: Delivery.Subscription => subscription.recovered
+        case _                                   => ZStream.succeed(resp.toResponseValue)
+      }
+      fromEvents(events, toSse, done, heartbeater)
+    }
 
+    private[caliban] def fromEvents[Sse](
+      events: UStream[ResponseValue],
+      toSse: ResponseValue => Sse,
+      done: Sse,
+      heartbeater: Option[ZStream[Any, Nothing, Sse]]
+    )(implicit trace: Trace): UStream[Sse] = {
+      val stream = events.map(toSse)
       (heartbeater match {
         case None    => stream
         case Some(s) => stream.mergeHaltLeft(s)

@@ -1,0 +1,131 @@
+schema
+  @link(url: "https://specs.apollo.dev/link/v1.0")
+  @link(url: "https://specs.apollo.dev/join/v0.5", for: EXECUTION)
+  @link(url: "https://specs.apollo.dev/inaccessible/v0.2", for: SECURITY)
+{
+  query: Query
+}
+
+directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
+
+directive @join__directive(graphs: [join__Graph!], name: String!, args: join__DirectiveArguments) repeatable on SCHEMA | OBJECT | INTERFACE | FIELD_DEFINITION
+
+directive @join__enumValue(graph: join__Graph!) repeatable on ENUM_VALUE
+
+directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean, overrideLabel: String, contextArguments: [join__ContextArgument!]) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+
+directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
+
+directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+
+directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
+
+directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+type Captain
+  @join__type(graph: CHARACTERS)
+{
+  shipName: String!
+}
+
+type Character
+  @join__type(graph: CHARACTERS, key: "name")
+  @join__type(graph: EPISODES, key: "name")
+{
+  name: String! @join__field(graph: CHARACTERS) @join__field(graph: EPISODES, external: true)
+  nicknames: [String!]! @join__field(graph: CHARACTERS)
+  origin: Origin! @join__field(graph: CHARACTERS)
+  role: Role @join__field(graph: CHARACTERS)
+  starredIn: [Episode!]! @join__field(graph: CHARACTERS)
+  biography: String @inaccessible @join__field(graph: CHARACTERS)
+  isCaptain: Boolean! @join__field(graph: EPISODES)
+}
+
+type Engineer
+  @join__type(graph: CHARACTERS)
+{
+  shipName: String!
+}
+
+type Episode
+  @join__type(graph: CHARACTERS, key: "season episode")
+  @join__type(graph: EPISODES, key: "season episode")
+{
+  season: Int!
+  episode: Int!
+  characters: [Character!]! @join__field(graph: CHARACTERS)
+  leader: Character @join__field(graph: CHARACTERS)
+  name: String! @join__field(graph: EPISODES)
+}
+
+input join__ContextArgument {
+  name: String!
+  type: String!
+  context: String!
+  selection: join__FieldValue!
+}
+
+scalar join__DirectiveArguments
+
+scalar join__FieldSet
+
+scalar join__FieldValue
+
+enum join__Graph {
+  CHARACTERS @join__graph(name: "characters", url: "http://127.0.0.1:9008/graphql/federated")
+  EPISODES @join__graph(name: "episodes", url: "http://127.0.0.1:9009/graphql/federated")
+}
+
+scalar link__Import
+
+enum link__Purpose {
+  """
+  `SECURITY` features provide metadata necessary to securely resolve fields.
+  """
+  SECURITY
+
+  """
+  `EXECUTION` features provide metadata necessary for operation execution.
+  """
+  EXECUTION
+}
+
+type Mechanic
+  @join__type(graph: CHARACTERS)
+{
+  shipName: String!
+}
+
+enum Origin
+  @join__type(graph: CHARACTERS)
+{
+  EARTH @join__enumValue(graph: CHARACTERS)
+  MARS @join__enumValue(graph: CHARACTERS)
+  BELT @join__enumValue(graph: CHARACTERS)
+}
+
+type Pilot
+  @join__type(graph: CHARACTERS)
+{
+  shipName: String!
+}
+
+type Query
+  @join__type(graph: CHARACTERS)
+  @join__type(graph: EPISODES)
+{
+  characters(origin: Origin): [Character!]! @join__field(graph: CHARACTERS)
+  character(name: String!): Character @join__field(graph: CHARACTERS)
+  episode(season: Int!, episode: Int!): Episode @join__field(graph: EPISODES)
+  episodes(seaons: Int): [Episode!]! @join__field(graph: EPISODES)
+}
+
+union Role
+  @join__type(graph: CHARACTERS)
+  @join__unionMember(graph: CHARACTERS, member: "Captain")
+  @join__unionMember(graph: CHARACTERS, member: "Pilot")
+  @join__unionMember(graph: CHARACTERS, member: "Engineer")
+  @join__unionMember(graph: CHARACTERS, member: "Mechanic")
+ = Captain | Pilot | Engineer | Mechanic

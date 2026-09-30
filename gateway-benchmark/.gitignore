@@ -1,0 +1,10 @@
+target/
+*.collapsed
+*.html
+*.jfr
+*.log
+data.csv
+k6_metrics.json
+k6_summary.json
+k6_summary.txt
+stats.json

@@ -18,6 +18,14 @@ module.exports = {
       description: 'Functional GraphQL library for Scala',
     }
   },
+  markdown: {
+    // mdoc:invisible blocks hold setup code checked by mdoc but hidden from readers
+    extendMarkdown: md => {
+      const fence = md.renderer.rules.fence
+      md.renderer.rules.fence = (tokens, idx, ...rest) =>
+        tokens[idx].info.includes('mdoc:invisible') ? '' : fence(tokens, idx, ...rest)
+    }
+  },
   themeConfig: {
     logo: '/caliban.svg',
     locales: {
@@ -65,6 +73,19 @@ module.exports = {
               'federation',
               'relay-connections',
               'schema-reporting',
+            ]
+          },
+          {
+            title: 'Caliban Gateway',
+            collapsable: true,
+            sidebarDepth: 2,
+            children: [
+              'gateway',
+              'gateway/subgraphs',
+              'gateway/planning',
+              'gateway/subscriptions',
+              'gateway/hooks',
+              'gateway/configuration',
             ]
           },
           {

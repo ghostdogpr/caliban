@@ -1,0 +1,16 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@context", "@fromContext"])
+
+type Query {
+  shipCount: Int!
+}
+
+type Character @key(fields: "name") @context(name: "crew") {
+  name: String!
+  rank: String!
+}
+
+type Ship @key(fields: "id") {
+  id: ID!
+  manifest(rank: String @fromContext(field: "$crew ... on Character { rank }")): String!
+}

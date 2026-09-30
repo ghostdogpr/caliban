@@ -1,0 +1,147 @@
+package caliban
+
+import caliban.execution.Field
+import caliban.ResponseValue.ObjectValue
+import caliban.Value.StringValue
+import caliban.introspection.adt._
+import caliban.parsing.Parser
+import caliban.parsing.adt.{ Directive, Selection }
+import zio.http.{ Scheme, URL }
+
+package object gateway {
+  private[gateway] final val TypenameField   = "__typename"
+  private[gateway] final val EntitiesField   = "_entities"
+  private[gateway] final val ServiceField    = "_service"
+  private[gateway] final val TransportFields = Set(EntitiesField, ServiceField)
+  private[gateway] final val ServiceType     = "_Service"
+  private[gateway] final val AnyType         = "_Any"
+
+  private[gateway] final val RepresentationsArgument = "representations"
+
+  private[gateway] final val FederationIdentity     = "https://specs.apollo.dev/federation"
+  private[gateway] final val LinkIdentity           = "https://specs.apollo.dev/link"
+  private[gateway] final val AuthenticatedIdentity  = "https://specs.apollo.dev/authenticated"
+  private[gateway] final val RequiresScopesIdentity = "https://specs.apollo.dev/requiresScopes"
+  private[gateway] final val PolicyIdentity         = "https://specs.apollo.dev/policy"
+  private[gateway] final val CostIdentity           = "https://specs.apollo.dev/cost"
+  private[gateway] final val JoinIdentity           = "https://specs.apollo.dev/join"
+  private[gateway] final val ContextIdentity        = "https://specs.apollo.dev/context"
+  private[gateway] final val InaccessibleIdentity   = "https://specs.apollo.dev/inaccessible"
+  private[gateway] final val TagIdentity            = "https://specs.apollo.dev/tag"
+
+  private[gateway] def isInclusionDirective(directive: Directive): Boolean =
+    directive.name == "skip" || directive.name == "include"
+
+  private[gateway] def isAbstractType(tpe: __Type): Boolean =
+    tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION
+
+  private[gateway] def isCompositeType(tpe: __Type): Boolean =
+    tpe.kind == __TypeKind.OBJECT || isAbstractType(tpe)
+
+  private[gateway] def fieldDefinition(tpe: __Type, name: String): Option[__Field] =
+    Option(tpe.getFieldOrNull(name))
+
+  private[gateway] def inputFieldDefinition(tpe: __Type, name: String): Option[__InputValue] =
+    Option(tpe.getInputFieldOrNull(name))
+
+  private[gateway] def typesOverlap(
+    possibleTypesByName: Map[String, Set[String]],
+    selectedType: String,
+    candidateType: String,
+    selection: Option[Set[String]]
+  ): Boolean =
+    selection
+      .getOrElse(possibleTypesByName.getOrElse(selectedType, Set.empty))
+      .exists(possibleTypesByName.getOrElse(candidateType, Set.empty))
+
+  private[gateway] def nullableType(tpe: __Type): __Type =
+    if (tpe.kind == __TypeKind.NON_NULL) tpe.ofType.map(nullableType).getOrElse(tpe) else tpe
+
+  private[gateway] def compatibleValueType(left: __Type, right: __Type): Boolean = {
+    val (a, b) = (nullableType(left), nullableType(right))
+    if (a.kind == __TypeKind.LIST && b.kind == __TypeKind.LIST)
+      a.ofType.exists(item => b.ofType.exists(compatibleValueType(item, _)))
+    else a.kind == b.kind && a.name == b.name
+  }
+
+  private[gateway] def isRequiredInput(input: __InputValue): Boolean =
+    !input._type.isNullable && input.defaultValue.isEmpty
+
+  private[gateway] def parentTypeName(field: Field): String =
+    field.parentType.flatMap(_.name).getOrElse("")
+
+  private[gateway] def innerParentTypeName(field: Field): String =
+    field.parentType.flatMap(_.innerType.name).getOrElse("")
+
+  private[gateway] def responseNames(fields: Iterable[Field]): Set[String] =
+    fields.iterator.map(_.aliasedName).toSet
+
+  private[gateway] def errorCode(code: String): Option[ObjectValue] =
+    Some(ObjectValue(List("code" -> StringValue(code))))
+
+  private[gateway] def traverseOption[A, B](values: Iterable[A])(f: A => Option[B]): Option[List[B]] = {
+    val collected = List.newBuilder[B]
+    val iterator  = values.iterator
+    while (iterator.hasNext)
+      f(iterator.next()) match {
+        case Some(value) => collected += value
+        case None        => return None
+      }
+    Some(collected.result())
+  }
+
+  private[gateway] def traverseEither[E, A, B](values: List[A])(f: A => Either[E, B]): Either[E, List[B]] =
+    values
+      .foldLeft[Either[E, List[B]]](Right(Nil))((result, value) =>
+        result.flatMap(collected => f(value).map(_ :: collected))
+      )
+      .map(_.reverse)
+
+  private[gateway] def check(valid: Boolean, message: String): List[String] =
+    if (valid) Nil else message :: Nil
+
+  private[gateway] def checkAbsolute(url: URL, schemes: Scheme => Boolean, message: String): List[String] =
+    check(url.scheme.exists(schemes) && url.host.exists(_.nonEmpty), message)
+
+  private[gateway] def validateAll[A](results: List[Either[String, A]]): Either[List[String], List[A]] =
+    collectErrors(results.map(_.left.map(List(_))))
+
+  private[gateway] def collectErrors[A](results: List[Either[List[String], A]]): Either[List[String], List[A]] = {
+    val errors = results.flatMap(_.left.getOrElse(Nil))
+    if (errors.nonEmpty) Left(errors) else Right(results.collect { case Right(value) => value })
+  }
+
+  private[gateway] def validated[A](errors: List[String], result: Either[List[String], A]): Either[List[String], A] =
+    result match {
+      case Right(value) if errors.isEmpty => Right(value)
+      case _                              => Left(errors ::: result.left.getOrElse(Nil))
+    }
+
+  // GraphQL input coercion: a single value given for a list argument is a one-element list.
+  private[gateway] def coercedList(value: InputValue): List[InputValue] =
+    value match {
+      case InputValue.ListValue(values) => values
+      case single                       => single :: Nil
+    }
+
+  private[gateway] def stringArgument(arguments: Map[String, InputValue], name: String): Option[String] =
+    arguments.get(name).collect { case StringValue(value) => value }
+
+  private[gateway] def groupNonEmpty[K, A](values: List[A])(key: A => K): Map[K, ::[A]] =
+    values.foldRight(Map.empty[K, ::[A]]) { (value, groups) =>
+      val group = key(value)
+      groups.updated(group, ::(value, groups.getOrElse(group, Nil)))
+    }
+
+  private[gateway] def duplicates(names: List[String]): List[String] =
+    names.groupBy(identity).collect { case (name, occurrences) if occurrences.size > 1 => name }.toList
+
+  private[gateway] def formatSources(sources: Iterable[String]): String =
+    sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
+
+  private[gateway] def parseFieldSet(value: String): Option[List[Selection]] =
+    parseSelectionSet(s"{ $value }")
+
+  private[gateway] def parseSelectionSet(query: String): Option[List[Selection]] =
+    Parser.parseQuery(query).toOption.flatMap(_.operationDefinition(None)).map(_.selectionSet).filter(_.nonEmpty)
+}

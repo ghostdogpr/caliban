@@ -1,0 +1,322 @@
+package caliban.gateway
+
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext }
+import caliban.GraphQLResponseContext.ServerFailure
+import caliban.Value.{ NullValue, StringValue }
+import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.internal.{ GatewayExecutionControl, GatewayInterpreterImpl }
+import zio._
+import zio.http.{ Response, Status }
+import zio.test._
+
+object RuntimeLifecycleSpec extends ZIOSpecDefault {
+
+  private def makeControl(
+    scope: Scope.Closeable,
+    requestTimeout: Duration = 1.second,
+    drainTimeout: Duration = 1.second
+  ): UIO[GatewayExecutionControl] =
+    scope.extend(GatewayExecutionControl.make(requestTimeout, drainTimeout))
+
+  private def withLease[A](control: GatewayExecutionControl)(onRejected: UIO[A])(
+    body: control.Lease => UIO[A]
+  ): UIO[A] =
+    ZIO.acquireReleaseWith(Clock.nanoTime.flatMap(control.reserve(_).commit))(ZIO.foreachDiscard(_)(_.release))(
+      _.fold(onRejected)(body)
+    )
+
+  private def runRequest[A](control: GatewayExecutionControl)(effect: UIO[A])(onTimeout: UIO[A]): UIO[A] =
+    withLease(control)(ZIO.interrupt)(_.runWithin(effect).someOrElseZIO(onTimeout))
+
+  private def awaitDrain(control: GatewayExecutionControl): UIO[Unit] =
+    withLease(control)(ZIO.succeed(true))(_ => ZIO.succeed(false)).repeatUntil(identity).unit
+
+  private def withReservation[A](runtime: GatewayInterpreterImpl[Any])(f: GatewayInterpreter[Any] => UIO[A]): UIO[A] =
+    runtime.use(f)
+
+  private def isRejected(runtime: GatewayInterpreterImpl[Any]): UIO[Boolean] =
+    runtime.check("{ value }").either.map(_.left.exists(_.getMessage.contains("Gateway is shutting down.")))
+
+  private def awaitDrain(runtime: GatewayInterpreterImpl[Any]): UIO[Unit] =
+    isRejected(runtime).repeatUntil(identity).unit
+
+  private val hangingHooks: List[UIO[Unit] => PhaseHooks[Any]] = List(
+    hang => PhaseHooks.operation(PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Operation](_ => hang)),
+    hang => PhaseHooks.execution(PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Execution](_ => hang))
+  )
+
+  private def observing(into: Ref[Vector[OperationEvent]]): PhaseHooks[Any] =
+    PhaseHooks.operation(
+      PhaseHandler.outgoing[Any, PhaseHooks.Event.Operation, OperationEvent]((_, e) => into.update(_ :+ e))
+    )
+
+  def spec = suite("RuntimeLifecycleSpec")(
+    test("executes a reserved request when draining starts before execution") {
+      for {
+        scope   <- Scope.make
+        runtime <- scope.extend(localGateway(ZIO.succeed("accepted")).build)
+        leased  <- Promise.make[Nothing, Unit]
+        proceed <- Promise.make[Nothing, Unit]
+        request <- withReservation[GraphQLResponse[CalibanError]](runtime)(view =>
+                     leased.succeed(()) *> proceed.await *> view.execute("{ value }")
+                   ).fork
+        _       <- leased.await
+        closing <- scope.close(Exit.unit).fork
+        _       <- awaitDrain(runtime)
+        _       <- proceed.succeed(())
+        result  <- request.join
+        _       <- closing.join
+      } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "value").contains(StringValue("accepted"))
+      )
+    },
+    test("releases a reservation cancelled before request execution") {
+      for {
+        scope    <- Scope.make
+        runtime  <- scope.extend(localGateway(ZIO.never).build)
+        leased   <- Promise.make[Nothing, Unit]
+        request  <- withReservation(runtime)(_ => leased.succeed(()) *> ZIO.never).fork
+        _        <- leased.await
+        closing  <- scope.close(Exit.unit).fork
+        _        <- awaitDrain(runtime)
+        _        <- request.interrupt
+        _        <- closing.join
+        rejected <- isRejected(runtime)
+      } yield assertTrue(rejected)
+    },
+    test("applies one deadline to operation resolution before source execution") {
+      for {
+        resolving   <- Promise.make[Nothing, Unit]
+        interrupted <- Promise.make[Nothing, Unit]
+        sourceCalls <- Ref.make(0)
+        resolver     = PhaseHooks.resolution[Any](
+                         _ => (resolving.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit),
+                         cacheable = false
+                       )
+        runtime     <- localGateway(sourceCalls.update(_ + 1).as("value"))
+                         .withPhaseHooks(resolver)
+                         .withConfig(_.withRequestTimeout(1.second))
+                         .build
+        fiber       <- runtime.executeRequest(GraphQLRequest()).fork
+        _           <- resolving.await
+        _           <- TestClock.adjust(1.second)
+        response    <- fiber.join
+        _           <- interrupted.await
+        calls       <- sourceCalls.get
+      } yield assertTrue(
+        response.errors.map(_.msg) == List("Gateway request timed out."),
+        calls == 0
+      )
+    },
+    test("returns the timeout response at the deadline while an operation or execution hook hangs") {
+      ZIO
+        .foreach(hangingHooks) { hanging =>
+          for {
+            entered  <- Promise.make[Nothing, Unit]
+            observed <- Ref.make(Vector.empty[OperationEvent])
+            runtime  <- localGateway(ZIO.succeed("value"))
+                          .withPhaseHooks(observing(observed) ++ hanging(entered.succeed(()).unit *> ZIO.never))
+                          .withConfig(_.withRequestTimeout(1.second))
+                          .build
+            fiber    <- GraphQLResponseContext.capture(runtime.execute("{ value }"))((r, o) => (r, o)).fork
+            _        <- entered.await
+            _        <- TestClock.adjust(1.second)
+            result   <- fiber.join
+            events   <- observed.get
+          } yield assertTrue(
+            result._1.errors.map(_.msg) == List("Gateway request timed out."),
+            result._2 == ServerFailure.TimedOut,
+            events.map(e => (e.outcome, e.errors.map(_.msg))) ==
+              Vector((PhaseHooks.Outcome.Timeout, List("Gateway request timed out.")))
+          )
+        }
+        .map(_.foldLeft(assertCompletes)(_ && _))
+    } @@ TestAspect.timeout(10.seconds),
+    test("preserves caller interruption without fabricating a response") {
+      for {
+        started     <- Promise.make[Nothing, Unit]
+        interrupted <- Promise.make[Nothing, Unit]
+        runtime     <- localGateway((started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit))
+                         .withConfig(_.withRequestTimeout(1.hour))
+                         .build
+        fiber       <- runtime.execute("{ value }").fork
+        _           <- started.await
+        exit        <- fiber.interrupt
+        _           <- interrupted.await
+      } yield assertTrue(
+        exit.isInterrupted
+      )
+    },
+    test("allows a request to finish while another request is still running") {
+      for {
+        scope        <- Scope.make
+        control      <- makeControl(scope)
+        started      <- Promise.make[Nothing, Unit]
+        release      <- Promise.make[Nothing, Unit]
+        first        <- runRequest(control)(started.succeed(()).unit *> release.await.as("first"))(
+                          ZIO.succeed("timeout")
+                        ).fork
+        _            <- started.await
+        secondResult <- runRequest(control)(ZIO.succeed("second"))(ZIO.succeed("timeout"))
+        pending      <- first.poll
+        _            <- release.succeed(())
+        firstResult  <- first.join
+        _            <- scope.close(Exit.unit)
+      } yield assertTrue(
+        secondResult == "second",
+        pending.isEmpty,
+        firstResult == "first"
+      )
+    },
+    test("waits for timed-out uninterruptible completion and handoff work to exit") {
+      for {
+        scope      <- Scope.make
+        control    <- makeControl(scope)
+        completing <- Promise.make[Nothing, Unit]
+        release    <- Promise.make[Nothing, Unit]
+        fiber      <- runRequest(control)(
+                        completing.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late")
+                      )(ZIO.succeed("timeout")).fork
+        _          <- completing.await
+        _          <- TestClock.adjust(1.second)
+        cancelling <- fiber.interrupt.fork
+        pending    <- ZIO.yieldNow.repeatN(20) *> cancelling.poll
+        _          <- release.succeed(())
+        exit       <- cancelling.join
+        _          <- scope.close(Exit.unit)
+      } yield assertTrue(
+        pending.isEmpty,
+        exit.isInterrupted
+      )
+    },
+    test("does not deliver a public response after the source result reaches the deadline handoff") {
+      for {
+        started  <- Promise.make[Nothing, Unit]
+        release  <- Promise.make[Nothing, Unit]
+        runtime  <- localGateway(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
+                      .withConfig(_.withRequestTimeout(1.second))
+                      .build
+        fiber    <- runtime.execute("{ value }").fork
+        _        <- started.await
+        _        <- TestClock.adjust(1.second)
+        _        <- release.succeed(())
+        response <- fiber.join
+      } yield assertTrue(
+        response.data == NullValue,
+        response.errors.map(_.msg) == List("Gateway request timed out.")
+      )
+    },
+    test("stops an unshared retry sequence at the request deadline") {
+      val remoteConfig = RemoteGraphQLConfig.default.withExecution(
+        _.withTimeout(1.hour)
+          .withRetries(1, 10.seconds)
+          .withInFlightQueryDeduplication(false)
+      )
+      for {
+        calls    <- Ref.make(0)
+        endpoint <- postEndpoint("runtime-lifecycle-retry")(_ =>
+                      calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable))
+                    )
+        runtime  <- Gateway
+                      .compose(Subgraph.graphql("remote", endpoint, "type Query { value: String }", remoteConfig))
+                      .withConfig(_.withRequestTimeout(1.second))
+                      .build
+        fiber    <- runtime.execute("{ value }").fork
+        _        <- calls.get.repeatUntil(_ == 1)
+        _        <- ZIO.yieldNow
+        _        <- TestClock.adjust(1.second)
+        response <- fiber.join
+        total    <- calls.get
+      } yield assertTrue(
+        response.errors.map(_.msg) == List("Gateway request timed out."),
+        total == 1
+      )
+    },
+    test("finishes accepted work and returns service-unavailable to requests arriving while draining") {
+      for {
+        scope    <- Scope.make
+        started  <- Promise.make[Nothing, Unit]
+        release  <- Promise.make[Nothing, Unit]
+        runtime  <-
+          scope.extend(
+            localGateway(started.succeed(()).unit *> release.await.as("done"))
+              .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.hour))
+              .build
+          )
+        accepted <- runtime.execute("{ value }").fork
+        _        <- started.await
+        closing  <- scope.close(Exit.unit).fork
+        _        <- awaitDrain(runtime)
+        rejected <- GraphQLResponseContext.capture(runtime.execute("{ value }"))((r, o) => (r, o))
+        _        <- release.succeed(())
+        result   <- accepted.join
+        _        <- closing.join
+      } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "value").contains(StringValue("done")),
+        rejected._1.errors.map(_.msg) == List("Gateway is shutting down."),
+        rejected._2 == ServerFailure.Unavailable
+      )
+    },
+    test("interrupts cooperative work after the drain timeout without detaching it") {
+      for {
+        scope       <- Scope.make
+        control     <- makeControl(scope, requestTimeout = 1.hour, drainTimeout = 1.second)
+        started     <- Promise.make[Nothing, Unit]
+        interrupted <- Promise.make[Nothing, Unit]
+        running     <- runRequest(control)(
+                         (started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
+                       )(ZIO.interrupt).fork
+        _           <- started.await
+        closing     <- scope.close(Exit.unit).fork
+        _           <- awaitDrain(control)
+        _           <- TestClock.adjust(1.second)
+        _           <- interrupted.await
+        exit        <- running.await
+        _           <- closing.join
+      } yield assertTrue(
+        exit.isInterrupted
+      )
+    },
+    test("interrupts a hanging operation or execution hook at the drain timeout") {
+      ZIO
+        .foreach(hangingHooks) { hanging =>
+          for {
+            scope   <- Scope.make
+            entered <- Promise.make[Nothing, Unit]
+            runtime <- scope.extend(
+                         localGateway(ZIO.succeed("value"))
+                           .withPhaseHooks(hanging(entered.succeed(()).unit *> ZIO.never))
+                           .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.second))
+                           .build
+                       )
+            fiber   <- runtime.execute("{ value }").fork
+            _       <- entered.await
+            closing <- scope.close(Exit.unit).fork
+            _       <- awaitDrain(runtime)
+            _       <- TestClock.adjust(1.second)
+            _       <- closing.join
+            exit    <- fiber.await
+          } yield assertTrue(exit.isInterrupted)
+        }
+        .map(_.foldLeft(assertCompletes)(_ && _))
+    } @@ TestAspect.timeout(10.seconds),
+    test("rejects non-finite request and drain deadlines at build time") {
+      for {
+        exit <- localGateway(ZIO.succeed("value"))
+                  .withConfig(
+                    _.withRequestTimeout(Duration.Zero)
+                      .withDrainTimeout(Duration.Infinity)
+                  )
+                  .build
+                  .exit
+      } yield assertTrue(
+        buildDiagnostics(exit) == List(
+          "Gateway request timeout must be finite and positive.",
+          "Gateway drain timeout must be finite and positive."
+        )
+      )
+    }
+  ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
+}

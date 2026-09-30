@@ -38,8 +38,8 @@ object DefaultValueSpec extends ZIOSpecDefault {
           val gql = graphQL(RootResolver(Query(i => i.float)))
           gql.interpreter.exit.map(e => assert(e)(fails(isSubtype[CalibanError.ValidationError](anything))))
         },
-        test("invalid id validation") {
-          case class TestInput(@GQLDefault("1") id: UUID)
+        test("invalid id literal validation") {
+          case class TestInput(@GQLDefault("true") id: UUID)
           case class Query(test: TestInput => UUID)
           val gql = graphQL(RootResolver(Query(i => i.id)))
           gql.interpreter.exit.map(e => assert(e)(fails(isSubtype[CalibanError.ValidationError](anything))))
@@ -134,6 +134,16 @@ object DefaultValueSpec extends ZIOSpecDefault {
           "InputValue 'intValue' of Field 'testDefault' of Object 'Query' has invalid type 1.1"
 
         api.interpreter.exit.map(e => assert(e)(fails(hasMessage(equalTo(expected)))))
+      },
+      test("integer ID default is rejected when coerced to UUID") {
+        case class TestInput(@GQLDefault("1") id: UUID)
+        case class Query(test: TestInput => UUID)
+        val gql = graphQL(RootResolver(Query(_.id)))
+
+        for {
+          interpreter <- gql.interpreter
+          response    <- interpreter.execute("{ test }")
+        } yield assertTrue(response.errors.exists(_.msg.contains("UUID")))
       },
       test("explicit null for a nullable field with default value is valid") {
         val query =

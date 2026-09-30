@@ -63,7 +63,12 @@ abstract class ArgBuilder[T] { self =>
       .map(
         Parser
           .parseInputValue(_)
-          .flatMap(build)
+          .flatMap {
+            // ID input coercion turns an Int into a string, so retry a rejected Int default as a string.
+            case int: IntValue =>
+              build(int).left.flatMap(e => build(StringValue(int.toBigInt.toString)).left.map(_ => e))
+            case value         => build(value)
+          }
           .left
           .map(e => ExecutionError(e.getMessage(), innerThrowable = Some(InvalidInputArgument)))
       )
@@ -113,6 +118,8 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case IntValue.IntNumber(value)                        => Right(value)
     case IntValue.LongNumber(value) if value.isValidInt   => Right(value.toInt)
     case IntValue.BigIntNumber(value) if value.isValidInt => Right(value.toInt)
+    case StringValue(value)                               =>
+      Try(value.toInt).fold(_ => Left(InvalidInputArgument("Int", value)), Right(_))
     case other                                            => Left(InvalidInputArgument("Int", other))
   }
   implicit lazy val long: ArgBuilder[Long]             = {
@@ -124,8 +131,9 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case other                                             => Left(InvalidInputArgument("Long", other))
   }
   implicit lazy val bigInt: ArgBuilder[BigInt]         = {
-    case value: IntValue => Right(value.toBigInt)
-    case other           => Left(InvalidInputArgument("BigInt", other))
+    case value: IntValue    => Right(value.toBigInt)
+    case StringValue(value) => Try(BigInt(value)).fold(_ => Left(InvalidInputArgument("BigInt", value)), Right(_))
+    case other              => Left(InvalidInputArgument("BigInt", other))
   }
   implicit lazy val float: ArgBuilder[Float]           = {
     case value: IntValue   => Right(value.toBigInt.toFloat)

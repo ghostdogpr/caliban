@@ -5,7 +5,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, PathValue, ResponseValue }
-import zio.Cause
+import zio.{ Cause, Trace }
 import zio.query.ZQuery
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
@@ -65,6 +65,12 @@ object Step {
     case (FunctionStep(l), FunctionStep(r))                  => FunctionStep(args => mergeRootSteps(l(args), r(args)))
     case (FunctionStep(l), r)                                => FunctionStep(args => mergeRootSteps(l(args), r))
     case (l, FunctionStep(r))                                => FunctionStep(args => mergeRootSteps(l, r(args)))
+    case (QueryStep(l), QueryStep(r))                        =>
+      QueryStep[R](l.zipWith(r)((left, right) => mergeRootSteps[R](left, right))(Trace.empty))
+    case (QueryStep(l), r)                                   =>
+      QueryStep[R](l.map(left => mergeRootSteps[R](left, r))(Trace.empty))
+    case (l, QueryStep(r))                                   =>
+      QueryStep[R](r.map(right => mergeRootSteps[R](l, right))(Trace.empty))
     case (ObjectStep(name, fields1), ObjectStep(_, fields2)) => ObjectStep(name, mergeObjectSteps(fields1, fields2))
     // if only step1 is an object, keep it
     case (ObjectStep(_, _), _)                               => step1

@@ -6,9 +6,9 @@ import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 import caliban._
-import caliban.introspection.adt.__Type
+import caliban.introspection.adt._
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
+import caliban.schema.Annotations.{ GQLDefault, GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
@@ -430,6 +430,89 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.data.toString == """{"test":"be722453-d97d-48c2-b535-9badd1b5d4c9"}""")
+        }
+      },
+      test("coerces integer literals, variables and defaults for String-backed ID fields") {
+        final case class StringId(value: String)
+        implicit val idSchema: Schema[Any, StringId]    =
+          Schema.scalarSchema("ID", None, None, None, id => StringValue(id.value))
+        implicit val idArgBuilder: ArgBuilder[StringId] = ArgBuilder.string.map(StringId.apply)
+        case class IdArgs(id: StringId)
+        case class DefaultArgs(@GQLDefault("7") id: StringId)
+        case class IdsArgs(ids: List[StringId])
+        case class Queries(test: IdArgs => StringId, default: DefaultArgs => StringId, list: IdsArgs => List[StringId])
+        val interpreter                                 = graphQL(RootResolver(Queries(_.id, _.id, _.ids))).interpreter
+        val variable                                    = GraphQLRequest(
+          query = Some("query Id($id: ID!) { test(id: $id) }"),
+          variables = Some(Map("id" -> IntValue(456)))
+        )
+
+        for {
+          api      <- interpreter
+          literal  <- api.execute("{ test(id: 123) }")
+          variable <- api.executeRequest(variable)
+          default  <- api.execute("{ default }")
+          list     <- api.execute("{ list(ids: 1) }")
+        } yield assertTrue(
+          literal.data.toString == """{"test":"123"}""",
+          variable.data.toString == """{"test":"456"}""",
+          default.data.toString == """{"default":"7"}""",
+          list.data.toString == """{"list":["1"]}"""
+        )
+      },
+      test("accepts integer literals and variables for Int-backed ID fields") {
+        final case class IntId(value: Int)
+        implicit val idSchema: Schema[Any, IntId]    =
+          Schema.scalarSchema("ID", None, None, None, id => IntValue(id.value))
+        implicit val idArgBuilder: ArgBuilder[IntId] = ArgBuilder.int.map(IntId.apply)
+        case class IdArgs(id: IntId)
+        case class Queries(test: IdArgs => IntId)
+        val interpreter                              = graphQL(RootResolver(Queries(_.id))).interpreter
+        val variable                                 = GraphQLRequest(
+          query = Some("query Id($id: ID!) { test(id: $id) }"),
+          variables = Some(Map("id" -> IntValue(456)))
+        )
+
+        for {
+          api      <- interpreter
+          literal  <- api.execute("{ test(id: 123) }")
+          variable <- api.executeRequest(variable)
+        } yield assertTrue(
+          literal.errors.isEmpty,
+          variable.errors.isEmpty,
+          literal.data.toString == """{"test":123}""",
+          variable.data.toString == """{"test":456}"""
+        )
+      },
+      test("coerces integer ID arguments of field directives") {
+        case class Queries(test: Field => Boolean)
+        val idType  = Types.makeScalar("ID")
+        val id      = __InputValue("id", None, () => idType, None)
+        val tag     = __Directive("tag", None, Set(__DirectiveLocation.FIELD), _ => List(id), isRepeatable = false)
+        val queries = Queries(_.directives.flatMap(_.arguments.get("id")) == List(StringValue("5")))
+        val request = GraphQLRequest(
+          query = Some("query Q($v: ID, $d: ID = 5) { a: test @tag(id: 5) b: test @tag(id: $v) c: test @tag(id: $d) }"),
+          variables = Some(Map("v" -> IntValue(5)))
+        )
+
+        val api = graphQL(RootResolver(queries), List(tag)).withAdditionalTypes(List(idType))
+        api.interpreter.flatMap(_.executeRequest(request)).map { response =>
+          assertTrue(response.data.toString == """{"a":true,"b":true,"c":true}""")
+        }
+      },
+      test("mapError preserves response metadata") {
+        val response    = GraphQLResponse(
+          Value.StringValue("data"),
+          List("original"),
+          Some(ResponseValue.ObjectValue(List("trace" -> Value.StringValue("kept")))),
+          Some(true)
+        )
+        val interpreter = new GraphQLInterpreter[Any, String] {
+          def check(query: String)(implicit trace: Trace)                    = ZIO.unit
+          def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = ZIO.succeed(response)
+        }
+        interpreter.mapError(_.length).execute("query { ignored }").map { result =>
+          assertTrue(result == response.copy(errors = List(8)))
         }
       },
       test("mapError") {

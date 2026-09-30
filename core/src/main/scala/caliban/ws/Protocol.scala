@@ -1,6 +1,6 @@
 package caliban.ws
 
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban._
 import zio.stm.{ STM, TMap }
@@ -354,20 +354,23 @@ object Protocol {
       interpreter: GraphQLInterpreter[R, E],
       subscriptions: SubscriptionManager
     ): ZStream[R, E, GraphQLWSOutput] = {
+      def streamed(events: ZStream[Any, Throwable, ResponseValue]) = {
+        val frame = self.toResponse(id, GraphQLResponse(Value.NullValue, Nil))
+        ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
+          case Some(p) => events.map(value => frame.copy(payload = Some(value))).interruptWhen(p)
+          case None    => ZStream.empty
+        }
+      }
+
       val resp =
-        ZStream
-          .fromZIO(interpreter.executeRequest(payload))
-          .flatMap(res =>
-            res.data match {
-              case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
-                  case Some(p) => stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
-                  case None    => ZStream.empty
-                }
-              case other                                                =>
-                ZStream.succeed(self.toResponse(id, GraphQLResponse(other, res.errors)))
-            }
-          )
+        ZStream.unwrap(GraphQLResponseContext.capture(interpreter.executeRequest(payload)) { (res, outcome) =>
+          HttpUtils.delivery(res, outcome) match {
+            case HttpUtils.Delivery.Incremental(responses)  => streamed(responses)
+            case HttpUtils.Delivery.Subscription(events, _) => streamed(events)
+            case HttpUtils.Delivery.Single                  =>
+              ZStream.succeed(self.toResponse(id, GraphQLResponse(res.data, res.errors)))
+          }
+        })
 
       (resp ++ self.toStreamComplete(id)).catchAll(self.toStreamError(Option(id), _))
     }
