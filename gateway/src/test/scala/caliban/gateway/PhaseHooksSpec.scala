@@ -256,8 +256,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
         sent.isEmpty,
-        observed.lastOption.contains(Event.Completion),
-        completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.Timeout),
+        !observed.contains(Event.Completion),
+        completed.map(_._1).toSet == observed.toSet,
         observations.map(_.outcome) == Vector(PhaseHooks.Outcome.Timeout),
         observations.forall(_.prepared.isEmpty),
         observations.forall(_.operationType.isEmpty),

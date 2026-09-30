@@ -35,6 +35,11 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                    val default       = QuickAdapter(coded).configureSse(SseConfig(Some(1.second)))
                    val existing      = default.configureHttp(HttpConfig.default.withMaxRequestBodyBytes(Int.MaxValue - 2))
                    val smallResponse = default.configureHttp(HttpConfig.default.withMaxResponseBodyBytes(64))
+                   val rebuilt       = QuickAdapter(
+                     coded.wrapExecutionWith[TestService with Uploads, CalibanError](
+                       _.map(r => GraphQLResponse(r.data, r.errors, r.extensions))
+                     )
+                   )
 
                    (existing.routes(
                      "/api/graphql",
@@ -45,7 +50,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                        "/api/graphql-default",
                        uploadPath = Some("/upload/graphql-default")
                      ) ++
-                     smallResponse.routes("/api/graphql-small-response")) @@ auth
+                     smallResponse.routes("/api/graphql-small-response") ++
+                     rebuilt.routes("/api/graphql-rebuilt")) @@ auth
                  }
       _       <- Server.serve(routes).forkScoped
       _       <- Live.live(Clock.sleep(3 seconds))
@@ -182,29 +188,56 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       )
     },
     test("rejects a subscription over JSON with a GraphQL error response") {
-      def reject(data: ResponseValue) = {
-        val interpreter = new GraphQLInterpreter[Any, CalibanError] {
-          def check(query: String)(implicit trace: Trace)                    = ZIO.unit
-          def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = ZIO.succeed(GraphQLResponse(data, Nil))
-        }
+      def reject(response: UIO[GraphQLResponse[CalibanError]]) =
         for {
-          response <- QuickAdapter(interpreter).handlers.api
-                        .runZIO(
-                          Request
-                            .post(URL.empty, Body.fromString(CharactersQuery))
-                            .addHeader(Header.ContentType(MediaType.application.json))
-                        )
+          response <- respond(response, "application/json")
           body     <- response.body.asString
         } yield assertTrue(
           response.status == Status.BadRequest,
           response.headers.get(Header.ContentType).exists(_.mediaType == MediaType.application.json),
           body == """{"data":null,"errors":[{"message":"Subscriptions require text/event-stream or WebSocket."}]}"""
         )
+      val stream                                               = ResponseValue.StreamValue(zio.stream.ZStream.empty)
+      (reject(GraphQLResponseContext.markSubscribed.as(GraphQLResponse(stream, Nil))) <*>
+        reject(ZIO.succeed(GraphQLResponse(ResponseValue.ObjectValue(List("characterDeleted" -> stream)), Nil)))).map {
+        case (a, b) => a && b
       }
-      val stream                      = ResponseValue.StreamValue(zio.stream.ZStream.empty)
-      (reject(stream) <*> reject(ResponseValue.ObjectValue(List("characterDeleted" -> stream)))).map { case (a, b) =>
-        a && b
-      }
+    },
+    test("negotiates each result kind separately for urql's default Accept header") {
+      val accept                          =
+        "application/graphql-response+json, application/graphql+json, application/json, text/event-stream, multipart/mixed"
+      def negotiated(data: ResponseValue) =
+        respond(ZIO.succeed(GraphQLResponse(data, Nil)), accept).map { response =>
+          (response.status, response.headers.get(Header.ContentType).map(_.mediaType.fullType))
+        }
+      val subscription                    = ResponseValue.ObjectValue(
+        List("characterDeleted" -> ResponseValue.StreamValue(zio.stream.ZStream.empty))
+      )
+      for {
+        single <- negotiated(ResponseValue.ObjectValue(List("name" -> Value.StringValue("Amos"))))
+        stream <- negotiated(subscription)
+      } yield assertTrue(
+        single == ((Status.Ok, Some("application/graphql-response+json"))),
+        stream == ((Status.Ok, Some("text/event-stream")))
+      )
+    },
+    test("keeps @defer on multipart when a wrapper rebuilds the response without hasNext") {
+      val query =
+        """{ characters { ... on Character @defer(label: "character") { name ... @defer(label: "nicknames") { labels } } } }"""
+      for {
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/api/graphql-rebuilt")
+                        .contentType("application/graphql")
+                        .header("Accept", "text/event-stream, multipart/mixed")
+                        .body(query)
+                        .response(asStringAlways)
+                    )
+      } yield assertTrue(
+        response.is200,
+        response.contentType.exists(_.startsWith("multipart/mixed")),
+        response.body.contains("incremental")
+      )
     },
     test("keeps GraphQL request errors on an SSE response at status 200") {
       for {
@@ -229,6 +262,19 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private def postQuery(endpoint: sttp.model.Uri, contentType: String = "application/json") =
     basicRequest.post(endpoint).contentType(contentType).body(CharactersQuery).response(asStringAlways)
+
+  private def respond(response: UIO[GraphQLResponse[CalibanError]], accept: String) = {
+    val interpreter = new GraphQLInterpreter[Any, CalibanError] {
+      def check(query: String)(implicit trace: Trace)                    = ZIO.unit
+      def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
+    }
+    QuickAdapter(interpreter).handlers.api.runZIO(
+      Request
+        .post(URL.empty, Body.fromString(CharactersQuery))
+        .addHeader(Header.ContentType(MediaType.application.json))
+        .addHeader(Header.Custom("Accept", accept))
+    )
+  }
 
   private def execute[T](request: sttp.client4.Request[T]): Task[sttp.client4.Response[T]] =
     ZIO.scoped[Any](HttpClientZioBackend.scoped().flatMap(request.send(_)))

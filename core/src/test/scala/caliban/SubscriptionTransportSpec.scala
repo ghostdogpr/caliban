@@ -33,7 +33,8 @@ object SubscriptionTransportSpec extends ZIOSpecDefault {
   private def connect[E](respond: GraphQLRequest => GraphQLResponse[E]): ZIO[Scope, Nothing, Socket] = {
     val interpreter = new GraphQLInterpreter[Any, E] {
       def check(query: String)(implicit trace: Trace)                    = ZIO.unit
-      def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = ZIO.succeed(respond(request))
+      def executeRequest(request: GraphQLRequest)(implicit trace: Trace) =
+        GraphQLResponseContext.markSubscribed.as(respond(request))
     }
     for {
       input  <- Queue.unbounded[GraphQLWSInput]

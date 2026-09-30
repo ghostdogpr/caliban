@@ -4,11 +4,25 @@ The gateway supports subscriptions from local Caliban schemas and remote GraphQL
 
 ## Transports
 
-Use the existing Quick or Tapir adapters. Clients can use `graphql-transport-ws`, legacy WebSocket, or SSE with `Accept: text/event-stream`. Use POST for SSE. JSON and multipart HTTP responses cannot carry subscriptions.
+Use the existing Quick or Tapir adapters. Clients can use `graphql-transport-ws`, legacy WebSocket, or SSE when the `Accept` header lists `text/event-stream`, alone or next to JSON types. Use POST for SSE. JSON and multipart HTTP responses cannot carry subscriptions.
 
 Enable a downstream WebSocket route explicitly when serving with QuickAdapter:
 
-```scala
+```scala mdoc:invisible
+import caliban.QuickAdapter
+import caliban.gateway.{ Gateway, Subgraph }
+import zio.http._
+
+val products = Subgraph.graphql("products", url"http://products:8080/graphql")
+val reviews  = Subgraph.graphql("reviews", url"http://reviews:8080/graphql")
+val gateway  = Gateway.compose(products, reviews)
+
+import caliban.gateway.GatewayInterpreter
+
+def interpreter: GatewayInterpreter[Any] = ???
+```
+
+```scala mdoc:compile-only
 QuickAdapter(interpreter).runServer(
   port = 4000,
   apiPath = "/graphql",
@@ -21,7 +35,7 @@ Clients connect to `ws://localhost:4000/ws/graphql`. SSE uses the HTTP `/graphql
 
 Remote subgraphs use `graphql-transport-ws` by default. They use the configured HTTP endpoint with the `ws` or `wss` scheme. Use `withEndpoint` on `RemoteSubscriptionConfig` to set a different subscription URL. To use SSE, configure the transport:
 
-```scala
+```scala mdoc:compile-only
 import caliban.gateway.{ RemoteGraphQLConfig, RemoteSubscriptionConfig }
 
 val config = RemoteGraphQLConfig.default.withSubscription(
@@ -35,7 +49,7 @@ Each remote subscription opens one connection. WebSocket acknowledgements, pong 
 
 ## Consuming from Scala
 
-```scala
+```scala mdoc:compile-only
 import caliban.GraphQLRequest
 
 val events = interpreter.executeStream(
@@ -49,7 +63,7 @@ Each consumption starts a new subscription. Cancelling it releases the connectio
 
 Configure limits with `GatewaySubscriptionConfig`:
 
-```scala
+```scala mdoc:compile-only
 val bounded = gateway.withConfig(_.withSubscriptions(_.withMaxActive(256).withBufferSize(16)))
 ```
 

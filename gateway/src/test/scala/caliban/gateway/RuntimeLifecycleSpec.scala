@@ -40,6 +40,16 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
   private def awaitDrain(runtime: GatewayInterpreterImpl[Any]): UIO[Unit] =
     isRejected(runtime).repeatUntil(identity).unit
 
+  private val hangingHooks: List[UIO[Unit] => PhaseHooks[Any]] = List(
+    hang => PhaseHooks.operation(PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Operation](_ => hang)),
+    hang => PhaseHooks.execution(PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Execution](_ => hang))
+  )
+
+  private def observing(into: Ref[Vector[OperationEvent]]): PhaseHooks[Any] =
+    PhaseHooks.operation(
+      PhaseHandler.outgoing[Any, PhaseHooks.Event.Operation, OperationEvent]((_, e) => into.update(_ :+ e))
+    )
+
   def spec = suite("RuntimeLifecycleSpec")(
     test("executes a reserved request when draining starts before execution") {
       for {
@@ -99,6 +109,30 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         calls == 0
       )
     },
+    test("returns the timeout response at the deadline while an operation or execution hook hangs") {
+      ZIO
+        .foreach(hangingHooks) { hanging =>
+          for {
+            entered  <- Promise.make[Nothing, Unit]
+            observed <- Ref.make(Vector.empty[OperationEvent])
+            runtime  <- localGateway(ZIO.succeed("value"))
+                          .withPhaseHooks(observing(observed) ++ hanging(entered.succeed(()).unit *> ZIO.never))
+                          .withConfig(_.withRequestTimeout(1.second))
+                          .build
+            fiber    <- GraphQLResponseContext.capture(runtime.execute("{ value }"))((r, o) => (r, o)).fork
+            _        <- entered.await
+            _        <- TestClock.adjust(1.second)
+            result   <- fiber.join
+            events   <- observed.get
+          } yield assertTrue(
+            result._1.errors.map(_.msg) == List("Gateway request timed out."),
+            result._2 == ServerFailure.TimedOut,
+            events.map(e => (e.outcome, e.errors.map(_.msg))) ==
+              Vector((PhaseHooks.Outcome.Timeout, List("Gateway request timed out.")))
+          )
+        }
+        .map(_.foldLeft(assertCompletes)(_ && _))
+    } @@ TestAspect.timeout(10.seconds),
     test("preserves caller interruption without fabricating a response") {
       for {
         started     <- Promise.make[Nothing, Unit]
@@ -245,6 +279,29 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         exit.isInterrupted
       )
     },
+    test("interrupts a hanging operation or execution hook at the drain timeout") {
+      ZIO
+        .foreach(hangingHooks) { hanging =>
+          for {
+            scope   <- Scope.make
+            entered <- Promise.make[Nothing, Unit]
+            runtime <- scope.extend(
+                         localGateway(ZIO.succeed("value"))
+                           .withPhaseHooks(hanging(entered.succeed(()).unit *> ZIO.never))
+                           .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.second))
+                           .build
+                       )
+            fiber   <- runtime.execute("{ value }").fork
+            _       <- entered.await
+            closing <- scope.close(Exit.unit).fork
+            _       <- awaitDrain(runtime)
+            _       <- TestClock.adjust(1.second)
+            _       <- closing.join
+            exit    <- fiber.await
+          } yield assertTrue(exit.isInterrupted)
+        }
+        .map(_.foldLeft(assertCompletes)(_ && _))
+    } @@ TestAspect.timeout(10.seconds),
     test("rejects non-finite request and drain deadlines at build time") {
       for {
         exit <- localGateway(ZIO.succeed("value"))

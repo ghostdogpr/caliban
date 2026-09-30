@@ -1,7 +1,7 @@
 package caliban.interop.tapir
 
-import caliban.ResponseValue.StreamValue
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
+import caliban.HttpUtils.Delivery
 import caliban._
 import caliban.wrappers.Caching
 import sttp.capabilities.zio.ZioStreams
@@ -133,47 +133,34 @@ object TapirAdapter {
       case _                                           => StatusCode.Ok
     }
 
-    // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
-    response match {
-      case resp @ GraphQLResponse(StreamValue(stream), _, _, Some(_)) =>
-        (
-          deferMultipartMediaType,
-          StatusCode.Ok,
-          None,
-          encodeMultipartMixedResponse(resp, stream)
-        )
-      case resp if accepts.serverSentEvents                           =>
-        (
-          MediaType.TextEventStream,
-          status,
-          None,
-          encodeTextEventStreamResponse(resp)
-        )
-      case resp if HttpUtils.subscriptionEvents(resp).isDefined       =>
-        (
-          MediaType.ApplicationJson,
-          StatusCode.BadRequest,
-          None,
-          Left(HttpUtils.SubscriptionOverJsonError)
-        )
-      case resp if accepts.graphQLJson                                =>
+    def sse(events: ZStream[Any, Nothing, ResponseValue]) =
+      (MediaType.TextEventStream, status, None, encodeTextEventStreamResponse(events))
+
+    HttpUtils.delivery(response, outcome) match {
+      case Delivery.Incremental(responses)                                 =>
+        (deferMultipartMediaType, StatusCode.Ok, None, encodeMultipartMixedResponse(responses))
+      case subscription: Delivery.Subscription if accepts.serverSentEvents => sse(subscription.recovered)
+      case _: Delivery.Subscription                                        =>
+        (MediaType.ApplicationJson, StatusCode.BadRequest, None, Left(HttpUtils.SubscriptionOverJsonError))
+      case _ if accepts.graphQLJson                                        =>
         (
           GraphqlResponseJson.mediaType,
           status,
           cacheDirective,
           encodeSingleResponse(
-            resp,
-            keepDataOnErrors = outcome == Outcome.Executed,
+            response,
+            keepDataOnErrors = status == StatusCode.Ok,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
-      case resp                                                       =>
+      case _ if accepts.serverSentEvents                                   => sse(ZStream.succeed(response.toResponseValue))
+      case _                                                               =>
         (
           MediaType.ApplicationJson,
           status,
           cacheDirective,
           encodeSingleResponse(
-            resp,
+            response,
             keepDataOnErrors = true,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
@@ -188,18 +175,14 @@ object TapirAdapter {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
   }
 
-  private def encodeMultipartMixedResponse[E, BS](
-    resp: GraphQLResponse[E],
-    stream: ZStream[Any, Throwable, ResponseValue]
+  private def encodeMultipartMixedResponse[BS](
+    responses: ZStream[Any, Throwable, ResponseValue]
   )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
     import HttpUtils.DeferMultipart._
 
-    val pipeline = HttpUtils.DeferMultipart.createPipeline(resp)
-
     Right(
       streamConstructor(
-        stream
-          .via(pipeline)
+        responses
           .map(responseCodec.encode)
           .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
           .mapConcat(_.getBytes(StandardCharsets.UTF_8))
@@ -207,13 +190,14 @@ object TapirAdapter {
     )
   }
 
-  private def encodeTextEventStreamResponse[E, BS](
-    resp: GraphQLResponse[E]
+  private def encodeTextEventStreamResponse[BS](
+    events: ZStream[Any, Nothing, ResponseValue]
   )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
-    val response = HttpUtils.ServerSentEvents.transformResponse(
-      resp,
+    val response = HttpUtils.ServerSentEvents.fromEvents(
+      events,
       v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
-      ServerSentEvent(None, Some("complete"))
+      ServerSentEvent(None, Some("complete")),
+      None
     )
     Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }

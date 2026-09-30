@@ -6,7 +6,16 @@ Use `PhaseHandler.incoming` to change an event, `incomingDiscard` for a check or
 
 For example, log the result of each subgraph call:
 
-```scala
+```scala mdoc:invisible
+import caliban.gateway.{ Gateway, Subgraph }
+import zio.http._
+
+val products = Subgraph.graphql("products", url"http://products:8080/graphql")
+val reviews  = Subgraph.graphql("reviews", url"http://reviews:8080/graphql")
+val gateway  = Gateway.compose(products, reviews)
+```
+
+```scala mdoc:compile-only
 import caliban.gateway.{ PhaseHandler, PhaseHooks }
 import zio.ZIO
 
@@ -38,7 +47,7 @@ Outgoing callbacks run as each phase finishes. Subgraph calls may run in paralle
 
 For subscriptions, use `subscriptionAdmission` to observe acceptance or rejection, `subscriptionSetup` for startup, `subscriptionEvent` for each event, and `subscriptionTerminated` for the termination reason. Remote connections and calls made while processing events also use `subgraphCall` and `attempt`. Successful subscriptions skip `execution`.
 
-Resolution, authorization, and override-label handlers can reject a request. Other hooks observe or modify events without a typed error channel. Hooks count toward request deadlines. `explain(request)` runs resolution and authorization hooks. `check(query)` validates literal query text without them.
+Resolution, authorization, and override-label handlers can reject a request. Other hooks observe or modify events without a typed error channel. Hooks count toward request deadlines. At the deadline, the gateway interrupts the hooks still running and returns the timeout response. Running `operation` and `execution` handlers receive the `timeout` outcome. `explain(request)` runs resolution and authorization hooks. `check(query)` validates literal query text without them.
 
 ## Persisted and trusted documents
 
@@ -46,7 +55,7 @@ Clients usually send the full GraphQL query with each request. With persisted do
 
 `PhaseHooks.resolution` handles this lookup before parsing, validation, and cache lookup. Use `PhaseHooks.trustedDocuments` for an in-memory registry:
 
-```scala
+```scala mdoc:compile-only
 import caliban.Value.StringValue
 import caliban.gateway.{ Gateway, PhaseHooks }
 
@@ -85,7 +94,7 @@ To return a safe message and `extensions.code`, fail a custom resolver with `ZIO
 
 For a custom label, attach an override-label hook:
 
-```scala
+```scala mdoc:compile-only
 import caliban.GraphQLRequest
 import caliban.gateway.{ Gateway, PhaseHooks }
 import zio.Task
@@ -107,7 +116,7 @@ The hook runs once per request that uses custom labels, before the lookup of the
 
 Use `PhaseHooks.fromClaims` to enforce `@authenticated` and `@requiresScopes` before an operation runs. Authenticate requests in your HTTP layer and pass the verified claims to this helper.
 
-```scala
+```scala mdoc:silent
 import caliban.gateway.{ Gateway, GatewayInterpreter, PhaseHooks }
 import zio.{ Task, ZIO, ZLayer }
 
@@ -143,7 +152,7 @@ Authorization runs after validation and planning, including on cache hits. Combi
 
 Build `secured.interpreter` once. With QuickAdapter, provide verified `RequestClaims` around the API handler for each HTTP request:
 
-```scala
+```scala mdoc:compile-only
 import caliban.QuickAdapter
 import zio.{ IO, Scope }
 import zio.http.{ Handler, Request, RequestHandler, Response }
@@ -176,7 +185,7 @@ Keep the claims layer inside the handler so concurrent requests receive their ow
 
 Use remote-service configuration for [static credentials, token loading, and forwarding client headers](configuration.md#authentication-and-request-headers). Use `subgraphCall` to adjust the resulting headers across subgraphs:
 
-```scala
+```scala mdoc:compile-only
 import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
 import caliban.gateway.PhaseHooks.Event
 import zio.ZIO
@@ -203,7 +212,7 @@ Subscriptions capture configured and effectful headers once. Both hooks run when
 
 Metrics are opt-in:
 
-```scala
+```scala mdoc:silent:nest
 import caliban.gateway.{ Gateway, GatewayMetrics }
 
 val gateway = Gateway.compose(products, reviews) @@ GatewayMetrics.hooks
@@ -214,12 +223,12 @@ The built-in metrics report request execution, preparation, subgraph calls, retr
 The hooks record ZIO metrics. They do not start an exporter or expose `/metrics`. To export to Prometheus, add a [ZIO Metrics connector](https://zio.dev/zio-metrics-connectors/getting-started):
 
 ```scala
-libraryDependencies += "dev.zio" %% "zio-metrics-connectors-prometheus" % "2.5.4"
+libraryDependencies += "dev.zio" %% "zio-metrics-connectors-prometheus" % "2.6.0"
 ```
 
 Add a metrics route alongside the gateway routes and provide the publisher layers:
 
-```scala
+```scala mdoc:compile-only
 import caliban.QuickAdapter
 import zio._
 import zio.http._
@@ -248,7 +257,7 @@ val application = serve.provide(
 
 Run `application` from your `ZIOAppDefault.run`. Configure Prometheus to scrape `/metrics` on port 4000. The publisher refreshes its snapshot every five seconds. See [ZIO's Prometheus guide](https://zio.dev/zio-metrics-connectors/metrics/prometheus-client/) for exporter details.
 
-`caliban_gateway_request_duration_seconds` covers queries and mutations from execution onward. It also counts error responses for preparation failures, timeouts, and shutdown rejections, but the duration excludes preparation time. Its `_count` series gives the number of requests per outcome. Track preparation separately with `caliban_gateway_preparation_duration_seconds`. Use `caliban_gateway_subgraph_call_duration_seconds` to find slow services and `caliban_gateway_operation_cache_total` to track cache hits and misses.
+`caliban_gateway_request_duration_seconds` covers queries and mutations from execution onward. It also counts error responses for preparation failures and shutdown rejections, but the duration excludes preparation time. Its `_count` series gives the number of requests per outcome. A request that reaches its deadline during execution has the `timeout` outcome. A request that reaches it during preparation never starts execution, so only `caliban_gateway_preparation_duration_seconds` records it, with the `cancelled` outcome. Track preparation separately with `caliban_gateway_preparation_duration_seconds`. Use `caliban_gateway_subgraph_call_duration_seconds` to find slow services and `caliban_gateway_operation_cache_total` to track cache hits and misses.
 
 ### Exporting traces
 
@@ -260,7 +269,7 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-gateway-tracing" % "3
 
 Attach its hooks to the gateway:
 
-```scala
+```scala mdoc:silent:nest
 import caliban.gateway.GatewayMetrics
 import caliban.gateway.tracing.GatewayTracing
 
@@ -270,7 +279,7 @@ val gateway = Gateway.compose(products, reviews) @@
 
 `GatewayTracing.hooks` requires a `zio.telemetry.opentelemetry.tracing.Tracing` service while handling requests. If your application uses the OpenTelemetry Java agent, provide a tracer from the globally registered SDK:
 
-```scala
+```scala mdoc:compile-only
 import caliban.QuickAdapter
 import zio._
 import zio.telemetry.opentelemetry.OpenTelemetry

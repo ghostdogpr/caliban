@@ -77,21 +77,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
         }
         .map(_.reduce(_ && _))
     },
-    test("incremental streams are not decoded as subscription envelopes for either hasNext value") {
-      ZIO
-        .foreach(List(true, false)) { hasNext =>
-          val response = GraphQLResponse(
-            ResponseValue.StreamValue(ZStream.dieMessage("must not consume an incremental stream as a subscription")),
-            Nil,
-            hasNext = Some(hasNext)
-          )
-          SubgraphExecutor
-            .subscriptionResponses(response)
-            .runCollect
-            .map(values => assertTrue(values == Chunk(response)))
-        }
-        .map(_.reduce(_ && _))
-    },
     test("failed or cancelled setup retains its slot until finalizers finish") {
       ZIO
         .foreach(List(false, true)) { cancel =>
@@ -433,7 +418,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                            )
                          )
                        )
-        _           <- output.take.repeatN(1)
+        events      <- output.take.replicateZIO(2)
         _           <- input.offer(GraphQLWSInput("complete", Some("1"), None))
         _           <- closed.get.repeatUntil(_ == 1)
         firstClosed <- closed.get
@@ -441,7 +426,12 @@ object SubscriptionSpec extends ZIOSpecDefault {
         _           <- closed.get.repeatUntil(_ == 2)
         allClosed   <- closed.get
         _           <- socket.interrupt
-      } yield assertTrue(firstClosed == 1, allClosed == 2)
+      } yield assertTrue(
+        events.map(_.map(output => output.`type` -> output.payload.map(_.toString))) ==
+          List.fill(2)(Right("next" -> Some("""{"data":{"event":1}}"""))),
+        firstClosed == 1,
+        allClosed == 2
+      )
     },
     test("captures configured headers before streaming and edits them when opening the subgraph") {
       for {
@@ -775,13 +765,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
         events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}")
       )
     },
-    test("Quick uses multipart for either hasNext value even when SSE is accepted") {
+    test("Quick uses multipart for a top-level stream whatever hasNext says, even when SSE is accepted") {
       ZIO
-        .foreach(List(true, false)) { hasNext =>
+        .foreach(List(Some(true), Some(false), None)) { hasNext =>
           val response    = GraphQLResponse(
             ResponseValue.StreamValue(ZStream.succeed(ResponseValue.ObjectValue(List("event" -> Value.IntValue(1))))),
             Nil,
-            hasNext = Some(hasNext)
+            hasNext = hasNext
           )
           val interpreter = new GraphQLInterpreter[Any, CalibanError] {
             def check(query: String)(implicit trace: Trace)                    = ZIO.unit
@@ -799,33 +789,38 @@ object SubscriptionSpec extends ZIOSpecDefault {
             body   <- result.body.asString
           } yield assertTrue(
             result.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
-            body.contains(s""""hasNext":$hasNext"""),
+            hasNext.forall(value => body.contains(s""""hasNext":$value""")),
             !body.contains("event: next")
           )
         }
         .map(_.reduce(_ && _))
     },
-    test("Quick SSE emits complete envelopes and a completion event") {
+    test("Quick SSE emits complete envelopes and a completion event, also when a wrapper rebuilds the response") {
+      def sse(interpreter: GraphQLInterpreter[Any, CalibanError]) =
+        for {
+          response <- QuickAdapter(interpreter).handlers.api
+                        .runZIO(
+                          Request
+                            .post(
+                              URL.empty,
+                              Body
+                                .fromString("""{"query":"subscription { event }"}""")
+                                .contentType(MediaType.application.json)
+                            )
+                            .addHeader(Header.Custom("Accept", "text/event-stream"))
+                        )
+          body     <- response.body.asString
+        } yield assertTrue(
+          response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "text/event-stream"),
+          body.contains("\"event\":1"),
+          body.contains("\"event\":2"),
+          body.contains("event: complete")
+        )
       for {
-        runtime  <- subscriptionGateway(ZStream(1, 2)).interpreter
-        response <- QuickAdapter(runtime).handlers.api
-                      .runZIO(
-                        Request
-                          .post(
-                            URL.empty,
-                            Body
-                              .fromString("""{"query":"subscription { event }"}""")
-                              .contentType(MediaType.application.json)
-                          )
-                          .addHeader(Header.Custom("Accept", "text/event-stream"))
-                      )
-        body     <- response.body.asString
-      } yield assertTrue(
-        response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "text/event-stream"),
-        body.contains("\"event\":1"),
-        body.contains("\"event\":2"),
-        body.contains("event: complete")
-      )
+        runtime <- subscriptionGateway(ZStream(1, 2)).interpreter
+        plain   <- sse(runtime)
+        rebuilt <- sse(runtime.wrapExecutionWith[Any, CalibanError](_.map(r => GraphQLResponse(r.data, r.errors))))
+      } yield plain && rebuilt
     }
   ).provideSomeLayerShared[Scope](testServer ++ stubIds) @@ TestAspect.timeout(30.seconds) @@ TestAspect.sequential
 }

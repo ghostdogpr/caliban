@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.GraphQLResponseContext.{ markExecuted, markServerError, ServerFailure }
+import caliban.GraphQLResponseContext.{ markExecuted, markServerError, markSubscribed, ServerFailure }
 import caliban.ResponseValue.StreamValue
 import caliban.Value.NullValue
 import caliban.execution.Executor
@@ -42,8 +42,13 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         _.runWithin(effect).someOrFail(requestTimeoutError)
       )
 
-    def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
-      hooks.operation.runWith(Event.Operation(request))(event => run(event.request))(operationEvent).map(_.response)
+    def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
+      val observed =
+        hooks.operation.runWith(Event.Operation(request))(event => run(event.request))(operationEvent).map(_.response)
+      lease.fold(observed)(
+        _.runWithin(observed).someOrElseZIO(markServerError(ServerFailure.TimedOut).as(timeoutResponse))
+      )
+    }
 
     private def run(request: GraphQLRequest)(implicit trace: Trace): URIO[R, RequestResult] = {
       def observe(effect: URIO[R, RequestResult]): URIO[R, RequestResult] =
@@ -54,10 +59,8 @@ private[gateway] final class GatewayInterpreterImpl[-R](
           mark.as(RequestResult(GraphQLResponse(NullValue, error :: Nil), OperationEvent(None, error :: Nil, outcome)))
         )(operationEvent(_).result)
 
-      val timedOut = failed(requestTimeoutError, markServerError(ServerFailure.TimedOut), Outcome.Timeout)
-
-      def executed(operation: ExecutableOperation)(execute: URIO[R, GraphQLResponse[CalibanError]]) =
-        (markExecuted *> execute).map { response =>
+      def executed(operation: ExecutableOperation, mark: UIO[Unit])(execute: URIO[R, GraphQLResponse[CalibanError]]) =
+        (mark *> execute).map { response =>
           val prepared = OperationEvent.Prepared(operation.document, operation.executionRequest)
           RequestResult(response, OperationEvent(Some(prepared), response.errors, Outcome.fromResponse(response)))
         }
@@ -66,25 +69,22 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         .run(Event.Preparation)(operations.prepare(request))(
           Result.fromExit(_)(_ => Result(Outcome.Success), failure => Result(failure.outcome, errorCount = 1))
         )
-        .either
 
       val shutdown = failed(requestShutdownError, markServerError(ServerFailure.Unavailable), Outcome.RequestError)
 
-      lease.fold(observe(shutdown)) { lease =>
-        def within(effect: URIO[R, RequestResult]) = lease.runWithin(effect).someOrElseZIO(timedOut)
+      lease.fold(observe(shutdown)) { _ =>
         // Classify the resolved operation before opening finite-request metrics/spans, while one
         // deadline and drain lease cover preparation and execution together.
-        lease.runWithin(preparation).flatMap {
-          case None                   => observe(timedOut)
-          case Some(Left(failure))    => observe(within(failed(failure.error, failure.mark, failure.outcome)))
-          case Some(Right(operation)) =>
+        preparation.foldZIO(
+          failure => observe(failed(failure.error, failure.mark, failure.outcome)),
+          operation =>
             operation.plan.operationType match {
-              case OperationType.Subscription => within(executed(operation)(subscribe(operation)))
+              case OperationType.Subscription => executed(operation, markSubscribed)(subscribe(operation))
               case _                          =>
                 val execute = executor.execute(operation.plan, operation.executionRequest, operation.request)
-                observe(within(executed(operation)(execute)))
+                observe(executed(operation, markExecuted)(execute))
             }
-        }
+        )
       }
     }
   }
@@ -95,8 +95,9 @@ private[gateway] final class GatewayInterpreterImpl[-R](
    */
   private def operationEvent(exit: Exit[Nothing, RequestResult]): OperationEvent =
     exit match {
-      case Exit.Success(result) => result.event
-      case Exit.Failure(cause)  => OperationEvent(None, Nil, Outcome.fromCause(cause))
+      case Exit.Success(result)                                          => result.event
+      case Exit.Failure(cause) if GatewayExecutionControl.expired(cause) => timeoutEvent
+      case Exit.Failure(cause)                                           => OperationEvent(None, Nil, Outcome.fromCause(cause))
     }
 
   private def subscribe(operation: ExecutableOperation)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
@@ -121,6 +122,10 @@ private[gateway] object GatewayInterpreterImpl {
   private val requestTimeoutError = CalibanError.ExecutionError("Gateway request timed out.")
 
   private val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
+
+  private val timeoutResponse = GraphQLResponse(NullValue, requestTimeoutError :: Nil)
+
+  private val timeoutEvent = OperationEvent(None, requestTimeoutError :: Nil, Outcome.Timeout)
 
   private final case class RequestResult(response: GraphQLResponse[CalibanError], event: OperationEvent)
 

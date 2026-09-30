@@ -6,7 +6,7 @@ Configure each remote service with `RemoteGraphQLConfig` and the whole gateway w
 
 Use `RemoteGraphQLConfig` to set timeouts, retries, headers, or body-size limits for a remote service.
 
-```scala
+```scala mdoc:silent
 import caliban.gateway.{ Gateway, RemoteGraphQLConfig, Subgraph }
 import zio._
 import zio.http._
@@ -32,7 +32,7 @@ Concurrent identical queries to a remote service share one in-flight call when t
 
 If loading the schema at startup requires authentication, give the service its own acquisition settings and headers:
 
-```scala
+```scala mdoc:compile-only
 val acquisition = RemoteGraphQLConfig.Acquisition.default
   .withTimeout(5.seconds)
   .withHeaders(Header.Custom("X-Schema-Token", "schema-secret"))
@@ -69,7 +69,7 @@ Change acquisition settings on `RemoteGraphQLConfig.Acquisition` and execution s
 
 To send the same credentials with every request to a service:
 
-```scala
+```scala mdoc:compile-only
 val config = RemoteGraphQLConfig.default.withExecution(
   _.withHeaders(Header.Authorization.Bearer("service-token"))
 )
@@ -77,7 +77,7 @@ val config = RemoteGraphQLConfig.default.withExecution(
 
 If the token must be loaded or refreshed dynamically, use `withExecutionHeadersZIO`:
 
-```scala
+```scala mdoc:compile-only
 val loadToken: Task[String] = ???
 
 val config = RemoteGraphQLConfig.default.withExecutionHeadersZIO(
@@ -87,7 +87,7 @@ val config = RemoteGraphQLConfig.default.withExecutionHeadersZIO(
 
 Forward selected client headers by name:
 
-```scala
+```scala mdoc:compile-only
 val config = RemoteGraphQLConfig.default.withExecution(
   _.forwardIncomingHeaders("Authorization", "X-Request-ID")
 )
@@ -105,7 +105,11 @@ To adjust headers across subgraphs or per retry, use the [subgraph and attempt h
 
 Configure limits shared by the whole gateway with `withConfig`:
 
-```scala
+```scala mdoc:invisible
+val reviews = Subgraph.graphql("reviews", url"http://reviews:8080/graphql")
+```
+
+```scala mdoc:silent
 import zio._
 
 val gateway = Gateway
@@ -142,7 +146,7 @@ Closing the interpreter's owning scope starts shutdown. Keep that scope open for
 
 `withMaxOperationCost` enables static demand control. The gateway estimates the planned subgraph requests after binding request variables and rejects an operation before contacting any subgraph when its cost exceeds the limit:
 
-```scala
+```scala mdoc:compile-only
 val gateway = Gateway
   .compose(products, reviews)
   .withConfig(_.withMaxOperationCost(1000))
@@ -156,7 +160,16 @@ The estimate includes fields fetched for entity keys and `@requires`. Composite 
 
 QuickAdapter has separate limits for client requests and responses:
 
-```scala
+```scala mdoc:invisible
+import caliban.QuickAdapter
+import caliban.gateway.GatewayInterpreter
+
+def interpreter: GatewayInterpreter[Any] = ???
+```
+
+```scala mdoc:compile-only
+import caliban.quick.HttpConfig
+
 QuickAdapter(interpreter)
   .configureHttp(
     HttpConfig.default
@@ -170,7 +183,7 @@ QuickAdapter(interpreter)
 
 Use `gateway.reloadable` instead of `gateway.interpreter` to refresh acquired remote schemas without replacing your HTTP adapter:
 
-```scala
+```scala mdoc:compile-only
 import caliban.QuickAdapter
 import zio._
 
@@ -213,7 +226,7 @@ Report reload health separately from serving readiness. A failed refresh leaves 
 
 The gateway exposes the composed schema through normal GraphQL introspection. To disable client introspection at the QuickAdapter boundary:
 
-```scala
+```scala mdoc:compile-only
 import caliban.Configurator.ExecutionConfiguration
 
 QuickAdapter(interpreter)
@@ -227,7 +240,7 @@ The setting controls client access to the combined schema only. Remote schema lo
 
 The gateway hides remote GraphQL error messages by default. Enable them only when every upstream message is safe for clients:
 
-```scala
+```scala mdoc:compile-only
 val gateway = Gateway.compose(products, reviews)
   .withConfig(_.withRemoteErrorMessages(true))
 ```

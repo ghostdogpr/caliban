@@ -37,6 +37,7 @@ val zqueryVersion             = "0.7.8"
 val zioJsonVersion            = "1.0.0"
 val zioHttpVersion            = "3.11.6"
 val zioOpenTelemetryVersion   = "3.1.19"
+val zioMetricsVersion         = "2.6.0"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -797,12 +798,13 @@ lazy val docs = project
     scalacOptions -= "-Xfatal-warnings",
     scalacOptions += "-Wunused:imports",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4"         %% "zio"                   % sttpVersion,
-      "org.typelevel"                         %% "cats-mtl"              % catsMtlVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion
+      "com.softwaremill.sttp.client4"         %% "zio"                               % sttpVersion,
+      "org.typelevel"                         %% "cats-mtl"                          % catsMtlVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"             % jsoniterVersion,
+      "dev.zio"                               %% "zio-metrics-connectors-prometheus" % zioMetricsVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter, federation, gateway, gatewayTracing)
 
 lazy val commonSettings = Def.settings(
   apiMappingSettings,

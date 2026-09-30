@@ -8,6 +8,7 @@ private[caliban] object GraphQLResponseContext {
 
   object Outcome {
     case object Executed        extends Outcome
+    case object Subscribed      extends Outcome
     case object RequestError    extends Outcome
     case object MutationOverGet extends Outcome
   }
@@ -20,7 +21,8 @@ private[caliban] object GraphQLResponseContext {
     case object TimedOut    extends ServerFailure
   }
 
-  private val ExecutedMark = Some(Outcome.Executed)
+  private val ExecutedMark   = Some(Outcome.Executed)
+  private val SubscribedMark = Some(Outcome.Subscribed)
 
   private val current: FiberRef[Option[Outcome]] =
     Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(None))
@@ -41,6 +43,9 @@ private[caliban] object GraphQLResponseContext {
 
   def markExecuted: UIO[Unit] =
     current.set(ExecutedMark)
+
+  def markSubscribed: UIO[Unit] =
+    current.set(SubscribedMark)
 
   private val requestOutcome: PartialFunction[Any, Outcome] = {
     case HttpUtils.MutationOverGetError                                 => Outcome.MutationOverGet

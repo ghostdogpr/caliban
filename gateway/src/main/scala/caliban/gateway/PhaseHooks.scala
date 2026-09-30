@@ -150,7 +150,8 @@ object PhaseHooks {
 
   /**
    * Wraps query or mutation execution and response assembly after [[preparation]].
-   * Also covers error responses for preparation failures, request timeouts, and shutdown rejections.
+   * Also covers error responses for preparation failures and shutdown rejections.
+   * A request deadline reached during this phase ends it with [[Outcome.Timeout]].
    * Successful subscriptions use [[subscriptionSetup]] and [[subscriptionEvent]] instead.
    * The event carries the operation name supplied by the client.
    */

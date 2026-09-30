@@ -8,7 +8,7 @@ Choose `Subgraph.graphql` for ordinary GraphQL composition or `Subgraph.federati
 
 Use `Subgraph.graphql` for a regular GraphQL endpoint:
 
-```scala
+```scala mdoc:silent
 import caliban.gateway.{ Gateway, Subgraph }
 import zio.http._
 
@@ -20,7 +20,7 @@ val catalog = Subgraph.graphql(
 
 By default, the gateway acquires the schema through introspection. You can instead provide SDL directly:
 
-```scala
+```scala mdoc:compile-only
 val catalog = Subgraph.graphql(
   "catalog",
   url"http://catalog:8080/graphql",
@@ -43,7 +43,7 @@ Pin SDL when introspection is unavailable. Keep it consistent with the deployed 
 
 Use `Subgraph.federation` for an Apollo Federation subgraph:
 
-```scala
+```scala mdoc:compile-only
 val products = Subgraph.federation(
   "products",
   url"http://products:8080/graphql"
@@ -76,7 +76,7 @@ Composition errors identify the field or type and the services involved. Fix inc
 
 A supergraph document contains the combined schema and the routing information for its services. The gateway does not support supergraphs composed with Federation 1 (`join/v0.1`). If you already have a supergraph for Apollo Router or Hive Router, load it with `Gateway.fromSupergraph`:
 
-```scala
+```scala mdoc:compile-only
 import zio.Config.Secret
 import zio.http._
 import caliban.gateway.{ Gateway, Supergraph }
@@ -103,7 +103,7 @@ val gateway = Gateway.fromSupergraph(apollo)
 
 By default, the gateway uses each service URL from the supergraph and `RemoteGraphQLConfig.default`. Configure services by their subgraph names, such as `products`, with `withSubgraphConfig`. Override URLs with `withSubgraphEndpoint`:
 
-```scala
+```scala mdoc:silent
 import caliban.gateway.{ RemoteGraphQLConfig, Supergraph }
 import zio.http._
 
@@ -124,7 +124,7 @@ val gateway = Gateway.fromSupergraph(source)
 
 `None` keeps the URL declared in the supergraph. The service configuration controls execution, including headers, retries, and subscriptions. Set authentication for downloading an HTTP supergraph on `Supergraph.http` itself:
 
-```scala
+```scala mdoc:compile-only
 val source = Supergraph.http(
   url"https://example.com/supergraph.graphql",
   RemoteGraphQLConfig.Acquisition.default
@@ -154,7 +154,7 @@ For custom labels, use an [override-label hook](hooks.md#progressive-override-la
 
 Pass a Caliban API to `Subgraph.graphql` to execute it in process:
 
-```scala
+```scala mdoc:silent
 import caliban._
 import caliban.gateway.Subgraph
 import caliban.schema.GenericSchema
@@ -172,7 +172,7 @@ val local = Subgraph.graphql("gateway", LocalApi.api)
 
 For a local Federation API, add the [`caliban-federation` dependency](../federation.md#dependencies) and configure the API before passing it to `Subgraph.federation`:
 
-```scala
+```scala mdoc:compile-only
 import caliban.federation.v2_6.federated
 
 val federatedApi = LocalApi.api @@ federated
@@ -185,7 +185,7 @@ val localFederation = Subgraph.federation("gateway", federatedApi)
 
 A local API can require ZIO services. Those dependencies belong to request execution, so building the gateway interpreter does not require them. Provide application-wide services around the server:
 
-```scala
+```scala mdoc:compile-only
 import caliban.{ graphQL, QuickAdapter, RootResolver }
 import caliban.gateway.{ Gateway, Subgraph }
 import caliban.schema.GenericSchema
@@ -220,7 +220,21 @@ Supply request-specific dependencies, such as verified user claims, in the [HTTP
 
 Transform a subgraph before composition to rename or hide fields. For a service with `Product.reviews` and `Product.internalScore`:
 
-```scala
+```scala mdoc:invisible
+val reviewsSdl = """
+  type Query {
+    productsByIds(ids: [ID!]!): [Product!]!
+  }
+
+  type Product {
+    id: ID!
+    reviews: [String!]!
+    internalScore: Int
+  }
+"""
+```
+
+```scala mdoc:compile-only
 import caliban.gateway.SchemaTransformation
 import zio.http._
 

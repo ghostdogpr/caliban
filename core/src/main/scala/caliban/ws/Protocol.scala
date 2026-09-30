@@ -354,21 +354,23 @@ object Protocol {
       interpreter: GraphQLInterpreter[R, E],
       subscriptions: SubscriptionManager
     ): ZStream[R, E, GraphQLWSOutput] = {
+      def streamed(events: ZStream[Any, Throwable, ResponseValue]) = {
+        val frame = self.toResponse(id, GraphQLResponse(Value.NullValue, Nil))
+        ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
+          case Some(p) => events.map(value => frame.copy(payload = Some(value))).interruptWhen(p)
+          case None    => ZStream.empty
+        }
+      }
+
       val resp =
-        ZStream
-          .fromZIO(interpreter.executeRequest(payload))
-          .flatMap { res =>
-            HttpUtils.subscriptionEvents(res) match {
-              case Some(subscription) =>
-                val frame = self.toResponse(id, GraphQLResponse(Value.NullValue, Nil))
-                ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
-                  case Some(p) => subscription.events.map(value => frame.copy(payload = Some(value))).interruptWhen(p)
-                  case None    => ZStream.empty
-                }
-              case None               =>
-                ZStream.succeed(self.toResponse(id, GraphQLResponse(res.data, res.errors)))
-            }
+        ZStream.unwrap(GraphQLResponseContext.capture(interpreter.executeRequest(payload)) { (res, outcome) =>
+          HttpUtils.delivery(res, outcome) match {
+            case HttpUtils.Delivery.Incremental(responses)  => streamed(responses)
+            case HttpUtils.Delivery.Subscription(events, _) => streamed(events)
+            case HttpUtils.Delivery.Single                  =>
+              ZStream.succeed(self.toResponse(id, GraphQLResponse(res.data, res.errors)))
           }
+        })
 
       (resp ++ self.toStreamComplete(id)).catchAll(self.toStreamError(Option(id), _))
     }

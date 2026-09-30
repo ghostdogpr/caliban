@@ -2,8 +2,7 @@ package caliban
 
 import caliban.Configurator.ExecutionConfiguration
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
-import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
-import caliban.ResponseValue.StreamValue
+import caliban.HttpUtils.{ DeferMultipart, Delivery, ServerSentEvents }
 import caliban.Value.NullValue
 import caliban.interop.jsoniter.{ GraphQLResponseJsoniter, ValueJsoniter }
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
@@ -214,29 +213,31 @@ final private class QuickRequestHandler[R](
       case _                                       => Status.Ok
     }
 
-    // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
-    val encoded = response match {
-      case resp @ GraphQLResponse(StreamValue(stream), _, _, Some(_)) =>
+    val encoded = HttpUtils.delivery(response, outcome) match {
+      case Delivery.Incremental(responses)               =>
         Response(
           Status.Ok,
           headers = ResponseEncoding.Multipart.contentType,
-          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
+          body = Body.fromStreamChunked(encodeMultipartMixedResponse(responses))
         )
-      case resp if encoding == ResponseEncoding.EventStream           =>
-        Response.fromServerSentEvents(encodeTextEventStream(resp)).copy(status = status)
-      case resp if HttpUtils.subscriptionEvents(resp).isDefined       =>
-        SubscriptionOverJsonResponse
-      case resp if encoding == ResponseEncoding.Multipart             =>
+      case subscription: Delivery.Subscription           =>
+        if (acceptsEventStream(request)) Response.fromServerSentEvents(encodeTextEventStream(subscription.recovered))
+        else SubscriptionOverJsonResponse
+      case _ if encoding == ResponseEncoding.EventStream =>
+        Response
+          .fromServerSentEvents(encodeTextEventStream(ZStream.succeed(response.toResponseValue)))
+          .copy(status = status)
+      case _ if encoding == ResponseEncoding.Multipart   =>
         Response(
           status,
           headers = responseHeaders(encoding.contentType, cacheDirective),
-          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
+          body = Body.fromStreamChunked(encodeMultipartMixedResponse(ZStream.succeed(response.toResponseValue)))
         )
-      case resp                                                       =>
-        val codec   =
-          if (!encoding.strict || outcome == Outcome.Executed) responseWithDataCodec else responseWithoutDataCodec
+      case _                                             =>
+        val codec   = if (!encoding.strict || status == Status.Ok) responseWithDataCodec else responseWithoutDataCodec
         val visible =
-          if (cacheDirective.isEmpty) resp else resp.copy(extensions = resp.extensions.flatMap(withoutCacheDirective))
+          if (cacheDirective.isEmpty) response
+          else response.copy(extensions = response.extensions.flatMap(withoutCacheDirective))
         GraphQLResponseJsoniter.writeToArray(visible, httpConfig.maxResponseBodyBytes, codec) match {
           case Some(bytes) =>
             Response(status, responseHeaders(encoding.contentType, cacheDirective), Body.fromArray(bytes))
@@ -248,14 +249,11 @@ final private class QuickRequestHandler[R](
   }
 
   private def encodeMultipartMixedResponse(
-    resp: GraphQLResponse[Any],
-    stream: ZStream[Any, Throwable, ResponseValue]
+    responses: ZStream[Any, Throwable, ResponseValue]
   )(implicit trace: Trace): ZStream[Any, Throwable, Byte] = {
     import HttpUtils.DeferMultipart._
-    val pipeline = createPipeline(resp)
 
-    stream
-      .via(pipeline)
+    responses
       .map(encodeWithinLimit)
       // later @defer payloads would patch data the client never received
       .takeUntil(_.isEmpty)
@@ -265,11 +263,11 @@ final private class QuickRequestHandler[R](
   }
 
   private def encodeTextEventStream(
-    resp: GraphQLResponse[Any]
+    events: UStream[ResponseValue]
   )(implicit trace: Trace): UStream[ServerSentEvent[String]] =
     ServerSentEvents
-      .transformResponse(
-        resp,
+      .fromEvents(
+        events,
         v => ServerSentEvent(new String(encodeWithinLimit(v).getOrElse(responseLimitErrorBytes), UTF_8), Some("next")),
         CompleteSse,
         sseConfig.heartbeatInterval.map(d => ZStream.succeed(ServerSentEvent.heartbeat).repeat(Schedule.fixed(d)))
@@ -312,13 +310,13 @@ final private class QuickRequestHandler[R](
       case Some(value) =>
         val accept = value.trim
         if (accept == "*/*" || accept.equalsIgnoreCase("application/json")) ResponseEncoding.Json
-        else
-          Header.Accept
-            .parse(value)
-            .toOption
-            .flatMap(header => ResponseEncoding.negotiate(header.mimeTypes.toList))
-            .getOrElse(ResponseEncoding.Json)
+        else ResponseEncoding.negotiate(value, ResponseEncoding.single).getOrElse(ResponseEncoding.Json)
     }
+
+  private def acceptsEventStream(request: Request): Boolean =
+    request.headers
+      .get(Header.Accept.name)
+      .exists(ResponseEncoding.negotiate(_, ResponseEncoding.subscription).isDefined)
 
   private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
     for {
@@ -367,20 +365,24 @@ object QuickRequestHandler {
           (specificity > other.specificity || specificity == 0 && other.specificity == 0 && value == Json)
     }
 
-    private val supported = List(GraphQLJson, Json, EventStream, Multipart)
+    val single: List[ResponseEncoding]       = List(GraphQLJson, Json, EventStream, Multipart)
+    val subscription: List[ResponseEncoding] = List(EventStream)
 
-    def negotiate(ranges: List[Header.Accept.MediaTypeWithQFactor]): Option[ResponseEncoding] =
-      if (ranges.exists(range => range.mediaType.parameters.contains("q") && range.qFactor.isEmpty)) None
-      else
-        supported.flatMap { candidate =>
-          bestMatch(candidate.mediaType, ranges).flatMap { range =>
-            val quality = range.qFactor.getOrElse(1d)
-            // Parameters pick the matching range but must not rank encodings against each other.
-            if (quality > 0d && quality <= 1d) Some(Negotiated(candidate, quality, typeSpecificity(range.mediaType)))
-            else None
-          }
-        }.reduceOption((current, candidate) => if (candidate.isPreferredOver(current)) candidate else current)
-          .map(_.value)
+    def negotiate(accept: String, supported: List[ResponseEncoding]): Option[ResponseEncoding] =
+      Header.Accept.parse(accept).toOption.flatMap { header =>
+        val ranges = header.mimeTypes.toList
+        if (ranges.exists(range => range.mediaType.parameters.contains("q") && range.qFactor.isEmpty)) None
+        else
+          supported.flatMap { candidate =>
+            bestMatch(candidate.mediaType, ranges).flatMap { range =>
+              val quality = range.qFactor.getOrElse(1d)
+              // Parameters pick the matching range but must not rank encodings against each other.
+              if (quality > 0d && quality <= 1d) Some(Negotiated(candidate, quality, typeSpecificity(range.mediaType)))
+              else None
+            }
+          }.reduceOption((current, candidate) => if (candidate.isPreferredOver(current)) candidate else current)
+            .map(_.value)
+      }
 
     private def bestMatch(
       candidate: MediaType,

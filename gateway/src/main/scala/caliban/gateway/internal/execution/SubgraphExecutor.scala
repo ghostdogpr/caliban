@@ -37,14 +37,14 @@ private[gateway] object SubgraphExecutor {
   def subscriptionResponses(
     response: GraphQLResponse[CalibanError]
   ): ZStream[Any, Throwable, GraphQLResponse[CalibanError]] =
-    HttpUtils.subscriptionEvents(response) match {
-      case Some(subscription) =>
-        subscription.events.mapZIO(value =>
+    HttpUtils.delivery(response, GraphQLResponseContext.Outcome.Subscribed) match {
+      case HttpUtils.Delivery.Subscription(events, _) =>
+        events.mapZIO(value =>
           ZIO
             .fromOption(GraphQLResponse.fromResponseValue(value))
             .orElseFail(CalibanError.ExecutionError("Invalid subscription response."))
         )
-      case None               => ZStream.succeed(response)
+      case _                                          => ZStream.succeed(response)
     }
 
   def failureOutcome(failure: Failure): Outcome =

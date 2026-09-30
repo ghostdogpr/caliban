@@ -6,7 +6,13 @@ The gateway plans subgraph calls for each operation, fetches any required entity
 
 Use `explain` to see which subgraphs a query will call without executing it. For the [lookup example below](#connecting-objects-across-ordinary-services):
 
-```scala
+```scala mdoc:invisible
+import caliban.gateway.GatewayInterpreter
+
+def interpreter: GatewayInterpreter[Any] = ???
+```
+
+```scala mdoc:compile-only
 val plan = interpreter.explain("""
   query {
     product(id: "p1") {
@@ -63,7 +69,24 @@ type Review {
 
 Use the reviews schema above as `reviewsSdl`, and describe how the service fetches products:
 
-```scala
+```scala mdoc:invisible
+val reviewsSdl = """
+  type Query {
+    productsByIds(ids: [ID!]!): [Product!]!
+  }
+
+  type Product {
+    id: ID!
+    reviews: [Review!]!
+  }
+
+  type Review {
+    body: String!
+  }
+"""
+```
+
+```scala mdoc:silent
 import caliban.gateway.{ Lookup, Subgraph }
 import zio.http._
 
@@ -100,7 +123,7 @@ Use `Lookup.single` when the subgraph fetches one object at a time. Use `Lookup.
 
 For a service that exposes `productById(id: ID!): Product`, use:
 
-```scala
+```scala mdoc:compile-only
 Lookup.single(
   "Product",
   "productById",
@@ -114,7 +137,14 @@ Prefer a batch lookup wherever the subgraph supports one. It collapses several o
 
 The gateway reuses validated operations and query plans for repeated requests. Subgraph calls still fetch current data. Set the total estimated cache weight with `GatewayConfig.withMaxOperationCacheWeight`:
 
-```scala
+```scala mdoc:invisible
+import caliban.gateway.Gateway
+
+val catalog = Subgraph.graphql("catalog", url"http://catalog:8080/graphql")
+val gateway = Gateway.compose(catalog, reviews)
+```
+
+```scala mdoc:compile-only
 val bounded = gateway.withConfig(_.withMaxOperationCacheWeight(8L * 1024L * 1024L))
 ```
 

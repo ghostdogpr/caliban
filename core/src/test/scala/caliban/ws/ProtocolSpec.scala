@@ -2,6 +2,7 @@ package caliban.ws
 
 import caliban._
 import caliban.schema.Schema.auto._
+import caliban.wrappers.IncrementalDelivery
 import zio._
 import zio.stream.ZStream
 import zio.test._
@@ -15,6 +16,38 @@ object ProtocolSpec extends ZIOSpecDefault {
     RootResolver(Some(Query("TOP_SECRET")), Option.empty[Unit], Some(Subscriptions(ZStream.never)))
   )
   private val interpreter = api.interpreterUnsafe
+
+  private case class Item(late: UIO[String])
+  private case class DeferQuery(item: Item)
+
+  private val deferInterpreter =
+    (graphQL(RootResolver(DeferQuery(Item(ZIO.succeed("value"))))) @@ IncrementalDelivery.defer).interpreterUnsafe
+
+  private def deferred(op: String) =
+    GraphQLWSInput(
+      op,
+      Some("d"),
+      Some(InputValue.ObjectValue(Map("query" -> Value.StringValue("{ item { ... @defer { late } } }"))))
+    )
+
+  private val deferredFrames = List(
+    """{"data":{"item":{}},"hasNext":true}""",
+    """{"incremental":[{"data":{"late":"value"},"path":["item"]}],"hasNext":true}""",
+    """{"hasNext":false}"""
+  )
+
+  private def runDeferred(protocol: Protocol, op: String) =
+    protocol
+      .make(deferInterpreter, None, WebSocketHooks.empty[Any, CalibanError])
+      .flatMap(
+        _(ZStream(GraphQLWSInput("connection_init", None, None), deferred(op)) ++ ZStream.never).collect {
+          case Right(output) if output.id.contains("d") => output
+        }
+          .takeUntil(output => output.`type` == "complete" || output.`type` == "error")
+          .runCollect
+      )
+      .timeoutFail(new RuntimeException("no complete frame"))(5.seconds)
+      .map(_.toList.map(output => output.`type` -> output.payload.map(_.toString)))
 
   private val rejectAll: WebSocketHooks[Any, CalibanError] =
     WebSocketHooks.init[Any, CalibanError](_ => ZIO.fail(CalibanError.ExecutionError("auth required")))
@@ -112,7 +145,12 @@ object ProtocolSpec extends ZIOSpecDefault {
           _     <- pipe(initNoPayload).take(1).runDrain
           seen  <- calls.get
         } yield assertTrue(seen.toSet == Set("h1", "h2"))
-      }
+      },
+      test("@defer sends the initial response, then each incremental payload, as next messages") {
+        runDeferred(Protocol.GraphQLWS, "subscribe").map(frames =>
+          assertTrue(frames == deferredFrames.map(frame => "next" -> Some(frame)) :+ ("complete" -> None))
+        )
+      } @@ TestAspect.withLiveClock
     ),
     suite("Legacy (graphql-ws)")(
       test("beforeInit is invoked with NullValue when connection_init has no payload") {
@@ -194,6 +232,11 @@ object ProtocolSpec extends ZIOSpecDefault {
                     )
                   ).runDrain.timeoutFail(new RuntimeException("output stream did not terminate"))(5.seconds)
         } yield assertCompletes
+      },
+      test("@defer sends the initial response, then each incremental payload, as data messages") {
+        runDeferred(Protocol.Legacy, "start").map(frames =>
+          assertTrue(frames == deferredFrames.map(frame => "data" -> Some(frame)) :+ ("complete" -> None))
+        )
       }
     ) @@ TestAspect.withLiveClock
   )

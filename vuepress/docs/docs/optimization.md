@@ -255,11 +255,13 @@ The final response may simply be an empty body with `hasNext: false` as the only
 
 By default, Caliban will not allow clients to send requests containing the `@defer` directive. This is because it can substantially 
 increase the runtime cost of a query. To enable this feature you must explicitly opt-in to it.
-You do this by adding the `@@ DeferSupport.defer` aspect to your graph definition. This will inform the executor
+You do this by adding the `@@ IncrementalDelivery.defer` aspect from `caliban.wrappers` to your graph definition. This will inform the executor
 that it may process queries that contain defer and will add the `@defer` directive as a supported directive in the schema.
 
 Additionally, you must make sure that your client is able to handle deferred responses. This requires special support from the client
 because the response will be streamed to the client in multiple parts instead of as a single json body.
+The HTTP adapters send the parts in a `multipart/mixed` body.
+Over WebSocket, each part is a `next` message, followed by `complete`. The legacy `graphql-ws` protocol uses `data` messages instead of `next`.
 
 
 ::: tip

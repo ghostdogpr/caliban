@@ -36,7 +36,7 @@ sbt "gatewayExamples/runMain example.gateway.ReviewsApi"
 
 The services listen on ports 8081 and 8082. In your own sbt project, add the dependencies above and save the following as `src/main/scala/Main.scala`:
 
-```scala
+```scala mdoc:compile-only
 import caliban.QuickAdapter
 import caliban.gateway.{ Gateway, Subgraph }
 import zio._

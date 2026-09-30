@@ -111,6 +111,9 @@ If you have any specific server requirements or need to interop with other libra
 "com.github.ghostdogpr" %% "caliban-reporting"  % "3.1.5" // apollo schema reporting
 "com.github.ghostdogpr" %% "caliban-tracing"    % "3.1.5" // open-telemetry
 "com.github.ghostdogpr" %% "caliban-stitching"  % "3.1.5" // stitching
+
+"com.github.ghostdogpr" %% "caliban-gateway"         % "3.1.5" // gateway over multiple GraphQL services
+"com.github.ghostdogpr" %% "caliban-gateway-tracing" % "3.1.5" // open-telemetry for the gateway
 ```
 
 ## Where to go next?
