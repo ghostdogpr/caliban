@@ -244,10 +244,8 @@ private[gateway] object ComposedGraph {
     private lazy val entityLookupsByType: Map[String, List[EntityLookup]] =
       (if (!federation) compiledLookups.collect { case Right(lookup) => lookup }
        else
-         keys.all.collect {
-           case SchemaComposer.FederationKey(typeName, fields, true)
-               if SchemaComposer.hasEntityLookup(this, typeName) =>
-             typeName -> EntityLookup(fields, LookupOperation.FederationEntities)
+         keys.all.collect { case SchemaComposer.FederationKey(typeName, fields, true) =>
+           typeName -> EntityLookup(fields, LookupOperation.FederationEntities)
          }).filterNot(lookup => RootOperations.contains(lookup._1)).groupMap(_._1)(_._2)
 
     def entityLookups(typeName: String): List[EntityLookup] = entityLookupsByType.getOrElse(typeName, Nil)
