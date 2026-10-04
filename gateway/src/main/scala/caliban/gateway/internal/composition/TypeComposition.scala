@@ -91,7 +91,8 @@ private[composition] final class TypeComposition(
         (owned.size > 1 || values.exists(_.field.shareable))
       val sharedOrdinary     =
         operation.nonEmpty && compatible && owned.size > 1 && ownerTypes.exists(!_.subgraph.federation)
-      val sharedUnshareable  = compatible && owned.size > 1 && entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
+      val sharedUnshareable  = !sharedSubscription && compatible && owned.size > 1 &&
+        entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
         unshared.nonEmpty && (operation.isEmpty || ownerTypes.forall(_.subgraph.federation))
       val prefix             = if (operation.isEmpty) s"[type $fieldPath]" else s"[$fieldPath]"
       overrideDiagnostics(prefix, values, resolving) ::: contextualArgumentDiagnostics(fieldPath, values) :::

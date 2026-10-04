@@ -757,13 +757,7 @@ lazy val gatewayAudit = project
   .settings(assemblyAppSettings("caliban-gateway-audit.jar", "caliban.gateway.audit.Main"))
   .settings(
     name           := "caliban-gateway-audit",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio"                               %% "zio-http"              % zioHttpVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion,
-      "dev.zio"                               %% "zio-test"              % zioVersion % Test,
-      "dev.zio"                               %% "zio-test-sbt"          % zioVersion % Test
-    )
+    publish / skip := true
   )
   .dependsOn(gateway, quickAdapter)
 

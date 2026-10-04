@@ -1,6 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport.{ composeDocuments, parseSdl, supergraphResource }
+import caliban.gateway.internal.composition.DirectiveComposition.FieldCoordinate
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.gateway.internal.composition.SupergraphDecomposition.Graph
 import caliban.InputValue
@@ -683,28 +684,27 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           )
         }
       },
-      test("discounts a graph another graph has overridden away") {
-        // The only difference between the two documents is `override:`. With it there is one
-        // effective resolving subgraph, so neither projection may claim shareability.
+      test("routes a field another graph has overridden away to the overriding graph only") {
         def widget(overrides: String) =
           supergraph(
             s"""$TwoGraphs
+               |type Query @join__type(graph: A) { widget: Widget }
                |type Widget @join__type(graph: A) @join__type(graph: B) {
                |  size: Int! @join__field(graph: A$overrides) @join__field(graph: B)
                |}""".stripMargin
           )
 
-        def shareable(result: Either[List[String], Map[String, Document]], graph: String) =
-          result.map(_(graph)).map(fieldDirectives(_, "Widget", "size").contains("shareable"))
+        def routes(result: Either[List[String], Map[String, Document]]) =
+          result
+            .flatMap(graphs => composeDocuments(graphs.toList))
+            .map(_.fieldRoutes.get(FieldCoordinate("Widget", "size")).map(_.map(_.name)))
 
         for {
           overridden <- decompose(widget(""", override: "b""""))
           plain      <- decompose(widget(""))
         } yield assertTrue(
-          shareable(overridden, "a") == Right(false),
-          shareable(overridden, "b") == Right(false),
-          shareable(plain, "a") == Right(true),
-          shareable(plain, "b") == Right(true)
+          routes(overridden) == Right(Some(List("a"))),
+          routes(plain) == Right(Some(List("a", "b")))
         )
       },
       test("leaves a subscription root field resolved by more than one graph to composition") {
@@ -734,9 +734,20 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             result.map(graphs => fields(graphs("a"), "Subscription")) == Right(List("ticks")),
             result.map(graphs => subscriptionRoot(graphs("a"))) == Right(Some("Subscription")),
             result.map(graphs => types(graphs("b")).contains("Subscription")) == Right(false),
-            result.map(graphs => subscriptionRoot(graphs("b"))) == Right(None)
+            result.map(graphs => subscriptionRoot(graphs("b"))) == Right(None),
+            result.flatMap(graphs => composeDocuments(graphs.toList)).isRight
           )
         }
+      },
+      test("accepts a subscription root field under progressive override") {
+        decompose(
+          subscriptionSupergraph(
+            """type Subscription @join__type(graph: A) @join__type(graph: B) {
+              |  ticks: Int! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
+              |    @join__field(graph: B, overrideLabel: "percent(25)")
+              |}""".stripMargin
+          )
+        ).map(result => assertTrue(result.flatMap(graphs => composeDocuments(graphs.toList)).left.toOption == None))
       },
       test("drops every kind of type that would project without members") {
         // GraphQL forbids an empty object, interface, union, enum or input object. A graph that is
@@ -889,6 +900,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         decompose(
           supergraph(
             s"""$TwoGraphs
+               |type Query @join__type(graph: A) { widget: Widget }
                |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
                |  id: ID!
                |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
@@ -905,7 +917,8 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
                   "label" -> StringValue("percent(25)")
                 )
               ),
-              fieldDirectives(graphs("b"), "Widget", "price") == Nil
+              fieldDirectives(graphs("b"), "Widget", "price") == List("shareable"),
+              composeDocuments(graphs.toList).isRight
             )
         }
       },
@@ -933,7 +946,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         decompose(
           supergraph(
             s"""$TwoGraphs
-               |type Media @join__type(graph: A, key: "id", isInterfaceObject: true)
+               |interface Media @join__type(graph: A, key: "id", isInterfaceObject: true)
                |  @join__type(graph: B, key: "id", resolvable: false) {
                |  id: ID!
                |  title: String!
@@ -954,7 +967,67 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
               )
             ),
             result.map(graphs => directiveOn(graphs("a"), "Media", "interfaceObject").isDefined) == Right(true),
-            result.map(graphs => directiveOn(graphs("b"), "Media", "interfaceObject").isDefined) == Right(false)
+            result.map(graphs => directiveOn(graphs("b"), "Media", "interfaceObject").isDefined) == Right(false),
+            result.map(_("a").objectTypeDefinitions.exists(_.name == "Media")) == Right(true),
+            result.map(_("b").interfaceTypeDefinitions.exists(_.name == "Media")) == Right(true)
+          )
+        }
+      },
+      test("projects an interface object into subgraphs that compose") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |type Query @join__type(graph: A) @join__type(graph: B) {
+               |  media: [Media] @join__field(graph: A)
+               |  books: [Book] @join__field(graph: B)
+               |}
+               |interface Media @join__type(graph: A, key: "id", isInterfaceObject: true)
+               |  @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  rating: Int @join__field(graph: A)
+               |  title: String! @join__field(graph: B)
+               |}
+               |type Book implements Media @join__implements(graph: B, interface: "Media")
+               |  @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  rating: Int @join__field
+               |  title: String!
+               |}""".stripMargin
+          )
+        ).map(result => assertTrue(result.flatMap(graphs => composeDocuments(graphs.toList)).isRight))
+      },
+      test("declares a field shareable when an interface object also resolves it") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |type Query @join__type(graph: A) @join__type(graph: B) {
+               |  accounts: [Account] @join__field(graph: B)
+               |}
+               |interface Account @join__type(graph: A, key: "id")
+               |  @join__type(graph: B, key: "id", isInterfaceObject: true) {
+               |  id: ID!
+               |  isActive: Boolean! @join__field(graph: B)
+               |}
+               |type Admin implements Account @join__implements(graph: A, interface: "Account")
+               |  @join__type(graph: A, key: "id") {
+               |  id: ID!
+               |  isActive: Boolean!
+               |}
+               |type Regular implements Account @join__implements(graph: A, interface: "Account")
+               |  @join__type(graph: A, key: "id") {
+               |  id: ID!
+               |  isActive: Boolean! @join__field
+               |}""".stripMargin
+          )
+        ).map { result =>
+          assertTrue(
+            result.map(graphs => fieldDirective(graphs("a"), "Admin", "isActive", "shareable").isDefined) == Right(
+              true
+            ),
+            result.map(graphs => fieldDirective(graphs("b"), "Account", "isActive", "shareable").isDefined) == Right(
+              true
+            ),
+            result.flatMap(graphs => composeDocuments(graphs.toList)).isRight
           )
         }
       },

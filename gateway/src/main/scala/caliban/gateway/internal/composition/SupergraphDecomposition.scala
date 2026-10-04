@@ -13,6 +13,8 @@ import caliban.parsing.adt.{ Directive, Document, Type }
 import caliban.parsing.{ Parser, SourceMapper }
 import zio.http.URL
 
+import scala.collection.compat._
+
 /**
  * Decomposes an Apollo Federation supergraph into the subgraph documents it was composed from.
  *
@@ -35,22 +37,21 @@ private[gateway] object SupergraphDecomposition {
       ctx        <- projectionContext(document)
       diagnostics = validate(ctx)
       projected  <- if (diagnostics.nonEmpty) Left(diagnostics)
-                    else Right(ctx.registry.map(graph => Projected(graph, project(graph.key, ctx))))
+                    else Right(ctx.registry.map(new SupergraphDecomposition(_, ctx).projected))
     } yield projected).left.map(_.map(message => s"[supergraph] $message").distinct.sorted)
 
   private def graphs(document: Document, feature: LinkedFeature): Either[List[String], List[Graph]] =
     for {
-      enumType <- graphEnum(document, feature).left.map(List(_))
-      names     = feature.directiveNames("graph")
-      results   = enumType.enumValuesDefinition.map(graphEntry(names, _))
-      entries   = results.collect { case Right(graph) => graph }
-      empty     = check(
-                    enumType.enumValuesDefinition.nonEmpty,
-                    s"The join graph enum '${enumType.name}' declares no subgraphs."
-                  )
-      repeated  =
+      enumType         <- graphEnum(document, feature).left.map(List(_))
+      names             = feature.directiveNames("graph")
+      (errors, entries) = enumType.enumValuesDefinition.map(graphEntry(names, _)).partitionMap(identity)
+      empty             = check(
+                            enumType.enumValuesDefinition.nonEmpty,
+                            s"The join graph enum '${enumType.name}' declares no subgraphs."
+                          )
+      repeated          =
         duplicates(entries.map(_.name)).map(name => s"Subgraph name '$name' is declared more than once.")
-      graphs   <- validated(results.flatMap(_.left.getOrElse(Nil)) ::: empty ::: repeated, Right(entries))
+      graphs           <- validated(errors.flatten ::: empty ::: repeated, Right(entries))
     } yield graphs
 
   private def joinFeature(features: List[LinkedFeature]): Either[String, LinkedFeature] =
@@ -162,27 +163,12 @@ private[gateway] object SupergraphDecomposition {
       )
     }
 
-  /**
-   * Graph keys that resolve the field of `entries`, with each graph's metadata when it declared any.
-   *
-   * A field with no `@join__field` belongs to every member graph. Otherwise only the named graphs
-   * resolve it.
-   */
-  private def fieldGraphs(entries: List[JoinField], members: Set[String]): Map[String, JoinField] =
-    if (entries.isEmpty) members.map(_ -> NoJoinField).toMap
-    else entries.flatMap(entry => entry.graph.map(_ -> entry)).toMap
-
-  private def parseFieldType(value: String): Either[String, Type] =
+  private def parseFieldType(value: String): Option[Type] =
     Parser
       .parseQuery(s"type CalibanGatewayJoinProbe { field: $value }")
-      .left
-      .map(_ => value)
-      .flatMap(
-        _.objectTypeDefinitions.headOption
-          .flatMap(_.fields.headOption)
-          .map(_.ofType)
-          .toRight(value)
-      )
+      .toOption
+      .flatMap(_.objectTypeDefinitions.flatMap(_.fields).headOption)
+      .map(_.ofType)
 
   private def validate(ctx: ProjectionContext): List[String] =
     check(
@@ -199,19 +185,17 @@ private[gateway] object SupergraphDecomposition {
     val unknown  = entries.flatten
       .map(_.graph)
       .filterNot(ctx.nameByKey.contains)
-      .distinct
-      .sorted
       .map(graph => s"Type '${definition.name}' names graph '$graph', which the graph enum omits.")
     // The declaring graph must receive the type for its context to survive projection.
     // Unrecognized namespaces are checked only when a field references them, allowing unused
     // declarations from composers with a different naming convention.
-    val contexts = declaredContextNames(definition.directives, ctx)
-      .flatMap(name => contextOwner(name, ctx).map(owner => name -> owner._1))
-      .collect {
-        case (name, graph) if !ctx.members(definition.name)(graph.key) =>
+    val contexts = declaredContextNames(definition.directives, ctx).flatMap { name =>
+      contextOwner(name, ctx).collect {
+        case (graph, _) if !ctx.members(definition.name)(graph.key) =>
           s"Type '${definition.name}' declares context '$name' for graph '${graph.name}', " +
             "which does not declare the type."
       }
+    }
 
     missing ::: unknown ::: contexts ::: fieldDiagnostics(definition, ctx)
   }
@@ -224,120 +208,52 @@ private[gateway] object SupergraphDecomposition {
     }
 
     fields.flatMap { field =>
-      val fieldName  = s"${definition.name}.${field.name}"
-      val entries    = ctx.join("field", field.directives).map(joinField)
-      val scoped     = entries.flatMap(_.graph)
-      val unknown    = scoped
+      val fieldName = s"${definition.name}.${field.name}"
+      val entries   = ctx.join("field", field.directives).map(joinField)
+      val scoped    = entries.flatMap(_.graph)
+      val unknown   = scoped
         .filterNot(members.contains)
-        .distinct
-        .sorted
         .map(graph => s"Field '$fieldName' names graph '$graph', which does not declare the type.")
-      val repeated   =
+      val repeated  =
         duplicates(scoped).map(graph => s"Field '$fieldName' declares more than one entry for graph '$graph'.")
-      val types      = entries
+      val types     = entries
         .flatMap(_.fieldType)
-        .flatMap(parseFieldType(_).left.toOption)
+        .filter(parseFieldType(_).isEmpty)
         .map(value => s"Field '$fieldName' declares the unparseable type '$value'.")
       // Context arguments exist only in join metadata; invalid types cannot fall back to the field.
-      val contextual = entries.flatMap { value =>
-        value.contextArguments.map(value.graph.flatMap(ctx.nameByKey.get) -> _)
-      }
-      val argTypes   = contextual.flatMap { case (_, argument) => parseFieldType(argument.contextType).left.toOption }
-        .map(value => s"Field '$fieldName' declares the unparseable context argument type '$value'.")
-      // The selection is the half of the `@fromContext` argument the context name is prepended to,
-      // so an empty one projects `@fromContext(field: "$viewer")`, which no subgraph can parse.
-      val selections = contextual.collect {
-        case (_, argument) if argument.selection.trim.isEmpty =>
-          s"Field '$fieldName' declares an empty context argument selection " +
-            s"for context '${argument.context}'."
-      }
-      val contexts   = contextual.flatMap { case (graph, argument) =>
-        if (!ctx.declaredContexts.contains(argument.context))
-          List(s"Field '$fieldName' names the undeclared context '${argument.context}'.")
-        else {
-          // Federation requires `@context` and `@fromContext` in the same subgraph, so an entry
-          // naming another graph's context would project an argument no subgraph can resolve.
-          val declaring = contextOwner(argument.context, ctx).map(_._1.name)
-          graph
-            .filterNot(declaring.contains)
-            .map(name =>
-              s"Field '$fieldName' names context '${argument.context}', " +
-                s"which graph '$name' does not declare."
-            )
-            .toList
-        }
-      }
-
-      unknown ::: repeated ::: types ::: argTypes ::: selections ::: contexts
-    }
-  }
-
-  private def project(key: String, ctx: ProjectionContext): Document = {
-    val definitions = ctx.document.definitions.flatMap {
-      case definition: TypeDefinition      => projectType(definition, key, ctx).toList
-      case definition: DirectiveDefinition => if (ctx.isFeatureDefinition(definition.name)) Nil else List(definition)
-      case _                               => Nil
-    }
-
-    Document(projectSchema(definitions, key, ctx) :: definitions, SourceMapper.empty)
-  }
-
-  private def projectType(definition: TypeDefinition, key: String, ctx: ProjectionContext): Option[TypeDefinition] =
-    if (ctx.isFeatureName(definition.name)) None
-    else {
-      val entries = ctx.join("type", definition.directives).flatMap(joinType).filter(_.graph == key)
-      if (entries.isEmpty) None
-      else {
-        val members    = ctx.members(definition.name)
-        val directives = projectDirectives(definition.directives, ctx) :::
-          entries.flatMap(keyDirective) :::
-          (if (entries.exists(_.isInterfaceObject)) List(Directive("interfaceObject")) else Nil) :::
-          contextDeclarations(definition.directives, key, ctx) :::
-          composedDirectives(definition.directives, key, ctx)
-
-        def listed(member: String, argument: String): Set[String] =
-          ctx
-            .join(member, definition.directives)
-            .filter(graphArgument(_).contains(key))
-            .flatMap { entry =>
-              stringArgument(entry.arguments, argument)
+      val contexts  = entries.flatMap { entry =>
+        entry.contextArguments.flatMap { argument =>
+          val argType   = Some(argument.contextType)
+            .filter(parseFieldType(_).isEmpty)
+            .map(value => s"Field '$fieldName' declares the unparseable context argument type '$value'.")
+          // The selection is the half of the `@fromContext` argument the context name is prepended to,
+          // so an empty one projects `@fromContext(field: "$viewer")`, which no subgraph can parse.
+          val selection = check(
+            argument.selection.trim.nonEmpty,
+            s"Field '$fieldName' declares an empty context argument selection for context '${argument.context}'."
+          )
+          val owner     =
+            if (!ctx.declaredContexts.contains(argument.context))
+              List(s"Field '$fieldName' names the undeclared context '${argument.context}'.")
+            else {
+              // Federation requires `@context` and `@fromContext` in the same subgraph, so an entry
+              // naming another graph's context would project an argument no subgraph can resolve.
+              val declaring = contextOwner(argument.context, ctx).map { case (owner, _) => owner.key }
+              entry.graph
+                .filterNot(declaring.contains)
+                .flatMap(ctx.nameByKey.get)
+                .map(name =>
+                  s"Field '$fieldName' names context '${argument.context}', which graph '$name' does not declare."
+                )
+                .toList
             }
-            .toSet
-        lazy val implemented                                      = listed("implements", "interface")
-
-        val projected: TypeDefinition = definition match {
-          case value: ObjectTypeDefinition      =>
-            value.copy(
-              implements = value.implements.filter(interface => implemented(interface.name)),
-              directives = directives,
-              fields = projectFields(value.fields, members, key, ctx)
-            )
-          case value: InterfaceTypeDefinition   =>
-            value.copy(
-              implements = value.implements.filter(interface => implemented(interface.name)),
-              directives = directives,
-              fields = projectFields(value.fields, members, key, ctx)
-            )
-          case value: UnionTypeDefinition       =>
-            // join/v0.2 has no @join__unionMember: a graph then keeps the members it defines.
-            val kept: String => Boolean =
-              if (ctx.join("unionMember", value.directives).isEmpty) ctx.members(_)(key)
-              else listed("unionMember", "member")
-            value.copy(directives = directives, memberTypes = value.memberTypes.filter(kept))
-          case value: EnumTypeDefinition        =>
-            value.copy(
-              directives = directives,
-              enumValuesDefinition = projectEnumValues(value.enumValuesDefinition, key, ctx)
-            )
-          case value: InputObjectTypeDefinition =>
-            value.copy(directives = directives, fields = projectInputFields(value.fields, key, ctx))
-          case value: ScalarTypeDefinition      =>
-            value.copy(directives = directives)
+          argType.toList ::: selection ::: owner
         }
-
-        Some(projected).filterNot(isEmpty)
       }
+
+      unknown ::: repeated ::: types ::: contexts
     }
+  }
 
   /**
    * Drop types with no projected members, such as an operation root with no fields in this graph.
@@ -351,173 +267,12 @@ private[gateway] object SupergraphDecomposition {
     case _: ScalarTypeDefinition          => false
   }
 
-  private def projectDirectives(directives: List[Directive], ctx: ProjectionContext): List[Directive] =
-    directives.flatMap { directive =>
-      ctx.federationDirectiveName(directive.name) match {
-        case Some(name) => List(directive.copy(name = name))
-        case None       => if (ctx.isFeatureApplication(directive.name)) Nil else List(directive)
-      }
-    }
-
   private def keyDirective(entry: JoinType): Option[Directive] =
     entry.key.map { fields =>
       val arguments = Map[String, InputValue]("fields" -> StringValue(fields)) ++
         (if (entry.resolvable) Map.empty[String, InputValue] else Map("resolvable" -> BooleanValue(false)))
       Directive("key", arguments)
     }
-
-  /**
-   * Restores this graph's @context declarations under their original names. The namespace
-   * identifies the owner when a type carries declarations from several graphs.
-   */
-  private def contextDeclarations(directives: List[Directive], key: String, ctx: ProjectionContext): List[Directive] =
-    declaredContextNames(directives, ctx).flatMap(contextOwner(_, ctx)).collect {
-      case (graph, local) if graph.key == key =>
-        Directive("context", Map[String, InputValue]("name" -> StringValue(local)))
-    }
-
-  /**
-   * Restores arguments removed from the supergraph field and recorded in join metadata.
-   * Their original positions are unavailable, so append them. SchemaComposer hides these
-   * arguments from clients when composing the projected subgraphs.
-   */
-  private def contextArgumentDefinitions(
-    entry: JoinField,
-    key: String,
-    ctx: ProjectionContext
-  ): List[InputValueDefinition] =
-    entry.contextArguments.flatMap { argument =>
-      contextOwner(argument.context, ctx).collect {
-        case (graph, local) if graph.key == key =>
-          InputValueDefinition(
-            description = None,
-            name = argument.name,
-            // `validate` already proved every declared type parses, so the fallback is unreachable.
-            ofType =
-              parseFieldType(argument.contextType).toOption.getOrElse(NamedType(argument.contextType, nonNull = false)),
-            defaultValue = None,
-            directives = List(
-              Directive(
-                "fromContext",
-                Map[String, InputValue]("field" -> StringValue(s"$$$local ${argument.selection.trim}"))
-              )
-            )
-          )
-      }
-    }
-
-  /**
-   * Re-emits `@join__directive(graphs:, name:, args:)` as the directive it stands for.
-   */
-  private def composedDirectives(directives: List[Directive], key: String, ctx: ProjectionContext): List[Directive] =
-    ctx.join("directive", directives).flatMap { directive =>
-      val graphs =
-        directive.arguments.get("graphs").toList.flatMap(coercedList).collect { case EnumValue(value) => value }
-      val args   = directive.arguments
-        .get("args")
-        .collect { case InputValue.ObjectValue(fields) => fields }
-        .getOrElse(Map.empty[String, InputValue])
-
-      if (graphs.contains(key))
-        stringArgument(directive.arguments, "name").map(name => Directive(name.stripPrefix("@"), args)).toList
-      else Nil
-    }
-
-  private def projectFields(
-    fields: List[FieldDefinition],
-    members: Set[String],
-    key: String,
-    ctx: ProjectionContext
-  ): List[FieldDefinition] =
-    fields.flatMap { field =>
-      val owners = fieldGraphs(ctx.join("field", field.directives).map(joinField), members)
-      owners.get(key).map { entry =>
-        projectField(field, entry, key, ctx, shareable = resolves(entry) && resolvingSubgraphCount(owners, ctx) > 1)
-      }
-    }
-
-  /**
-   * True when a graph actually resolves the field, rather than merely declaring it.
-   */
-  private def resolves(entry: JoinField): Boolean =
-    !entry.external && !entry.usedOverridden
-
-  /**
-   * Graphs that actually resolve the field: declared owners, minus the ones that only declare it,
-   * minus any graph another graph has overridden away.
-   */
-  private def resolvingSubgraphCount(owners: Map[String, JoinField], ctx: ProjectionContext): Int = {
-    val overridden = owners.valuesIterator.flatMap(_.overrideFrom).flatMap(ctx.graphByName.get).map(_.key).toSet
-    owners.count { case (graph, entry) => resolves(entry) && !overridden.contains(graph) }
-  }
-
-  private def projectField(
-    field: FieldDefinition,
-    entry: JoinField,
-    key: String,
-    ctx: ProjectionContext,
-    shareable: Boolean
-  ): FieldDefinition = {
-    val translated = List(
-      entry.requires.map(fields => Directive("requires", Map("fields" -> StringValue(fields)))),
-      entry.provides.map(fields => Directive("provides", Map("fields" -> StringValue(fields)))),
-      Some(Directive("external")).filter(_ => entry.external || entry.usedOverridden && entry.overrideLabel.isEmpty),
-      entry.overrideFrom.map(from =>
-        Directive("override", Map("from" -> StringValue(from)) ++ entry.overrideLabel.map("label" -> StringValue(_)))
-      ),
-      // Outside the entry: a field with no join entry at all is the default-ownership case, which
-      // lands in every member graph and so is the one that most needs declaring shareable.
-      Some(Directive("shareable")).filter(_ => shareable)
-    ).flatten
-    // `validate` already proved every declared type parses, so the fallback is unreachable.
-    val ofType     = entry.fieldType.flatMap(parseFieldType(_).toOption).getOrElse(field.ofType)
-
-    field.copy(
-      ofType = ofType,
-      directives =
-        projectDirectives(field.directives, ctx) ::: translated ::: composedDirectives(field.directives, key, ctx),
-      args = field.args.map(argument => argument.copy(directives = projectDirectives(argument.directives, ctx))) :::
-        contextArgumentDefinitions(entry, key, ctx)
-    )
-  }
-
-  private def projectEnumValues(values: List[EnumValueDefinition], key: String, ctx: ProjectionContext) =
-    values.collect {
-      case value if ctx.inGraph("enumValue", value.directives, key) =>
-        value.copy(directives = projectDirectives(value.directives, ctx))
-    }
-
-  private def projectInputFields(fields: List[InputValueDefinition], key: String, ctx: ProjectionContext) =
-    fields.collect {
-      case field if ctx.inGraph("field", field.directives, key) =>
-        field.copy(directives = projectDirectives(field.directives, ctx))
-    }
-
-  /**
-   * Names an operation root only when its type survived projection with at least one field.
-   */
-  private def projectSchema(
-    definitions: List[Definition],
-    key: String,
-    ctx: ProjectionContext
-  ): SchemaDefinition = {
-    val populated = definitions.collect {
-      case value: ObjectTypeDefinition if value.fields.nonEmpty => value.name
-    }.toSet
-    val declared  = ctx.document.schemaDefinition
-
-    def root(name: Option[String], fallback: String): Option[String] =
-      name.orElse(Some(fallback)).filter(populated.contains)
-
-    val query        = root(declared.flatMap(_.query), "Query")
-    val mutation     = root(declared.flatMap(_.mutation), "Mutation")
-    val subscription = root(declared.flatMap(_.subscription), "Subscription")
-    val directives   = composedDirectives(DirectiveComposition.schemaDirectives(ctx.document), key, ctx)
-
-    // Even a graph without roots needs the federation link so SchemaComposer recognizes its
-    // entity keys and routing directives.
-    SchemaDefinition(FederationLink :: directives, query, mutation, subscription, None)
-  }
 
   private final case class ProjectionContext(
     document: Document,
@@ -531,6 +286,7 @@ private[gateway] object SupergraphDecomposition {
     // names come from the context feature and are empty for a supergraph that declares none.
     val contextNames: Set[String]       =
       features.filter(_.identity == ContextIdentity).flatMap(_.directiveNames("context")).toSet
+    val subscriptionRoot: String        = document.schemaDefinition.flatMap(_.subscription).getOrElse("Subscription")
 
     /**
      * Every `@context` name the supergraph declares, still namespaced as the composer wrote it.
@@ -559,9 +315,41 @@ private[gateway] object SupergraphDecomposition {
      */
     def members(typeName: String): Set[String] = typeGraphs.getOrElse(typeName, Set.empty)
 
-    def inGraph(member: String, directives: List[Directive], key: String): Boolean = {
+    /**
+     * Graph keys resolving each field in the graphs whose `@join__type` entry projects the type as an object type.
+     * Composition rejects `@shareable` on subscription root fields, which a progressive override would otherwise get.
+     */
+    private lazy val fieldGraphs: Map[(String, String), Set[String]] =
+      document.typeDefinitions.collect { case value: AggregationTypeDefinition => value }.flatMap { value =>
+        val types        = join("type", value.directives).flatMap(joinType)
+        val objectGraphs = (value match {
+          case _: ObjectTypeDefinition if value.name != subscriptionRoot => types
+          case _                                                         => types.filter(_.isInterfaceObject)
+        }).map(_.graph).toSet
+        value.fields.map { field =>
+          def resolves(graph: String) =
+            entry("field", field.directives, graph).map(joinField).exists(e => !e.external && !e.usedOverridden)
+          (value.name, field.name) -> objectGraphs.filter(resolves)
+        }
+      }.toMap
+
+    private lazy val related: Map[String, List[String]] =
+      document.objectTypeDefinitions
+        .flatMap(value => value.implements.flatMap(i => List(value.name -> i.name, i.name -> value.name)))
+        .groupMap(_._1)(_._2)
+
+    /**
+     * Apollo's rule: a field is shareable where it resolves when another graph resolves it too. An interface object
+     * field and the same field on the implementations it stands in for count as one field.
+     */
+    def shareable(typeName: String, field: String, key: String): Boolean = {
+      def graphs(name: String) = fieldGraphs.getOrElse(name -> field, Set.empty[String])
+      graphs(typeName)(key) && (typeName :: related.getOrElse(typeName, Nil)).exists(graphs(_).exists(_ != key))
+    }
+
+    def entry(member: String, directives: List[Directive], key: String): Option[Directive] = {
       val entries = join(member, directives)
-      entries.isEmpty || entries.exists(graphArgument(_).contains(key))
+      if (entries.isEmpty) Some(Directive(member)) else entries.find(graphArgument(_).contains(key))
     }
 
     /**
@@ -603,18 +391,15 @@ private[gateway] object SupergraphDecomposition {
     usedOverridden: Boolean
   )
 
-  private val NoJoinField = joinField(Directive("field"))
-
   private final case class JoinContextArgument(name: String, contextType: String, context: String, selection: String)
 
   private val ProjectedFeatures = Map(
     FederationIdentity   -> FederationDirective.imported.map(_.name).toSet.diff(Set("context", "fromContext")),
     InaccessibleIdentity -> Set("inaccessible"),
     TagIdentity          -> Set("tag")
-  ) ++ FederationDirective.imported
-    .flatMap(member => member.specIdentity.map(_ -> member.name))
-    .groupBy(_._1)
-    .map { case (identity, members) => identity -> members.map(_._2).toSet }
+  ) ++ FederationDirective.imported.groupBy(_.specIdentity).collect { case (Some(identity), members) =>
+    identity -> members.map(_.name).toSet
+  }
   private val FederationLink    = Directive(
     "link",
     Map[String, InputValue](
@@ -622,4 +407,210 @@ private[gateway] object SupergraphDecomposition {
       "import" -> InputValue.ListValue(FederationDirective.imported.map(member => StringValue(s"@${member.name}")))
     )
   )
+}
+
+import SupergraphDecomposition.{ Graph, ProjectionContext }
+
+private final class SupergraphDecomposition private (graph: Graph, ctx: ProjectionContext) {
+  import SupergraphDecomposition._
+
+  def projected: Projected = {
+    val definitions = ctx.document.definitions.flatMap {
+      case definition: TypeDefinition      => projectType(definition).toList
+      case definition: DirectiveDefinition => if (ctx.isFeatureDefinition(definition.name)) Nil else List(definition)
+      case _                               => Nil
+    }
+
+    Projected(graph, Document(projectSchema(definitions) :: definitions, SourceMapper.empty))
+  }
+
+  private def projectType(definition: TypeDefinition): Option[TypeDefinition] =
+    if (ctx.isFeatureName(definition.name)) None
+    else {
+      val entries = ctx.join("type", definition.directives).flatMap(joinType).filter(_.graph == graph.key)
+      if (entries.isEmpty) None
+      else {
+        val interfaceObject = entries.exists(_.isInterfaceObject)
+        val directives      = projectDirectives(definition.directives) :::
+          entries.flatMap(keyDirective) :::
+          (if (interfaceObject) List(Directive("interfaceObject")) else Nil) :::
+          contextDeclarations(definition.directives) :::
+          composedDirectives(definition.directives)
+
+        def listed(member: String, argument: String): Set[String] =
+          ctx
+            .join(member, definition.directives)
+            .filter(graphArgument(_).contains(graph.key))
+            .flatMap { entry =>
+              stringArgument(entry.arguments, argument)
+            }
+            .toSet
+        lazy val implemented                                      = listed("implements", "interface")
+
+        val projected: TypeDefinition = definition match {
+          case value: ObjectTypeDefinition                       =>
+            value.copy(
+              implements = value.implements.filter(interface => implemented(interface.name)),
+              directives = directives,
+              fields = projectFields(value)
+            )
+          // The graph declared the supergraph interface as an object type.
+          case value: InterfaceTypeDefinition if interfaceObject =>
+            ObjectTypeDefinition(
+              value.description,
+              value.name,
+              Nil,
+              directives,
+              projectFields(value)
+            )
+          case value: InterfaceTypeDefinition                    =>
+            value.copy(
+              implements = value.implements.filter(interface => implemented(interface.name)),
+              directives = directives,
+              fields = projectFields(value)
+            )
+          case value: UnionTypeDefinition                        =>
+            // join/v0.2 has no @join__unionMember: a graph then keeps the members it defines.
+            val kept: String => Boolean =
+              if (ctx.join("unionMember", value.directives).isEmpty) ctx.members(_)(graph.key)
+              else listed("unionMember", "member")
+            value.copy(directives = directives, memberTypes = value.memberTypes.filter(kept))
+          case value: EnumTypeDefinition                         =>
+            value.copy(
+              directives = directives,
+              enumValuesDefinition = projectEnumValues(value.enumValuesDefinition)
+            )
+          case value: InputObjectTypeDefinition                  =>
+            value.copy(directives = directives, fields = projectInputFields(value.fields))
+          case value: ScalarTypeDefinition                       =>
+            value.copy(directives = directives)
+        }
+
+        Some(projected).filterNot(isEmpty)
+      }
+    }
+
+  private def projectDirectives(directives: List[Directive]): List[Directive] =
+    directives.flatMap { directive =>
+      ctx.federationDirectiveName(directive.name) match {
+        case Some(name) => List(directive.copy(name = name))
+        case None       => if (ctx.isFeatureApplication(directive.name)) Nil else List(directive)
+      }
+    }
+
+  /**
+   * Restores this graph's @context declarations under their original names. The namespace
+   * identifies the owner when a type carries declarations from several graphs.
+   */
+  private def contextDeclarations(directives: List[Directive]): List[Directive] =
+    declaredContextNames(directives, ctx).flatMap(contextOwner(_, ctx)).collect {
+      case (owner, local) if owner.key == graph.key =>
+        Directive("context", Map[String, InputValue]("name" -> StringValue(local)))
+    }
+
+  /**
+   * Restores arguments removed from the supergraph field and recorded in join metadata.
+   * Their original positions are unavailable, so append them. SchemaComposer hides these
+   * arguments from clients when composing the projected subgraphs.
+   */
+  private def contextArgumentDefinitions(entry: JoinField): List[InputValueDefinition] =
+    entry.contextArguments.flatMap { argument =>
+      contextOwner(argument.context, ctx).collect {
+        case (owner, local) if owner.key == graph.key =>
+          InputValueDefinition(
+            description = None,
+            name = argument.name,
+            // `validate` already proved every declared type parses, so the fallback is unreachable.
+            ofType = parseFieldType(argument.contextType).getOrElse(NamedType(argument.contextType, nonNull = false)),
+            defaultValue = None,
+            directives = List(
+              Directive(
+                "fromContext",
+                Map[String, InputValue]("field" -> StringValue(s"$$$local ${argument.selection.trim}"))
+              )
+            )
+          )
+      }
+    }
+
+  /**
+   * Re-emits `@join__directive(graphs:, name:, args:)` as the directive it stands for.
+   */
+  private def composedDirectives(directives: List[Directive]): List[Directive] =
+    ctx.join("directive", directives).flatMap { directive =>
+      val graphs =
+        directive.arguments.get("graphs").toList.flatMap(coercedList).collect { case EnumValue(value) => value }
+      val args   = directive.arguments
+        .get("args")
+        .collect { case InputValue.ObjectValue(fields) => fields }
+        .getOrElse(Map.empty[String, InputValue])
+
+      if (graphs.contains(graph.key))
+        stringArgument(directive.arguments, "name").map(name => Directive(name.stripPrefix("@"), args)).toList
+      else Nil
+    }
+
+  /**
+   * A field with no `@join__field` belongs to every graph of its type. Otherwise only the named graphs
+   * resolve it.
+   */
+  private def projectFields(value: AggregationTypeDefinition): List[FieldDefinition] =
+    for {
+      field <- value.fields
+      entry <- ctx.entry("field", field.directives, graph.key).map(joinField)
+    } yield {
+      val translated = List(
+        entry.requires.map(fields => Directive("requires", Map("fields" -> StringValue(fields)))),
+        entry.provides.map(fields => Directive("provides", Map("fields" -> StringValue(fields)))),
+        Some(Directive("external")).filter(_ => entry.external || entry.usedOverridden && entry.overrideLabel.isEmpty),
+        entry.overrideFrom.map(from =>
+          Directive("override", Map("from" -> StringValue(from)) ++ entry.overrideLabel.map("label" -> StringValue(_)))
+        ),
+        // Outside the entry: a field with no join entry at all is the default-ownership case, which
+        // lands in every member graph and so is the one that most needs declaring shareable.
+        Some(Directive("shareable")).filter(_ => ctx.shareable(value.name, field.name, graph.key))
+      ).flatten
+      // `validate` already proved every declared type parses, so the fallback is unreachable.
+      val ofType     = entry.fieldType.flatMap(parseFieldType).getOrElse(field.ofType)
+
+      field.copy(
+        ofType = ofType,
+        directives = projectDirectives(field.directives) ::: translated ::: composedDirectives(field.directives),
+        args = field.args.map(argument => argument.copy(directives = projectDirectives(argument.directives))) :::
+          contextArgumentDefinitions(entry)
+      )
+    }
+
+  private def projectEnumValues(values: List[EnumValueDefinition]) =
+    values.collect {
+      case value if ctx.entry("enumValue", value.directives, graph.key).nonEmpty =>
+        value.copy(directives = projectDirectives(value.directives))
+    }
+
+  private def projectInputFields(fields: List[InputValueDefinition]) =
+    fields.collect {
+      case field if ctx.entry("field", field.directives, graph.key).nonEmpty =>
+        field.copy(directives = projectDirectives(field.directives))
+    }
+
+  /**
+   * Names an operation root only when its type survived projection with at least one field.
+   */
+  private def projectSchema(definitions: List[Definition]): SchemaDefinition = {
+    val populated = definitions.collect { case value: ObjectTypeDefinition =>
+      value.name
+    }.toSet
+    val declared  = ctx.document.schemaDefinition
+
+    def root(name: String): Option[String] = Some(name).filter(populated.contains)
+
+    val query        = root(declared.flatMap(_.query).getOrElse("Query"))
+    val mutation     = root(declared.flatMap(_.mutation).getOrElse("Mutation"))
+    val subscription = root(ctx.subscriptionRoot)
+    val directives   = composedDirectives(DirectiveComposition.schemaDirectives(ctx.document))
+
+    // Even a graph without roots needs the federation link so SchemaComposer recognizes its
+    // entity keys and routing directives.
+    SchemaDefinition(FederationLink :: directives, query, mutation, subscription, None)
+  }
 }

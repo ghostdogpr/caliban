@@ -1,6 +1,6 @@
 # Caliban Federation Gateway Audit adapter
 
-This non-published project runs the pinned Federation Gateway Audit against Caliban's native, code-first gateway composition. For each upstream suite, the adapter fetches the upstream `subgraphs` descriptions, passes their authored SDL and endpoints directly to `Gateway.compose`, and serves the resulting `GatewayInterpreter`.
+This non-published project runs the pinned Federation Gateway Audit against Caliban's gateway. `install.sh` builds the adapter and installs it into an audit checkout as `gateways/caliban`, with the same `run.sh` and `gateway.json` as the upstream entry. For each suite, `run.sh` writes the suite's supergraph, and the adapter serves `Gateway.fromSupergraph` over it.
 
 The canonical upstream repository, reviewed commit, and review date live in [`upstream.env`](upstream.env). CI runs the
 unmodified upstream reporter and requires every reported case to pass. `verify-results.sh` rejects failures, duplicate
@@ -20,20 +20,14 @@ npm --prefix /path/to/federation-gateway-audit ci --ignore-scripts
 
 ## Run
 
-Build the adapter, then run the commands from the upstream checkout:
+Install the adapter into the upstream checkout, then run the audit there:
 
 ```sh
-"$CALIBAN_ROOT/gateway-audit/install.sh"
-cd /path/to/federation-gateway-audit
-npm start -- test \
-  --cwd "$CALIBAN_ROOT/gateway-audit" \
-  --run-script ./run.sh \
-  --graphql http://127.0.0.1:4000/graphql \
-  --healthcheck 'http://127.0.0.1:4000/graphql?query=%7B__typename%7D' \
-  --write "$CALIBAN_ROOT/gateway-audit/results.txt"
-"$CALIBAN_ROOT/gateway-audit/verify-results.sh" "$CALIBAN_ROOT/gateway-audit/results.txt"
+"$CALIBAN_ROOT/gateway-audit/install.sh" /path/to/federation-gateway-audit
+make -C /path/to/federation-gateway-audit test-caliban
+"$CALIBAN_ROOT/gateway-audit/verify-results.sh" /path/to/federation-gateway-audit/gateways/caliban/results.txt
 ```
 
 ## Ports
 
-The adapter serves `/graphql` on port 4000 and fetches each suite's subgraph descriptions from the audit on port 4200.
+The adapter serves `/graphql` on port 4000. The audit serves its fixtures on port 4200.

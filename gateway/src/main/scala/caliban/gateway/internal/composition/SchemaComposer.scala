@@ -30,14 +30,12 @@ private[gateway] object SchemaComposer {
     new SchemaComposer(prepared).compose.left.map(errors => SchemaCompositionFailed(errors.distinct.sorted))
 
   def prepare[R](subgraph: Subgraph[R], document: Document): Either[SubgraphBuildError, Source] = {
-    val federation   = subgraph.source.federation
-    val rootDocument = if (federation) withFederationQueryRoot(document) else document
+    val federation                    = subgraph.source.federation
+    val rootDocument                  = if (federation) withFederationQueryRoot(document) else document
+    def normalize(document: Document) =
+      RemoteSchema.normalize(document, extensionsCanDefineTypes = federation).left.map(SchemaValidationFailed(_))
     for {
-      normalized    <-
-        RemoteSchema
-          .normalize(rootDocument, extensionsCanDefineTypes = federation)
-          .left
-          .map(SchemaValidationFailed(_))
+      normalized    <- normalize(rootDocument)
       _             <- Either.cond(
                          federation || !normalized.rootType.queryType.allFields.exists(isEntityLookup),
                          (),
@@ -55,12 +53,7 @@ private[gateway] object SchemaComposer {
           .map(InvalidTransformations(_))
       extensionTypes = federation1ExtensionTypes(document).map(mapping.clientType)
       transformed   <-
-        if (mapping.nonEmpty)
-          RemoteSchema
-            .normalize(mapping.transform(normalized.document, names), extensionsCanDefineTypes = federation)
-            .left
-            .map(SchemaValidationFailed(_))
-        else Right(normalized)
+        if (mapping.nonEmpty) normalize(mapping.transform(normalized.document, names)) else Right(normalized)
     } yield new Source(
       subgraph.name,
       transformed.rootType,
@@ -86,12 +79,10 @@ private[gateway] object SchemaComposer {
       if (names.contains(name)) freeName(index + 1) else name
     }
 
-    val rootName = document.schemaDefinition match {
-      case Some(schema) if schema.query.isEmpty && !extendedQuery => Some(freeName(1))
-      case None if !extendedQuery && !names("Query")              => Some("Query")
-      case _                                                      => None
-    }
-    rootName.fold(document) { name =>
+    val missing = !extendedQuery && document.schemaDefinition.fold(!names("Query"))(_.query.isEmpty)
+    if (!missing) document
+    else {
+      val name        = freeName(1)
       val root        = ObjectTypeDefinition(
         None,
         name,
@@ -170,7 +161,10 @@ private[gateway] object SchemaComposer {
         subgraph.rootType.types.get(name).map { parent =>
           validateFieldSet(subgraph, application, parent)(
             plainFieldSet(_).toRight("only fields without aliases, arguments, or directives can be selected.")
-          ).map(FederationKey(name, _, !directive.arguments.get("resolvable").contains(BooleanValue(false))))
+          ).map { fields =>
+            val resolvable = !directive.arguments.get("resolvable").contains(BooleanValue(false))
+            FederationKey(name, fields, resolvable && hasEntityLookup(subgraph, parent))
+          }
         }
       }
       .flatten
@@ -203,9 +197,10 @@ private[gateway] object SchemaComposer {
       FieldCoordinate(typeName, field.name) :: childType.toList.flatMap(collectKeyFields(rootType, _, field.children))
     }
 
-  private[composition] def hasEntityLookup(subgraph: Source, entityType: String): Boolean =
+  // `_Entity` is a union, so it lists an entity interface's implementations rather than the interface.
+  private def hasEntityLookup(subgraph: Source, entity: __Type): Boolean =
     fieldDefinition(subgraph.rootType.queryType, EntitiesField).forall { field =>
-      isEntityLookup(field) && field._type.innerType.possibleTypes.exists(_.exists(_.name.contains(entityType)))
+      isEntityLookup(field) && entity.possibleTypeNames.subsetOf(field._type.innerType.possibleTypeNames)
     }
 
   private def isEntityLookup(field: __Field): Boolean =
