@@ -22,7 +22,7 @@ if ! git -C "$UPSTREAM_DIR" diff --quiet -- k6 apollo-federation/subgraphs-rust/
     exit 1
 fi
 
-ADAPTER_DIR="$UPSTREAM_DIR/apollo-federation/gateways/caliban"
+ADAPTER_DIR="$UPSTREAM_DIR/apollo-federation/gateways/caliban-local"
 mkdir -p "$ADAPTER_DIR"
 ln -sfn "$SCRIPT_DIR" "$ADAPTER_DIR/caliban-adapter"
 ln -sfn "$SCRIPT_DIR/target" "$ADAPTER_DIR/target"

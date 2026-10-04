@@ -24,7 +24,7 @@ The driver needs Bash 4 or newer (on macOS, install it with Homebrew).
 
 ```sh
 cd /path/to/graphql-gateway-benchmarks
-SUBGRAPH_DELAY_MS=4 ./k6/benchmark.sh apollo-federation/gateways/caliban subgraphs-rust constant-latency
+SUBGRAPH_DELAY_MS=4 ./k6/benchmark.sh apollo-federation/gateways/caliban-local subgraphs-rust constant-latency
 ```
 
 Set `SUBGRAPH_DELAY_MS=4` for `constant-latency` with the Rust subgraphs: the driver only exports `BENCHMARK_SIMULATE_LATENCY=1`,
@@ -39,7 +39,7 @@ Run competitors with the same arguments and one of these gateway paths: `apollo-
 system Bash. Install each gateway with its upstream `install.sh` and build the subgraphs with their `build.sh` first.
 
 ```sh
-./gateway-benchmark/compare.sh /path/to/graphql-gateway-benchmarks hive-router cosmo caliban fusion apollo-router
+./gateway-benchmark/compare.sh /path/to/graphql-gateway-benchmarks hive-router cosmo caliban-local fusion apollo-router
 ```
 
 Per gateway: start, warm up 30 s, measure 60 s at 50 VUs, stop, cool down 30 s, against the Rust subgraphs with a 4 ms delay.
