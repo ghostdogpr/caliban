@@ -58,6 +58,17 @@ object AbstractOperationSpec extends ZIOSpecDefault {
        |type User implements NodeWithName @key(fields: "id") { id: ID! name: String age: Int }
        |""".stripMargin
 
+  // `_service` prints `_entities`, whose `_Entity` union can list the implementations but never the entity interface.
+  private val interfaceOwnerServiceSchema =
+    s"""
+       |${federationSchemaPreamble("@key")}
+       |scalar _Any
+       |union _Entity = User
+       |type Query { users: [NodeWithName!]! _entities(representations: [_Any!]!): [_Entity]! }
+       |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+       |type User implements NodeWithName @key(fields: "id") { id: ID! name: String age: Int }
+       |""".stripMargin
+
   private val interfaceObjectSchema =
     s"""
        |${federationSchemaPreamble("@key", "@interfaceObject")}
@@ -239,42 +250,46 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         val reverseQuery =
           """{ users { ... on User { age id name username } id name } }"""
 
-        for {
-          owner          <-
-            stubByRequest { request =>
-              if (request.query.exists(_.contains("_entities")))
-                """{"data":{"_entities":[{"__typename":"User","age":11,"id":"u1","name":"Ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_requirement_name":"Ada","_caliban_gateway_runtime_typename":"User"}]}}"""
-              else
-                """{"data":{"users":[{"__typename":"User","age":11,"id":"u1","name":"Ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"}]}}"""
-            }
-          interface      <-
-            stubByRequest { request =>
-              if (request.query.exists(_.contains("_entities")))
-                """{"data":{"_entities":[{"__typename":"NodeWithName","id":"u1","name":"Ada","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_requirement_name":"Ada"}]}}"""
-              else
-                """{"data":{"anotherUsers":[{"__typename":"User","id":"u1","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"}]}}"""
-            }
-          runtime        <- Gateway
-                              .compose(
-                                Subgraph.federation("owner", owner.endpoint, interfaceOwnerSchema),
-                                Subgraph.federation("interface", interface.endpoint, interfaceObjectSchema)
-                              )
-                              .interpreter
-          forwardResult  <- runtime.execute(query)
-          result         <- runtime.execute(reverseQuery)
-          sent           <- interface.requests.get
-          user            = field(result.data, "users").collect { case ListValue(value :: Nil) => value }
-          representations = sent.flatMap(_.variables).flatMap(_.get("representations"))
-        } yield assertTrue(
-          forwardResult.errors.isEmpty,
-          result.errors.isEmpty,
-          field(forwardResult.data, "anotherUsers").exists {
-            case ListValue(value :: Nil) => field(value, "username").contains(StringValue("ada"))
-            case _                       => false
-          },
-          user.flatMap(field(_, "username")).contains(StringValue("ada")),
-          representations.exists(_.toString.contains("NodeWithName"))
-        )
+        ZIO
+          .foreach(List(interfaceOwnerSchema, interfaceOwnerServiceSchema)) { ownerSchema =>
+            for {
+              owner          <-
+                stubByRequest { request =>
+                  if (request.query.exists(_.contains("_entities")))
+                    """{"data":{"_entities":[{"__typename":"User","age":11,"id":"u1","name":"Ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_requirement_name":"Ada","_caliban_gateway_runtime_typename":"User"}]}}"""
+                  else
+                    """{"data":{"users":[{"__typename":"User","age":11,"id":"u1","name":"Ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"}]}}"""
+                }
+              interface      <-
+                stubByRequest { request =>
+                  if (request.query.exists(_.contains("_entities")))
+                    """{"data":{"_entities":[{"__typename":"NodeWithName","id":"u1","name":"Ada","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_requirement_name":"Ada"}]}}"""
+                  else
+                    """{"data":{"anotherUsers":[{"__typename":"User","id":"u1","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"}]}}"""
+                }
+              runtime        <- Gateway
+                                  .compose(
+                                    Subgraph.federation("owner", owner.endpoint, ownerSchema),
+                                    Subgraph.federation("interface", interface.endpoint, interfaceObjectSchema)
+                                  )
+                                  .interpreter
+              forwardResult  <- runtime.execute(query)
+              result         <- runtime.execute(reverseQuery)
+              sent           <- interface.requests.get
+              user            = field(result.data, "users").collect { case ListValue(value :: Nil) => value }
+              representations = sent.flatMap(_.variables).flatMap(_.get("representations"))
+            } yield assertTrue(
+              forwardResult.errors.isEmpty,
+              result.errors.isEmpty,
+              field(forwardResult.data, "anotherUsers").exists {
+                case ListValue(value :: Nil) => field(value, "username").contains(StringValue("ada"))
+                case _                       => false
+              },
+              user.flatMap(field(_, "username")).contains(StringValue("ada")),
+              representations.exists(_.toString.contains("NodeWithName"))
+            )
+          }
+          .map(_.reduce(_ && _))
       },
       test("narrows nested partial-union selections to the candidate entity sources") {
         val cases = for { resolvable <- List(false, true); aliased <- List(false, true) } yield (resolvable, aliased)

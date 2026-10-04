@@ -288,10 +288,11 @@ private[gateway] object SupergraphDecomposition {
       val entries = ctx.join("type", definition.directives).flatMap(joinType).filter(_.graph == key)
       if (entries.isEmpty) None
       else {
-        val members    = ctx.members(definition.name)
-        val directives = projectDirectives(definition.directives, ctx) :::
+        val members         = ctx.members(definition.name)
+        val interfaceObject = entries.exists(_.isInterfaceObject)
+        val directives      = projectDirectives(definition.directives, ctx) :::
           entries.flatMap(keyDirective) :::
-          (if (entries.exists(_.isInterfaceObject)) List(Directive("interfaceObject")) else Nil) :::
+          (if (interfaceObject) List(Directive("interfaceObject")) else Nil) :::
           contextDeclarations(definition.directives, key, ctx) :::
           composedDirectives(definition.directives, key, ctx)
 
@@ -304,34 +305,44 @@ private[gateway] object SupergraphDecomposition {
             }
             .toSet
         lazy val implemented                                      = listed("implements", "interface")
+        def sharing(field: String): Set[String]                   = ctx.sharingGraphs(definition, field, interfaceObject)
 
         val projected: TypeDefinition = definition match {
-          case value: ObjectTypeDefinition      =>
+          case value: ObjectTypeDefinition                       =>
             value.copy(
               implements = value.implements.filter(interface => implemented(interface.name)),
               directives = directives,
-              fields = projectFields(value.fields, members, key, ctx)
+              fields = projectFields(value.fields, members, key, ctx, sharing)
             )
-          case value: InterfaceTypeDefinition   =>
+          // The graph declared the supergraph interface as an object type.
+          case value: InterfaceTypeDefinition if interfaceObject =>
+            ObjectTypeDefinition(
+              value.description,
+              value.name,
+              Nil,
+              directives,
+              projectFields(value.fields, members, key, ctx, sharing)
+            )
+          case value: InterfaceTypeDefinition                    =>
             value.copy(
               implements = value.implements.filter(interface => implemented(interface.name)),
               directives = directives,
-              fields = projectFields(value.fields, members, key, ctx)
+              fields = projectFields(value.fields, members, key, ctx, sharing)
             )
-          case value: UnionTypeDefinition       =>
+          case value: UnionTypeDefinition                        =>
             // join/v0.2 has no @join__unionMember: a graph then keeps the members it defines.
             val kept: String => Boolean =
               if (ctx.join("unionMember", value.directives).isEmpty) ctx.members(_)(key)
               else listed("unionMember", "member")
             value.copy(directives = directives, memberTypes = value.memberTypes.filter(kept))
-          case value: EnumTypeDefinition        =>
+          case value: EnumTypeDefinition                         =>
             value.copy(
               directives = directives,
               enumValuesDefinition = projectEnumValues(value.enumValuesDefinition, key, ctx)
             )
-          case value: InputObjectTypeDefinition =>
+          case value: InputObjectTypeDefinition                  =>
             value.copy(directives = directives, fields = projectInputFields(value.fields, key, ctx))
-          case value: ScalarTypeDefinition      =>
+          case value: ScalarTypeDefinition                       =>
             value.copy(directives = directives)
         }
 
@@ -427,12 +438,13 @@ private[gateway] object SupergraphDecomposition {
     fields: List[FieldDefinition],
     members: Set[String],
     key: String,
-    ctx: ProjectionContext
+    ctx: ProjectionContext,
+    sharing: String => Set[String]
   ): List[FieldDefinition] =
     fields.flatMap { field =>
       val owners = fieldGraphs(ctx.join("field", field.directives).map(joinField), members)
       owners.get(key).map { entry =>
-        projectField(field, entry, key, ctx, shareable = resolves(entry) && resolvingSubgraphCount(owners, ctx) > 1)
+        projectField(field, entry, key, ctx, shareable = resolves(entry) && sharing(field.name).size > 1)
       }
     }
 
@@ -446,9 +458,9 @@ private[gateway] object SupergraphDecomposition {
    * Graphs that actually resolve the field: declared owners, minus the ones that only declare it,
    * minus any graph another graph has overridden away.
    */
-  private def resolvingSubgraphCount(owners: Map[String, JoinField], ctx: ProjectionContext): Int = {
+  private def resolvingGraphs(owners: Map[String, JoinField], ctx: ProjectionContext): Set[String] = {
     val overridden = owners.valuesIterator.flatMap(_.overrideFrom).flatMap(ctx.graphByName.get).map(_.key).toSet
-    owners.count { case (graph, entry) => resolves(entry) && !overridden.contains(graph) }
+    owners.collect { case (graph, entry) if resolves(entry) && !overridden.contains(graph) => graph }.toSet
   }
 
   private def projectField(
@@ -558,6 +570,37 @@ private[gateway] object SupergraphDecomposition {
      * Graph keys a type belongs to.
      */
     def members(typeName: String): Set[String] = typeGraphs.getOrElse(typeName, Set.empty)
+
+    private lazy val fieldResolvers: Map[(String, String), Set[String]] =
+      document.typeDefinitions.collect { case value: AggregationTypeDefinition => value }.flatMap { value =>
+        value.fields.map { field =>
+          (value.name, field.name) ->
+            resolvingGraphs(fieldGraphs(join("field", field.directives).map(joinField), members(value.name)), this)
+        }
+      }.toMap
+
+    private lazy val interfaceObjectGraphs: Map[String, Set[String]] =
+      document.typeDefinitions
+        .map(d => d.name -> join("type", d.directives).flatMap(joinType).filter(_.isInterfaceObject).map(_.graph).toSet)
+        .toMap
+
+    private lazy val implementations: Map[String, List[String]] =
+      document.objectTypeDefinitions.flatMap(value => value.implements.map(_.name -> value.name)).groupMap(_._1)(_._2)
+
+    /**
+     * Graph keys resolving the field, counting an interface object and the implementations it stands in for as one
+     * field.
+     */
+    def sharingGraphs(definition: TypeDefinition, field: String, interfaceObject: Boolean): Set[String] = {
+      def resolving(typeName: String) = fieldResolvers.getOrElse(typeName -> field, Set.empty[String])
+      val standIns                    = definition match {
+        case value: ObjectTypeDefinition =>
+          value.implements.flatMap(i => resolving(i.name).intersect(interfaceObjectGraphs.getOrElse(i.name, Set.empty)))
+        case _ if interfaceObject        => implementations.getOrElse(definition.name, Nil).flatMap(resolving)
+        case _                           => Nil
+      }
+      resolving(definition.name) ++ standIns
+    }
 
     def inGraph(member: String, directives: List[Directive], key: String): Boolean = {
       val entries = join(member, directives)

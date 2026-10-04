@@ -933,7 +933,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         decompose(
           supergraph(
             s"""$TwoGraphs
-               |type Media @join__type(graph: A, key: "id", isInterfaceObject: true)
+               |interface Media @join__type(graph: A, key: "id", isInterfaceObject: true)
                |  @join__type(graph: B, key: "id", resolvable: false) {
                |  id: ID!
                |  title: String!
@@ -954,7 +954,67 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
               )
             ),
             result.map(graphs => directiveOn(graphs("a"), "Media", "interfaceObject").isDefined) == Right(true),
-            result.map(graphs => directiveOn(graphs("b"), "Media", "interfaceObject").isDefined) == Right(false)
+            result.map(graphs => directiveOn(graphs("b"), "Media", "interfaceObject").isDefined) == Right(false),
+            result.map(_("a").objectTypeDefinitions.exists(_.name == "Media")) == Right(true),
+            result.map(_("b").interfaceTypeDefinitions.exists(_.name == "Media")) == Right(true)
+          )
+        }
+      },
+      test("projects an interface object into subgraphs that compose") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |type Query @join__type(graph: A) @join__type(graph: B) {
+               |  media: [Media] @join__field(graph: A)
+               |  books: [Book] @join__field(graph: B)
+               |}
+               |interface Media @join__type(graph: A, key: "id", isInterfaceObject: true)
+               |  @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  rating: Int @join__field(graph: A)
+               |  title: String! @join__field(graph: B)
+               |}
+               |type Book implements Media @join__implements(graph: B, interface: "Media")
+               |  @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  rating: Int @join__field
+               |  title: String!
+               |}""".stripMargin
+          )
+        ).map(result => assertTrue(result.flatMap(graphs => composeDocuments(graphs.toList)).isRight))
+      },
+      test("declares a field shareable when an interface object also resolves it") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |type Query @join__type(graph: A) @join__type(graph: B) {
+               |  accounts: [Account] @join__field(graph: B)
+               |}
+               |interface Account @join__type(graph: A, key: "id")
+               |  @join__type(graph: B, key: "id", isInterfaceObject: true) {
+               |  id: ID!
+               |  isActive: Boolean! @join__field(graph: B)
+               |}
+               |type Admin implements Account @join__implements(graph: A, interface: "Account")
+               |  @join__type(graph: A, key: "id") {
+               |  id: ID!
+               |  isActive: Boolean!
+               |}
+               |type Regular implements Account @join__implements(graph: A, interface: "Account")
+               |  @join__type(graph: A, key: "id") {
+               |  id: ID!
+               |  isActive: Boolean! @join__field
+               |}""".stripMargin
+          )
+        ).map { result =>
+          assertTrue(
+            result.map(graphs => fieldDirective(graphs("a"), "Admin", "isActive", "shareable").isDefined) == Right(
+              true
+            ),
+            result.map(graphs => fieldDirective(graphs("b"), "Account", "isActive", "shareable").isDefined) == Right(
+              true
+            ),
+            result.flatMap(graphs => composeDocuments(graphs.toList)).isRight
           )
         }
       },

@@ -203,9 +203,13 @@ private[gateway] object SchemaComposer {
       FieldCoordinate(typeName, field.name) :: childType.toList.flatMap(collectKeyFields(rootType, _, field.children))
     }
 
+  // `_Entity` is a union, so it lists an entity interface's implementations rather than the interface.
   private[composition] def hasEntityLookup(subgraph: Source, entityType: String): Boolean =
     fieldDefinition(subgraph.rootType.queryType, EntitiesField).forall { field =>
-      isEntityLookup(field) && field._type.innerType.possibleTypes.exists(_.exists(_.name.contains(entityType)))
+      val members  = field._type.innerType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
+      val concrete =
+        subgraph.rootType.types.get(entityType).flatMap(_.possibleTypes).fold(List(entityType))(_.flatMap(_.name))
+      isEntityLookup(field) && concrete.forall(members)
     }
 
   private def isEntityLookup(field: __Field): Boolean =
