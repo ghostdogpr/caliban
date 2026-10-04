@@ -1,12 +1,2 @@
-#!/bin/sh
-set -eu
-
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-JAR="$SCRIPT_DIR/target/caliban-gateway-audit.jar"
-
-if [ ! -f "$JAR" ]; then
-    echo "The Caliban audit adapter is not built. Run ./install.sh first." >&2
-    exit 1
-fi
-
-exec java -jar "$JAR" "$@"
+npm start supergraph -- --cwd ./gateways/caliban --test $1
+exec java -jar caliban.jar

@@ -42,22 +42,9 @@ jobs:
           git clone "$FEDERATION_GATEWAY_AUDIT_REPOSITORY" "$RUNNER_TEMP/federation-gateway-audit"
           git -C "$RUNNER_TEMP/federation-gateway-audit" checkout "$FEDERATION_GATEWAY_AUDIT_REVISION"
           npm --prefix "$RUNNER_TEMP/federation-gateway-audit" ci --ignore-scripts
-      - name: Build the Caliban adapter
-        run: sbt gatewayAudit/assembly
+      - name: Install the Caliban adapter
+        run: ./gateway-audit/install.sh "$RUNNER_TEMP/federation-gateway-audit"
       - name: Run the audit
-        shell: bash
-        run: |
-          source gateway-audit/upstream.env
-          cd "$RUNNER_TEMP/federation-gateway-audit"
-          npm start -- test \
-            --cwd "$GITHUB_WORKSPACE/gateway-audit" \
-            --run-script ./run.sh \
-            --reporter dot \
-            --graphql http://127.0.0.1:4000/graphql \
-            --healthcheck 'http://127.0.0.1:4000/graphql?query=%7B__typename%7D' \
-            --write "$GITHUB_WORKSPACE/gateway-audit/results.txt" \
-            --junit
+        run: make -C "$RUNNER_TEMP/federation-gateway-audit" test-caliban
       - name: Verify 100% compatibility
-        shell: bash
-        run: |
-          ./gateway-audit/verify-results.sh ./gateway-audit/results.txt
+        run: ./gateway-audit/verify-results.sh "$RUNNER_TEMP/federation-gateway-audit/gateways/caliban/results.txt"
