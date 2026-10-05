@@ -10,7 +10,6 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
-import caliban.validation.{ Context, Validator }
 
 import scala.collection.compat._
 import scala.collection.immutable.ListMap
@@ -430,32 +429,8 @@ private[gateway] object DirectiveComposition {
     directive: Directive,
     definition: __Directive
   ): Either[List[CompositionDiagnostic], Directive] = {
-    def invalid(message: String): CompositionDiagnostic =
-      error(Code.InvalidGraphQL, List(source), coordinate.schemaCoordinate)(message)
-
-    val arguments   = definition.allArgs.map(argument => argument.name -> argument).toMap
-    val unknown     = directive.arguments.keySet
-      .diff(arguments.keySet)
-      .toList
-      .sorted
-      .map(name => invalid(s"Unknown argument '$name' on $label at '${coordinate.display}'."))
-    val missing     = definition.allArgs.collect {
-      case argument if isRequiredInput(argument) && !directive.arguments.contains(argument.name) =>
-        invalid(s"Required argument '${argument.name}' is missing on $label at '${coordinate.display}'.")
-    }
-    val valueErrors = directive.arguments.toList.flatMap { case (name, value) =>
-      arguments
-        .get(name)
-        .toList
-        .flatMap(argument =>
-          Validator
-            .validateInputValues(argument, value, Context.empty, s"Argument '$name' of directive '@${directive.name}'")
-            .left
-            .toOption
-            .map(validation => invalid(validation.getMessage))
-        )
-    }
-    val errors      = unknown ::: missing ::: valueErrors
+    val errors = argumentErrors(s"$label at '${coordinate.display}'", definition.allArgs, directive.arguments)
+      .map(error(Code.InvalidGraphQL, List(source), coordinate.schemaCoordinate))
 
     if (errors.nonEmpty) Left(errors)
     else {

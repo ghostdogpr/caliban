@@ -6,6 +6,7 @@ import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Directive, Selection }
+import caliban.validation.{ Context, Validator }
 import zio.http.{ Scheme, URL }
 
 package object gateway {
@@ -66,6 +67,27 @@ package object gateway {
 
   private[gateway] def isRequiredInput(input: __InputValue): Boolean =
     !input._type.isNullable && input.defaultValue.isEmpty
+
+  private[gateway] def argumentErrors(
+    owner: String,
+    definitions: List[__InputValue],
+    arguments: Map[String, InputValue],
+    exempt: __InputValue => Boolean = _ => false
+  ): List[String] = {
+    val byName  = definitions.map(definition => definition.name -> definition).toMap
+    val unknown = arguments.keySet.diff(byName.keySet).toList.sorted.map(name => s"Unknown argument '$name' on $owner.")
+    val missing = definitions.collect {
+      case definition if isRequiredInput(definition) && !exempt(definition) && !arguments.contains(definition.name) =>
+        s"Required argument '${definition.name}' is missing on $owner."
+    }
+    val values  = arguments.toList.flatMap { case (name, value) =>
+      byName
+        .get(name)
+        .flatMap(Validator.validateInputValues(_, value, Context.empty, s"Argument '$name' on $owner").left.toOption)
+        .map(_.getMessage)
+    }
+    unknown ::: missing ::: values
+  }
 
   private[gateway] def parentTypeName(field: Field): String =
     field.parentType.flatMap(_.name).getOrElse("")
