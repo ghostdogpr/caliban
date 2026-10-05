@@ -4,7 +4,7 @@ The gateway plans subgraph calls for each operation, fetches any required entity
 
 ## Explain a query plan
 
-Use `explain` to see which subgraphs a query will call without executing it. For the [lookup example below](#connecting-objects-across-ordinary-services):
+Use `explain` to see which subgraphs a query will call without executing it. For the [lookup example below](#connecting-objects-across-graphql-services):
 
 ```scala mdoc:invisible
 import caliban.gateway.GatewayInterpreter
@@ -33,9 +33,9 @@ fetch reviews after catalog at $.product via Product(id) fields [reviews.body]
 
 Each `fetch` names a subgraph. `$.product` is the location in the client response. `(key)` marks a field needed for a later lookup, even if the client did not request it. `after catalog` means that reviews must wait for the catalog result.
 
-## Connecting objects across ordinary services
+## Connecting objects across GraphQL services
 
-Federation schemas already explain how to fetch an entity from another service. With ordinary GraphQL services, you provide that information using a `Lookup`.
+Federation schemas already explain how to fetch an entity from another service. With GraphQL services, you provide that information using a `Lookup`.
 
 Suppose the catalog service exposes this schema:
 
@@ -132,6 +132,16 @@ Lookup.single(
 ```
 
 Prefer a batch lookup wherever the subgraph supports one. It collapses several objects into a single subgraph request.
+
+A subgraph whose SDL the gateway knows can declare a single lookup in its schema instead, with `@lookup`. Each argument maps to the field of the same name on the returned type:
+
+```graphql
+type Query {
+  productById(id: ID!): Product @lookup
+}
+```
+
+Key fields resolved by several subgraphs must be declared as keys in each of them. Here, the catalog schema declares `type Product @key(fields: "id")` when it is pinned.
 
 ## Operation cache
 

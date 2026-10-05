@@ -92,9 +92,16 @@ private[composition] final class LookupCompilation private (subgraph: Source, lo
     key: Lookup.Key,
     valueType: __Type
   ): Either[List[CompositionDiagnostic], KeyArgument] =
-    if (keys.get(key.field).exists(field => !compatibleValueType(field._type, valueType)))
+    if (keys.get(key.field).exists(field => !acceptsKey(field._type, valueType)))
       Left(List(invalid(s"Lookup argument '$path' is incompatible with key field '${key.field}'.")))
     else Right(KeyArgument(subgraph.mapping.clientField(lookup.typeName, key.field), valueType))
+
+  /**
+   * An ID argument also accepts a String key, as in `product(upc: ID!)` for `upc: String!`.
+   */
+  private def acceptsKey(key: __Type, argument: __Type): Boolean =
+    compatibleValueType(key, argument) ||
+      nullableType(key).name.contains("String") && nullableType(argument).name.contains("ID")
 
   private def compileBatch(
     path: String,
@@ -134,17 +141,11 @@ private[composition] object LookupCompilation {
   def compile(subgraph: Source, lookup: Lookup): Either[List[CompositionDiagnostic], LookupOperation.GraphQLQuery] =
     new LookupCompilation(subgraph, lookup).compile
 
-  def declarationDiagnostics(subgraph: Source): List[CompositionDiagnostic] = {
-    val federation = check(
+  def declarationDiagnostics(subgraph: Source): List[CompositionDiagnostic] =
+    check(
       !subgraph.federation || subgraph.lookups.isEmpty,
       error(Code.InvalidLookup, List(subgraph.name), None)(
-        "Ordinary GraphQL lookups cannot be declared on a Federation subgraph."
+        "Lookups declared in Scala cannot be added to a Federation subgraph."
       )
     )
-    federation ::: duplicates(subgraph.lookups.map(_.typeName)).map(typeName =>
-      error(Code.InvalidLookup, List(subgraph.name), Some(SchemaCoordinate.Type(typeName)))(
-        s"More than one lookup is declared for type '$typeName'."
-      )
-    )
-  }
 }

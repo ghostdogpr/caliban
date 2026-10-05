@@ -1,6 +1,6 @@
 # Getting Started
 
-Caliban Gateway gives clients one GraphQL endpoint backed by multiple services. It can combine ordinary GraphQL services, Apollo Federation subgraphs, and in-process Caliban APIs.
+Caliban Gateway gives clients one GraphQL endpoint backed by multiple services. It can combine GraphQL services, Apollo Federation subgraphs, and in-process Caliban APIs.
 
 It is an alternative to [Apollo Router](https://www.apollographql.com/docs/graphos/routing/get-started), [Hive Router](https://the-guild.dev/graphql/hive/router), and [Cosmo Router](https://wundergraph.com/blog/an-intro-to-cosmo-router), with configuration and customization in Scala.
 
@@ -99,9 +99,9 @@ The response combines data from both services:
 }
 ```
 
-These root fields are independent, so they need no lookup configuration. To fetch reviews inside `product { ... }`, see [Connecting objects across ordinary services](gateway/planning.md#connecting-objects-across-ordinary-services).
+These root fields are independent, so they need no lookup configuration. To fetch reviews inside `product { ... }`, see [Connecting objects across GraphQL services](gateway/planning.md#connecting-objects-across-graphql-services).
 
-For a complete project, see the repository's [gateway examples](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples). They cover local, ordinary remote, mixed-subgraph, and Federation gateways.
+For a complete project, see the repository's [gateway examples](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples). They cover local, remote GraphQL, mixed-subgraph, and Federation gateways.
 
 ## Interpreter lifetime
 
@@ -114,7 +114,7 @@ A gateway interpreter works with the existing [HTTP adapters](adapters.md). Use 
 ## Next steps
 
 - [Add subgraphs](gateway/subgraphs.md) from remote services, local Caliban APIs, or a supergraph.
-- [Connect objects across services](gateway/planning.md#connecting-objects-across-ordinary-services) when one query needs fields from several services for the same object.
+- [Connect objects across services](gateway/planning.md#connecting-objects-across-graphql-services) when one query needs fields from several services for the same object.
 - [Add subscriptions](gateway/subscriptions.md) from local or remote sources.
 - [Attach hooks](gateway/hooks.md) for document resolution, authorization, headers, metrics, and tracing.
 - [Configure the gateway](gateway/configuration.md) for authentication, timeouts, retries, limits, and schema reloads.

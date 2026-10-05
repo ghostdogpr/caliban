@@ -34,7 +34,7 @@ private[gateway] object DirectiveComposition {
       .groupMap(_._2)(_._1)
       .collect {
         case (name, keys) if keys.size > 1 =>
-          val identities = keys.map(_.identity.fold("an unlinked definition")(id => s"'$id'")).toList.distinct.sorted
+          val identities = keys.map(_.identity).toList.distinct.sorted.map(id => s"'$id'")
           error(
             Code.DirectiveCompositionError,
             renamed.collect { case value if keys.exists(_ == value.key) => value.source },
@@ -294,26 +294,23 @@ private[gateway] object DirectiveComposition {
   }
 
   final case class ImportedName(name: String, alias: String, isDirective: Boolean)
-  private final case class DirectiveKey(identity: Option[String], member: String)
+  private final case class DirectiveKey(identity: String, member: String)
   private final case class LocalDefinition(source: String, key: DirectiveKey, definition: __Directive)
   private final case class Application(local: LocalDefinition, coordinate: Coordinate, directive: Directive)
   private final case class SourceDirectives(subgraph: Source) {
-    private val names                         = subgraph.directiveNames
-    private val features                      = names.features
-    private val federationTransportDirectives =
-      if (features.exists(_.identity == FederationIdentity)) FederationTransportDirectiveNames else Set.empty[String]
-    private val linkedKeys                    = subgraph.rootType.additionalDirectives.map { definition =>
+    private val features                   = subgraph.directiveNames.features
+    private val linkedKeys                 = subgraph.rootType.additionalDirectives.map { definition =>
       definition -> features.flatMap { feature =>
-        feature.sourceDirective(definition.name).map(DirectiveKey(Some(feature.identity), _))
+        feature.sourceDirective(definition.name).map(DirectiveKey(feature.identity, _))
       }.distinct
     }
-    val definitions: List[LocalDefinition]    = linkedKeys.map { case (definition, keys) =>
-      LocalDefinition(subgraph.name, keys.headOption.getOrElse(DirectiveKey(None, definition.name)), definition)
+    val definitions: List[LocalDefinition] = linkedKeys.collect { case (definition, key :: _) =>
+      LocalDefinition(subgraph.name, key, definition)
     }
-    private val definitionsByName             = definitions.map(local => local.definition.name -> local).toMap
+    private val definitionsByName          = definitions.map(local => local.definition.name -> local).toMap
 
     val diagnostics: List[CompositionDiagnostic] = linkedKeys.collect { case (definition, keys @ _ :: _ :: _) =>
-      val identities = keys.flatMap(_.identity).sorted.map(value => s"'$value'").mkString(" and ")
+      val identities = keys.map(_.identity).sorted.map(value => s"'$value'").mkString(" and ")
       error(Code.InvalidLinkDirectiveUsage, List(subgraph.name), Some(SchemaCoordinate.Directive(definition.name)))(
         s"Directive '@${definition.name}' resolves to multiple linked feature identities: $identities."
       )
@@ -333,34 +330,26 @@ private[gateway] object DirectiveComposition {
 
     private def composedDefinition(localName: String): Either[CompositionDiagnostic, DirectiveKey] =
       definitionsByName.get(localName) match {
-        case None                                                     =>
-          Left(composeError(Some(localName), s"Composed directive '@$localName' is not defined by this subgraph."))
-        case Some(definition) if definition.key.identity.isEmpty      =>
+        case None if subgraph.rootType.additionalDirectives.exists(_.name == localName) =>
           Left(
             composeError(
               Some(localName),
               s"Composed directive '@$localName' must be imported from a linked custom feature."
             )
           )
-        case Some(definition) if isTransportDirective(definition.key) =>
+        case None                                                                       =>
+          Left(composeError(Some(localName), s"Composed directive '@$localName' is not defined by this subgraph."))
+        case Some(definition) if isTransportDirective(definition.key)                   =>
           Left(composeError(Some(localName), s"Federation transport directive '@$localName' cannot be composed."))
-        case Some(definition)                                         => Right(definition.key)
+        case Some(definition)                                                           => Right(definition.key)
       }
 
+    // Composite subgraphs compose no directives beyond the built-in ones.
     val selected: Set[DirectiveKey] =
-      composeDeclarations.collect { case Right(value) => value }.toSet ++
-        (if (subgraph.federation) Set(DirectiveKey(Some(FederationIdentity), "tag"))
-         else
-           definitions.iterator.filterNot { value =>
-             val name = value.definition.name
-             BuiltInDirectiveNames(name) || names.hidden(name) || federationTransportDirectives(name) ||
-             value.key.identity.exists(id => ReservedFeatureIdentities(id) || id == FederationIdentity)
-           }
-             .map(_.key)
-             .toSet)
+      composeDeclarations.collect { case Right(value) => value }.toSet + DirectiveKey(FederationIdentity, "tag")
 
     private def isTransportDirective(key: DirectiveKey): Boolean =
-      key.identity.exists(id => id == FederationIdentity && key.member != "tag" || ReservedFeatureIdentities(id))
+      key.identity == FederationIdentity && key.member != "tag" || ReservedFeatureIdentities(key.identity)
 
     private def selectedDefinition(composedNames: Map[DirectiveKey, String], name: String) =
       definitionsByName.get(name).filter(local => selected(local.key)).flatMap { local =>
@@ -549,8 +538,6 @@ private[gateway] object DirectiveComposition {
   def builtIn(directives: Option[List[Directive]]): List[Directive] =
     directives.getOrElse(Nil).filter(directive => BuiltInDirectiveNames(directive.name))
 
-  private val BuiltInDirectiveNames             = Set("skip", "include", "deprecated", "specifiedBy", "oneOf")
-  private val FederationTransportDirectiveNames =
-    FederationCompilation.FederationDirective.all.map(_.name).toSet + "link"
-  private val ReservedFeatureIdentities         = FederationCompilation.FederationDirective.linkedSpecIdentities + LinkIdentity
+  private val BuiltInDirectiveNames     = Set("skip", "include", "deprecated", "specifiedBy", "oneOf")
+  private val ReservedFeatureIdentities = FederationCompilation.FederationDirective.linkedSpecIdentities + LinkIdentity
 }

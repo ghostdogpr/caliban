@@ -11,7 +11,8 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   InputValueDefinition
 }
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
-import caliban.parsing.adt.{ Definition, Directive }
+import caliban.parsing.adt.{ Definition, Directive, Document }
+import caliban.parsing.SourceMapper
 import caliban.rendering.{ DocumentRenderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.ArgBuilder.auto._
@@ -162,6 +163,19 @@ object RenderingSpec extends ZIOSpecDefault {
         )
         val renderedType = DocumentRenderer.typesRenderer.render(List(testType))
         assertTrue(renderedType == "\ntype TestType @testdirective(object: {key1: \"value1\", key2: \"value2\"})\n")
+      },
+      test("it should render @specifiedBy once when the scalar also applies it") {
+        val url      = "https://example.com/long"
+        val scalar   = __Type(
+          __TypeKind.SCALAR,
+          name = Some("Long"),
+          specifiedByURL = Some(url),
+          directives = Some(List(Directive("specifiedBy", Map("url" -> Value.StringValue(url)))))
+        )
+        val rendered = scalar.toTypeDefinition.map(definition =>
+          DocumentRenderer.render(Document(List(definition), SourceMapper.empty)).trim
+        )
+        assertTrue(rendered.contains(s"""scalar Long @specifiedBy(url: "$url")"""))
       },
       test("only introspectable directives are rendered") {
         val all              = List(

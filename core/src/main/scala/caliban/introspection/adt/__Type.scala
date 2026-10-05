@@ -69,8 +69,10 @@ case class __Type(
             description,
             name.getOrElse(""), {
               val dirs = directives.getOrElse(Nil)
+              // A type parsed from SDL carries @specifiedBy both as a directive and as its URL.
               dirs ++
                 specifiedByURL
+                  .filterNot(_ => dirs.exists(_.name == "specifiedBy"))
                   .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), dirs.size))
                   .toList
             }

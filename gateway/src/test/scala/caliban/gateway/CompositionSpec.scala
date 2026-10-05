@@ -8,8 +8,7 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.SchemaCoordinate.{ Argument, Member }
 import caliban.gateway.PhaseHooks.Event
 import caliban.gateway.internal.composition.ComposedGraph
-import caliban.parsing.Parser
-import caliban.parsing.adt.{ Directive, Document, OperationType }
+import caliban.parsing.adt.{ Directive, OperationType }
 import zio._
 import zio.test._
 
@@ -55,26 +54,10 @@ object CompositionSpec extends ZIOSpecDefault {
        |""".stripMargin
 
   private def compose(inputs: CompositionInput*): Either[GatewayBuildError, ComposedGraph] =
-    composeInputs(inputs.toList, federation = true)
-
-  private def composeGraphQL(sdl: String): Either[GatewayBuildError, ComposedGraph] =
-    composeInputs(List(CompositionInput("local", sdl)), federation = false)
-
-  private def composeInputs(
-    inputs: List[CompositionInput],
-    federation: Boolean
-  ): Either[GatewayBuildError, ComposedGraph] =
-    collectErrors(inputs.map { input =>
-      Parser
-        .parseQuery(input.schema)
-        .left
-        .map(error => List(SubgraphError(input.name, SchemaAcquisitionError.SchemaParsingFailed(error))))
-        .map(input.name -> _)
-    }).left
-      .map(GatewayBuildError.SubgraphLoadingFailed(_))
-      .flatMap(
-        composeDocuments(_, federation, inputs.map(input => input.name -> input.transformations).toMap)
-      )
+    composeSdl(
+      inputs.toList.map(input => input.name -> input.schema),
+      transformations = inputs.map(input => input.name -> input.transformations).toMap
+    )
 
   private def directives(value: Option[List[Directive]]): List[(String, Map[String, caliban.InputValue])] =
     value.getOrElse(Nil).map(directive => directive.name -> directive.arguments)
@@ -1215,8 +1198,9 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("composes unreachable types and checks their enum usage, as Apollo does") {
-        val orphans = composeGraphQL(
-          "type Query { alpha: Int } type Orphan { value: Int } input OrphanInput { value: Int } enum OrphanEnum { ONE }"
+        val orphans = composeComposite(
+          "local" ->
+            "type Query { alpha: Int } type Orphan { value: Int } input OrphanInput { value: Int } enum OrphanEnum { ONE }"
         )
         val enums   = compose(
           CompositionInput(
@@ -1267,9 +1251,9 @@ object CompositionSpec extends ZIOSpecDefault {
       },
       test("accepts argument and input-field defaults that are equal as values") {
         val alphaSchema =
-          "type Query { alpha: Item } type Item { value(ratio: Float = 1, range: Range = { min: 1, max: 2 }): Int } input Range { min: Int max: Int ratio: Float = 1 }"
+          "type Query { alpha: Item } type Item { value(ratio: Float = 1, range: Range = { min: 1, max: 2 }): Int @shareable } input Range { min: Int max: Int ratio: Float = 1 }"
         val betaSchema  =
-          "type Query { beta: Item } type Item { value(ratio: Float = 1.0, range: Range = { max: 2, min: 1 }): Int } input Range { min: Int max: Int ratio: Float = 1.0 }"
+          "type Query { beta: Item } type Item { value(ratio: Float = 1.0, range: Range = { max: 2, min: 1 }): Int @shareable } input Range { min: Int max: Int ratio: Float = 1.0 }"
 
         compositionDiagnostics(
           Gateway.compose(
@@ -1281,12 +1265,17 @@ object CompositionSpec extends ZIOSpecDefault {
     ),
     suite("directive metadata")(
       test("retains metadata when operation roots are renamed during composition") {
-        val result = composeGraphQL("""
-                                      |schema { query: Read mutation: Write }
-                                      |directive @mark on OBJECT
-                                      |type Read @mark { value: String }
-                                      |type Write @mark { value: String }
-                                      |""".stripMargin)
+        val result = compose(
+          CompositionInput(
+            "local",
+            composedDirectiveSchema(
+              "mark",
+              "directive @mark on OBJECT",
+              "type Read @mark { value: String } type Write @mark { value: String }",
+              roots = "query: Read mutation: Write"
+            )
+          )
+        )
 
         assertTrue(
           result.isRight,
@@ -1297,18 +1286,16 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("drops applications of directives their subgraph does not define") {
-        val result = composeInputs(
-          List(
-            CompositionInput(
-              "alpha",
-              """
-                |directive @foo(level: Int!) on FIELD_DEFINITION
-                |type Query { alpha: String @foo(level: 1) }
-                |""".stripMargin
-            ),
-            CompositionInput("beta", "type Query { other: Other } type Other @foo { x: Int }")
+        val result = compose(
+          CompositionInput(
+            "alpha",
+            composedDirectiveSchema(
+              "foo",
+              "directive @foo(level: Int!) on FIELD_DEFINITION | OBJECT",
+              "type Query { alpha: String @foo(level: 1) }"
+            )
           ),
-          federation = false
+          CompositionInput("beta", "type Query { other: Other } type Other @foo(level: 2) { x: Int }")
         )
 
         assertTrue(
@@ -1319,25 +1306,32 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("ignores linked Federation directives on ordinary subgraphs") {
-        val result = composeGraphQL(
-          """
-            |schema
-            |  @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@inaccessible", "@context"])
-            |{ query: Query }
-            |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
-            |directive @inaccessible on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
-            |directive @context(name: String!) repeatable on OBJECT
-            |scalar link__Import
-            |type Query @context(name: "root") { search(filter: Filter): String @inaccessible }
-            |input Filter { term: String @inaccessible other: String }
-            |""".stripMargin
+      test("rejects a Federation-linked schema given as a composite subgraph") {
+        val result = composeComposite(
+          "local" ->
+            """
+              |schema
+              |  @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@inaccessible"])
+              |{ query: Query }
+              |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+              |directive @inaccessible on FIELD_DEFINITION
+              |scalar link__Import
+              |type Query { search: String }
+              |""".stripMargin
         )
 
         assertTrue(
-          result.exists(graph => fieldDefinition(graph.rootType.queryType, "search").nonEmpty),
-          result.exists(graph =>
-            graph.rootType.types.get("Filter").exists(_.allInputFields.map(_.name) == List("other", "term"))
+          result == Left(
+            GatewayBuildError.SubgraphLoadingFailed(
+              List(
+                SubgraphError(
+                  "local",
+                  SubgraphBuildError.InvalidConfiguration(
+                    List("The schema links the Federation spec. Use Subgraph.federation instead of Subgraph.graphql.")
+                  )
+                )
+              )
+            )
           )
         )
       },
@@ -1392,7 +1386,7 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("rejects a source type used for multiple operation roots") {
-        val result = composeGraphQL("schema { query: Root mutation: Root } type Root { value: String }")
+        val result = composeComposite("local" -> "schema { query: Root mutation: Root } type Root { value: String }")
 
         assertTrue(
           result.left.exists(_.diagnostics.exists(_.contains("Root operation type 'Root' is used more than once.")))
@@ -1668,30 +1662,29 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("names an unlinked directive colliding with a linked one") {
-        val linked   = directiveSchema(
+      test("keeps a composite subgraph's custom directive out of the client schema") {
+        val linked = directiveSchema(
           "type Query { value: String @audit(label: \"linked\") }",
           "directive @audit(label: String!) repeatable on FIELD_DEFINITION"
         )
-        val unlinked =
+        val local  =
           """directive @audit(label: String!) repeatable on FIELD_DEFINITION
+            |directive @trace on QUERY
             |type Query { other: String @audit(label: "local") }""".stripMargin
-        compositionErrors(
-          Subgraph.federation("alpha", unreachableEndpoint, linked),
-          Subgraph.graphql("beta", unreachableEndpoint, unlinked)
-        ).map(errors =>
-          assertTrue(
-            errors.contains(
-              CompositionDiagnostic(
-                CompositionDiagnostic.Severity.Error,
-                Code.DirectiveCompositionError,
-                List("alpha", "beta"),
-                Some(SchemaCoordinate.Directive("audit")),
-                "Linked directive identities collide on '@audit': 'https://example.com/audit' and an unlinked definition."
-              )
+        Gateway
+          .compose(
+            Subgraph.federation("alpha", unreachableEndpoint, linked),
+            Subgraph.graphql("beta", unreachableEndpoint, local)
+          )
+          .interpreter
+          .flatMap(_.execute("{ __schema { directives { name } } }"))
+          .map(response =>
+            assertTrue(
+              response.errors.isEmpty,
+              response.data.toString.contains("\"audit\""),
+              !response.data.toString.contains("\"trace\"")
             )
           )
-        )
       },
       test("keeps each distinct repeatable directive application once, in subgraph order") {
         val result       = compose(

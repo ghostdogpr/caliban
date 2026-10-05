@@ -150,20 +150,20 @@ object RoutePlanningSpec extends ZIOSpecDefault {
       val productsSchema =
         """
           |type Query { products: [Product!]! }
-          |type Product { id: ID! region: String! }
+          |type Product @key(fields: "id region") { id: ID! region: String! }
           |""".stripMargin
       val lookupSchema   =
         """
           |type Query { productsByIds(ids: [ID!]!): [Product!]! }
-          |type Product { id: ID! reviews: [Review!]! }
-          |type Review { body: String! }
+          |type Product { id: ID! reviews: [Review!]! @shareable }
+          |type Review @shareable { body: String! }
           |""".stripMargin
       val compoundSchema =
         """
           |input Ref { id: ID! region: String! }
           |type Query { productsByRefs(refs: [Ref!]!): [Product!]! }
-          |type Product { id: ID! region: String! reviews: [Review!]! }
-          |type Review { body: String! }
+          |type Product { id: ID! region: String! reviews: [Review!]! @shareable }
+          |type Review @shareable { body: String! }
           |""".stripMargin
       val byId           = Lookup.list(
         "Product",

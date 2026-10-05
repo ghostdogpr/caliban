@@ -121,7 +121,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
   private val abstractLookupSourceSchema =
     """
       |interface Actor { id: ID! }
-      |type User implements Actor { id: ID! }
+      |type User implements Actor @key(fields: "id") { id: ID! }
       |type Admin implements Actor { id: ID! }
       |type Query { actors: [Actor!]! }
       |""".stripMargin
@@ -497,7 +497,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
         for {
           source  <- stub(response)
-          runtime <- Gateway.compose(Subgraph.graphql("source", source.endpoint, primaryUnionSchema)).interpreter
+          runtime <- Gateway.compose(Subgraph.federation("source", source.endpoint, primaryUnionSchema)).interpreter
           result  <- runtime.execute("{ response { actions { ... on Alpha { value } } } }")
           sent    <- source.requests.get
           action   = field(result.data, "response")

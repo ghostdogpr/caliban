@@ -199,7 +199,7 @@ for {
 } yield ()
 ```
 
-Startup requires a valid initial schema. With `Gateway.compose`, at least one subgraph must load its schema remotely. The gateway polls ordinary services through introspection and Federation services through `_service`. Pinned SDL, parsed documents, and local APIs stay fixed, as do configured endpoints and other settings.
+Startup requires a valid initial schema. With `Gateway.compose`, at least one subgraph must load its schema remotely. The gateway polls GraphQL services through introspection or their SDL URL, and Federation services through `_service`. Pinned SDL, parsed documents, and local APIs stay fixed, as do configured endpoints and other settings.
 
 A gateway built [from a supergraph](subgraphs.md#supergraphs) can reload a file, HTTP, or registry source. Apollo Uplink requires a minimum poll interval of ten seconds, including the shortest delay permitted by jitter.
 
@@ -274,9 +274,9 @@ Use [phase hooks](hooks.md) to distinguish transport failures, timeouts, and lim
 
 | Symptom | What to check |
 | --- | --- |
-| Startup cannot load a schema | Endpoint reachability and acquisition credentials. Ordinary services need introspection unless SDL is pinned; Federation services need `_service` unless SDL is pinned. |
+| Startup cannot load a schema | Endpoint reachability and acquisition credentials. GraphQL services need introspection unless SDL is pinned or fetched from a URL; Federation services need `_service` unless SDL is pinned. |
 | Startup reports incompatible definitions or multiple owners | The named services' types and fields. Follow the [composition rules](subgraphs.md#composition-rules). |
-| A query cannot reach a field in another ordinary service | The target service's [lookup](planning.md#connecting-objects-across-ordinary-services), key fields, and argument mapping. Inspect the plan with `explain`. |
+| A query cannot reach a field in another GraphQL service | The target service's [lookup](planning.md#connecting-objects-across-graphql-services), key fields, and argument mapping. Inspect the plan with `explain`. |
 | Startup requires an authorization hook | Install an [authorization hook](hooks.md#authorizing-operations) for `@authenticated` or `@requiresScopes`. |
 | Requests fail only for large queries or responses | Gateway planning and cost limits, remote body limits, and QuickAdapter body limits. These are separate settings. |
 | Schema changes do not appear | Use `.reloadable`, confirm the schema source is refreshable, and inspect `lastReloadFailure`. Pinned SDL and local APIs do not refresh. |

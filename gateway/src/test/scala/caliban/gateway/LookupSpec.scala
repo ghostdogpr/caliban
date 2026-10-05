@@ -40,7 +40,7 @@ object LookupSpec extends ZIOSpecDefault {
       |  status: String!
       |}
       |
-      |type Product {
+      |type Product @key(fields: "id region") {
       |  id: ID!
       |  region: String!
       |  name: String!
@@ -101,7 +101,7 @@ object LookupSpec extends ZIOSpecDefault {
       |  products: [Product]
       |}
       |
-      |type Product {
+      |type Product @key(fields: "id region") {
       |  id: ID!
       |  region: Region!
       |  name: String!
@@ -196,7 +196,7 @@ object LookupSpec extends ZIOSpecDefault {
     },
     test("executes an ordinary lookup against a local Caliban subgraph") {
       val localProductsSchema   =
-        "type Query { products: [Product]! } type Product { id: String! name: String! }"
+        "type Query { products: [Product]! } type Product @key(fields: \"id\") { id: String! name: String! }"
       val localProductsResponse =
         """{"data":{"products":[{"name":"Table","_caliban_gateway_key":"p1"},{"name":"Chair","_caliban_gateway_key":"p2"}]}}"""
       val localLookup           = Lookup.list(
@@ -281,7 +281,7 @@ object LookupSpec extends ZIOSpecDefault {
     },
     test("reverse-maps renamed enum keys inside nested remote lookup inputs") {
       val productsSchema =
-        "enum Region { US } type Query { products: [Product] } type Product { id: ID! region: Region! name: String! }"
+        "enum Region { US } type Query { products: [Product] } type Product @key(fields: \"id region\") { id: ID! region: Region! name: String! }"
       val reviewsSchema  =
         "enum Region { US } input RegionRefInput { code: Region! } input ProductRefInput { productId: ID! region: RegionRefInput! } type Query { productsByRefs(refs: [ProductRefInput!]!): [Product!]! } type Product { id: ID! region: Region! reviews: [Review!]! } type Review { body: String! }"
       val lookup         = Lookup.list(
@@ -437,12 +437,12 @@ object LookupSpec extends ZIOSpecDefault {
           lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: Review!"))
         listKey    <-
           lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: [String!]!"))
-        duplicate  <- compositionErrors(
+        several    <- compositionErrors(
                         Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
                         Subgraph
                           .graphql("reviews", unreachableEndpoint, defaultReviewsSchema)
                           .withLookup(keyedLookup)
-                          .withLookup(keyedLookup)
+                          .withLookup(singleLookup)
                       )
         federation <- compositionErrors(
                         Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
@@ -465,12 +465,15 @@ object LookupSpec extends ZIOSpecDefault {
           rejects(nullable, "By-key lookup field 'Query.productsByRefs' must return non-null items"),
           rejects(unknown, "Lookup argument 'productByRef.missing' does not exist"),
           rejects(unknown, "Required lookup argument 'productByRef.ref' has no mapping"),
-          types.count(_.message.contains("is incompatible with key field")) == 2,
+          // An ID argument accepts the String key 'region'; a String argument rejects the ID key 'id'.
+          types.map(_.message) == List(
+            "Lookup argument 'productByRef.ref.regionCode' is incompatible with key field 'id'."
+          ),
           rejects(repeated, "Lookup argument 'productByRef.ref' is mapped more than once"),
           rejects(nonScalar, "Lookup key field 'Product.region' must be a scalar or enum"),
           rejects(listKey, "Lookup key field 'Product.region' must be a scalar or enum"),
-          duplicate.reports(Code.InvalidLookup, product, "reviews"),
-          rejects(federation, "Ordinary GraphQL lookups cannot be declared on a Federation subgraph")
+          several.isEmpty,
+          rejects(federation, "Lookups declared in Scala cannot be added to a Federation subgraph")
         )
       }
     },

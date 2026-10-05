@@ -16,6 +16,7 @@ import zio.{ IO, Task, Trace, ZIO }
 import zio.http.{ Header, QueryParams, Scheme, Status, URL }
 
 import java.net.URI
+import java.nio.charset.StandardCharsets
 import java.util.Locale
 import scala.util.Try
 
@@ -25,14 +26,43 @@ private[gateway] object RemoteSchemaAcquisition {
     trace: Trace
   ): IO[SubgraphAcquisitionError, Document] =
     remote.schema match {
-      case SchemaInput.Pinned(document) => ZIO.fromEither(document)
-      case SchemaInput.Acquired(config) =>
+      case SchemaInput.Pinned(document)     => ZIO.fromEither(document)
+      case SchemaInput.Acquired(config)     =>
         val acquisition =
           if (remote.federation) FederationClient.fetch(remote.endpoint, config, http)
           else IntrospectionClient.fetch(remote.endpoint, config, http)
 
         acquisition.timeoutFail(TimedOut(config.timeout))(config.timeout)
+      case SchemaInput.Fetched(url, config) =>
+        followRedirects(url, config, RedirectScope.AnyOrigin)((target, headers) =>
+          http.get(target, headers :+ SdlAccept, config.maxResponseBytes)
+        ).flatMap(sdlDocument(_, config)).timeoutFail(TimedOut(config.timeout))(config.timeout)
     }
+
+  private[acquisition] def sdlDocument(reply: Reply, config: RemoteGraphQLConfig.Acquisition)(implicit
+    trace: Trace
+  ): IO[SchemaAcquisitionError, Document] =
+    reply.body match {
+      case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
+      case Some(bytes) =>
+        if (!isSdlResponse(reply.status, reply.contentType))
+          ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
+        else parseRemote(new String(bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
+    }
+
+  private[acquisition] def parseRemote(sdl: String, maxDepth: Int)(implicit
+    trace: Trace
+  ): IO[SchemaAcquisitionError, Document] =
+    ZIO.fromEither(parseWithinDepth(sdl, maxDepth)(Parser.parseQuery))
+
+  private[acquisition] val SdlAccept: Header = Header.Custom("Accept", "application/graphql, text/plain;q=0.9")
+
+  /**
+   * SDL servers may omit Content-Type or use application/octet-stream. Reject HTML login/error
+   * pages explicitly; let the parser validate other successful responses.
+   */
+  private def isSdlResponse(status: Status, contentType: Option[String]): Boolean =
+    status.isSuccess && !RemoteTransport.mediaType(contentType).exists(_.startsWith("text/html"))
 
   /**
    * Posts `request` and returns the `data` object when `accepts` its status and it fits the size and depth limits.

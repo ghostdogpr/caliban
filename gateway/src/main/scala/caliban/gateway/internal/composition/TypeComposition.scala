@@ -93,31 +93,19 @@ private[composition] final class TypeComposition(
       val at                 = SchemaCoordinate.Member(name, fieldName)
       val resolving          = values ::: abstracted.getOrElse(fieldName, Nil)
       val owned              = owners(resolving, withLabels = true)
-      val ownerTypes         = owned.map(_.owner)
       val unshared           =
-        owned.filter(value =>
-          value.owner.subgraph.directiveNames.mode == SubgraphMode.Federation2 && !value.field.shareable
-        )
+        owned.exists(value => value.owner.subgraph.directiveNames.mode.strictSharing && !value.field.shareable)
       val hiddenArgument     = hiddenArguments(name, fieldName)
       val compatible         = fieldsCompatible(values.map(value => visibleArguments(value.field.definition, hiddenArgument)))
       val sharedSubscription = operation.contains(OperationType.Subscription) &&
         (owned.size > 1 || values.exists(_.field.shareable))
-      val sharedOrdinary     =
-        operation.nonEmpty && compatible && owned.size > 1 && ownerTypes.exists(!_.subgraph.federation)
       val sharedUnshareable  = !sharedSubscription && compatible && owned.size > 1 &&
-        entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
-        unshared.nonEmpty && (operation.isEmpty || ownerTypes.forall(_.subgraph.federation))
+        entries.exists(_.tpe.kind == __TypeKind.OBJECT) && unshared
       overrideDiagnostics(at, values, resolving) ::: contextualArgumentDiagnostics(at, values) :::
         check(
           !sharedSubscription,
           error(Code.InvalidFieldSharing, values.map(_.owner.source), Some(at))(
             s"Subscription field '${at.render}' requires one effective owner and cannot be @shareable."
-          )
-        ) :::
-        check(
-          !sharedOrdinary,
-          error(Code.InvalidFieldSharing, ownerTypes.map(_.source), Some(at))(
-            s"Field '${at.render}' is resolved by multiple ordinary subgraphs."
           )
         ) :::
         check(
@@ -128,7 +116,7 @@ private[composition] final class TypeComposition(
         ) :::
         check(
           !sharedUnshareable,
-          error(Code.InvalidFieldSharing, ownerTypes.map(_.source), Some(at))(
+          error(Code.InvalidFieldSharing, owned.map(_.owner.source), Some(at))(
             s"Field '${at.render}' is resolved by multiple subgraphs without compatible @shareable declarations."
           )
         ) :::
@@ -189,8 +177,10 @@ private[composition] final class TypeComposition(
           .toList
     }
     val overridingSources = overrides.map(_._1.owner.source).distinct.sorted
+    val chained           = overrides.forall(!_._1.owner.subgraph.federation) &&
+      overrideChain(overrides.map { case (value, directive) => value.owner.source -> directive.from }.toMap)
     invalid ::: check(
-      overridingSources.size <= 1,
+      overridingSources.size <= 1 || chained,
       error(Code.OverrideSourceHasOverride, overridingSources, Some(at))(
         s"Field '${at.render}' is overridden by more than one subgraph."
       )
@@ -417,13 +407,6 @@ private[composition] object TypeComposition {
   val RootOperations: Map[String, OperationType] =
     List(OperationType.Query, OperationType.Mutation, OperationType.Subscription).map(op => rootName(op) -> op).toMap
 
-  sealed trait SubgraphMode
-  object SubgraphMode {
-    case object Ordinary    extends SubgraphMode
-    case object Federation1 extends SubgraphMode
-    case object Federation2 extends SubgraphMode
-  }
-
   final case class FieldOverride(from: String, progressive: Option[ComposedGraph.OverrideLabel])
 
   def rewriteType(tpe: __Type, types: => Map[String, __Type]): __Type =
@@ -452,6 +435,18 @@ private[composition] object TypeComposition {
       }
     }
   }
+
+  /**
+   * Composite subgraphs may override in a chain such as C -> B -> A, which is valid when exactly one subgraph is not
+   * overridden itself and following `from` from it reaches every overriding subgraph.
+   */
+  private def overrideChain(from: Map[String, String]): Boolean =
+    from.keySet.diff(from.values.toSet).toList match {
+      case head :: Nil =>
+        Iterator.iterate(from.get(head))(_.flatMap(from.get)).takeWhile(_.isDefined).take(from.size + 1).size ==
+          from.size
+      case _           => false
+    }
 
   private def owners(entries: List[FieldEntry], withLabels: Boolean): List[FieldEntry] = {
     val claiming   = entries.filter(_.field.owned)

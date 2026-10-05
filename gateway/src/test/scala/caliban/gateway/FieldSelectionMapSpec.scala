@@ -12,7 +12,7 @@ import caliban.parsing.parsers.Parsers
 import caliban.tools.RemoteSchema
 import zio.test._
 
-// Examples from the Composite Schemas spec, Appendix A (graphql/composite-schemas-spec@dbf5cf9).
+// Examples from the GraphQL Federation spec, Appendix A (graphql/graphql-federation-spec@dbf5cf9).
 object FieldSelectionMapSpec extends ZIOSpecDefault {
 
   // Types for the examples of the Appendix A introduction and Language section, which show only the argument.

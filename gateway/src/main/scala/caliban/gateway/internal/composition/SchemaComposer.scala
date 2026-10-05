@@ -37,16 +37,24 @@ private[gateway] object SchemaComposer {
       RemoteSchema.normalize(document, extensionsCanDefineTypes = federation).left.map(SchemaValidationFailed(_))
     for {
       normalized    <- normalize(rootDocument)
-      _             <- Either.cond(
-                         federation || !normalized.rootType.queryType.allFields.exists(isEntityLookup),
-                         (),
-                         SubgraphBuildError.InvalidConfiguration(
-                           List(
-                             "The query root declares Federation entity transport. Use Subgraph.federation instead of Subgraph.graphql."
-                           )
-                         )
-                       )
-      names          = federationDirectiveNames(normalized.document, federation)
+      linked         = linkedFeatures(normalized.document).exists(_.identity == FederationIdentity)
+      mode          <-
+        if (federation) Right(if (linked) SubgraphMode.Federation2 else SubgraphMode.Federation1)
+        else {
+          val federated =
+            check(
+              !normalized.rootType.queryType.allFields.exists(isEntityLookup),
+              "The query root declares Federation entity transport."
+            ) ::: check(!linked, "The schema links the Federation spec.")
+          Either.cond(
+            federated.isEmpty,
+            SubgraphMode.Composite(!subgraph.introspected),
+            SubgraphBuildError.InvalidConfiguration(
+              federated.map(found => s"$found Use Subgraph.federation instead of Subgraph.graphql.")
+            )
+          )
+        }
+      names          = federationDirectiveNames(normalized.document, mode)
       mapping       <-
         SchemaMapping
           .compile(normalized.rootType, names, subgraph.transformations)
@@ -59,12 +67,25 @@ private[gateway] object SchemaComposer {
       subgraph.name,
       transformed.rootType,
       DirectiveComposition.schemaDirectives(transformed.document),
-      subgraph.lookups,
+      // Lookups declared in Scala, then the root query fields a composite subgraph marks with @lookup.
+      subgraph.lookups ::: lookupFields(normalized.rootType, names),
       mapping,
       extensionTypes,
       names
     )
   }
+
+  private def lookupFields(rootType: RootType, names: FederationDirectiveNames): List[Lookup] =
+    rootType.queryType.allFields.flatMap { field =>
+      val marked = field.directives.getOrElse(Nil).exists(names.is(_, LookupField))
+      field._type.innerType.name.filter(_ => marked).map { typeName =>
+        Lookup.Single(
+          typeName,
+          field.name,
+          field.allArgs.map(argument => argument.name -> Lookup.Argument.key(argument.name))
+        )
+      }
+    }
 
   private def withFederationQueryRoot(document: Document): Document = {
     val names         = document.typeDefinitions.iterator.map(_.name).toSet ++ document.typeExtensions.collect {
@@ -271,7 +292,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
   private val typeComposition    = new TypeComposition(
     sortedSubgraphs.flatMap { subgraph =>
       subgraph.rootType.types.collect {
-        case (name, tpe) if !subgraph.directiveNames.hiddenTypes(name) => subgraphType(subgraph, name, tpe)
+        case (name, tpe) if !subgraph.unmergedTypes(name) => subgraphType(subgraph, name, tpe)
       }
     },
     composedDirectives
@@ -283,19 +304,19 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
     def has(member: FederationDirective): Boolean =
       subgraph.applied(member, TypeCoordinate(name, typeLocation(tpe.kind)))
 
+    // Internal fields serve only as lookups and stay out of merging.
+    def excluded(field: __Field): Boolean =
+      subgraph.applied(Internal, FieldCoordinate(name, field.name)) ||
+        isRoot && subgraph.federation && TransportFields(field.name)
+
     val interfaceObject = subgraph.isInterfaceObject(name)
     val typeExternal    = !isRoot && has(FederationDirective.External)
     val typeShareable   = has(FederationDirective.Shareable)
+    val visible         = tpe.copy(fields = args => tpe.fields(args).map(_.filterNot(excluded)))
     val composedType    =
-      if (isRoot)
-        tpe.copy(
-          description = None,
-          interfaces = () => None,
-          fields =
-            args => tpe.fields(args).map(_.filterNot(field => subgraph.federation && TransportFields(field.name)))
-        )
-      else if (interfaceObject) tpe.copy(kind = __TypeKind.INTERFACE)
-      else tpe
+      if (isRoot) visible.copy(description = None, interfaces = () => None)
+      else if (interfaceObject) visible.copy(kind = __TypeKind.INTERFACE)
+      else visible
 
     def subgraphField(field: __Field): SubgraphField = {
       val at       = FieldCoordinate(name, field.name)

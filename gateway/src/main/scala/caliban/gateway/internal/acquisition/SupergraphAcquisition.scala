@@ -2,11 +2,10 @@ package caliban.gateway.internal.acquisition
 
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.SupergraphAcquisitionError.FileReadFailed
-import caliban.gateway.internal.{ GatewayHttpClient, RemoteTransport }
+import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.ApolloUplinkClient.UplinkResponse
 import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition._
 import caliban.gateway.{ RemoteGraphQLConfig, Supergraph, SupergraphAcquisitionError, SupergraphUplinkConfig }
-import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.{ IO, NonEmptyChunk, Ref, Trace, UIO, ZIO }
 import zio.http.{ Header, Status, URL }
@@ -52,25 +51,18 @@ private[gateway] object SupergraphAcquisition {
     Ref.make(Option.empty[Cached]).map { cache =>
       def load(cached: Option[Cached]): IO[SupergraphAcquisitionError, Document] = {
         val headers =
-          Header.Custom("Accept", "application/graphql, text/plain;q=0.9") ::
+          SdlAccept ::
             cached.map(entry => Header.IfNoneMatch.ETags(NonEmptyChunk(entry.tag))).toList
 
         followRedirects(endpoint, config, RedirectScope.AnyOrigin)((url, configured) =>
           http.get(url, configured ::: headers, config.maxResponseBytes)
         ).flatMap { reply =>
-          val unexpected = UnexpectedResponse(reply.status, reply.contentType)
-
-          reply.body match {
-            case None        => ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
-            case Some(bytes) =>
-              if (reply.status == Status.NotModified) ZIO.fromOption(cached.map(_.document)).orElseFail(unexpected)
-              else if (!isSdlResponse(reply.status, reply.contentType))
-                ZIO.fail(unexpected)
-              else
-                // Save the tag only with a parsed document, so a later 304 can be answered.
-                parseRemote(new String(bytes, StandardCharsets.UTF_8), config.maxParsingDepth)
-                  .tap(document => cache.set(reply.headers.rawHeader(Header.ETag).map(Cached(_, document))))
-          }
+          if (reply.status == Status.NotModified)
+            ZIO.fromOption(cached.map(_.document)).orElseFail(UnexpectedResponse(reply.status, reply.contentType))
+          else
+            // Save the tag only with a parsed document, so a later 304 can be answered.
+            sdlDocument(reply, config)
+              .tap(document => cache.set(reply.headers.rawHeader(Header.ETag).map(Cached(_, document))))
         }
       }
 
@@ -112,16 +104,6 @@ private[gateway] object SupergraphAcquisition {
         }
       }
     }
-
-  private def parseRemote(sdl: String, maxDepth: Int)(implicit trace: Trace): IO[SupergraphAcquisitionError, Document] =
-    ZIO.fromEither(parseWithinDepth(sdl, maxDepth)(Parser.parseQuery))
-
-  /**
-   * SDL servers may omit Content-Type or use application/octet-stream. Reject HTML login/error
-   * pages explicitly; let the parser validate other successful responses.
-   */
-  private def isSdlResponse(status: Status, contentType: Option[String]): Boolean =
-    status.isSuccess && !RemoteTransport.mediaType(contentType).exists(_.startsWith("text/html"))
 
   // The ETag or uplink id of the last fetched document.
   private final case class Cached(tag: String, document: Document)

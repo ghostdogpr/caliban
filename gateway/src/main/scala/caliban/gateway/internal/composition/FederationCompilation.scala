@@ -4,7 +4,6 @@ import caliban.gateway._
 import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.gateway.internal.composition.ComposedGraph.KeyField
 import caliban.gateway.internal.composition.DirectiveComposition._
-import caliban.gateway.internal.composition.TypeComposition.SubgraphMode
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Document, Selection }
 import caliban.schema.{ RootType, Types }
@@ -17,13 +16,28 @@ private[gateway] object FederationCompilation {
     mode: SubgraphMode,
     resolved: Map[String, FederationDirective],
     unsupported: Map[String, UnsupportedDirective],
-    hidden: Set[String],
     hiddenTypes: Set[String]
   ) {
     def supportsProgressiveOverride: Boolean =
       features.exists(feature => feature.identity == FederationIdentity && feature.version.atLeast(2, 7))
 
     def is(directive: Directive, member: FederationDirective): Boolean = resolved.get(directive.name).contains(member)
+  }
+
+  sealed abstract class SubgraphMode(
+    val federation: Boolean,
+    // A field resolved by several subgraphs must then be a key field or declared @shareable.
+    val strictSharing: Boolean,
+    val bareDirectives: List[FederationDirective]
+  )
+
+  object SubgraphMode {
+    // Introspection does not expose applied directives, so an introspected subgraph's are unknown.
+    final case class Composite(directivesKnown: Boolean)
+        extends SubgraphMode(federation = false, strictSharing = directivesKnown, FederationDirective.composite)
+    case object Federation1
+        extends SubgraphMode(federation = true, strictSharing = false, FederationDirective.federation1)
+    case object Federation2 extends SubgraphMode(federation = true, strictSharing = true, Nil)
   }
 
   final case class UnsupportedDirective(code: Code, message: Coordinate => String) {
@@ -84,11 +98,13 @@ private[gateway] object FederationCompilation {
     case object InterfaceObject extends FederationDirective("interfaceObject", Set(OBJECT))
     case object Tag             extends FederationDirective("tag", Everywhere + SCHEMA, List(required("name")), true)
     case object ComposeDirective
-        extends FederationDirective("composeDirective", Set(SCHEMA), List(required("name")), true, v21)           {
+        extends FederationDirective("composeDirective", Set(SCHEMA), List(required("name")), true, v21) {
       override def unavailableMessage: String = "requires Federation v2.1 or newer"
     }
     case object Override
         extends FederationDirective("override", Set(FIELD_DEFINITION), List(required("from"), optional("label")))
+    case object LookupField extends FederationDirective("lookup", Set(FIELD_DEFINITION))
+    case object Internal extends FederationDirective("internal", Set(OBJECT, FIELD_DEFINITION))
     case object Context
         extends FederationDirective("context", Set(OBJECT, INTERFACE, UNION), List(required("name")), true, v28)
     case object FromContext
@@ -123,7 +139,11 @@ private[gateway] object FederationCompilation {
     val imported: List[FederationDirective]    = List(Key, Shareable, External, Requires, Provides, Tag, Override) :::
       List(Inaccessible, InterfaceObject, Authenticated, RequiresScopes, Policy, Context, FromContext, Cost, ListSize)
     val all: List[FederationDirective]         = imported ::: List(Extends, ComposeDirective)
-    val linkedSpecIdentities: Set[String]      = all.flatMap(_.specIdentity).toSet
+
+    // Composite source schemas apply these by their bare names.
+    val composite: List[FederationDirective] =
+      List(Key, External, Shareable, Inaccessible, Provides, Override, LookupField, Internal)
+    val linkedSpecIdentities: Set[String]    = all.flatMap(_.specIdentity).toSet
   }
 
   final case class FederationApplication(coordinate: Coordinate, member: FederationDirective, directive: Directive)
@@ -147,7 +167,7 @@ private[gateway] object FederationCompilation {
       validateArguments(source, s"Federation @${member.name}", coordinate, directive, member.definition)
         .map(FederationApplication(coordinate, member, _))
 
-  def federationDirectiveNames(document: Document, federation: Boolean): FederationDirectiveNames = {
+  def federationDirectiveNames(document: Document, mode: SubgraphMode): FederationDirectiveNames = {
     val links           = linkedFeatures(document)
     val federationLinks = links.filter(_.identity == FederationIdentity)
     val relevant        =
@@ -169,10 +189,8 @@ private[gateway] object FederationCompilation {
         else feature.version == FeatureVersion(0, 1)
       Either.cond(available, name -> member, name -> member)
     }
-    val federation1              =
-      if (federationLinks.nonEmpty) Nil else FederationDirective.federation1.map(member => member.name -> member)
     val (unavailable, available) = linked.partitionMap(identity)
-    val resolved                 = (available ::: federation1).toMap
+    val resolved                 = (available ::: mode.bareDirectives.map(member => member.name -> member)).toMap
     val unresolved               = unavailable.toMap -- resolved.keySet
     val definedDirectives        = document.directiveDefinitions.iterator.map(_.name).toSet
     val recognizedSecurity       = (resolved ++ unresolved).collect { case (name, _: FederationDirective.Security) =>
@@ -188,33 +206,35 @@ private[gateway] object FederationCompilation {
         relevant.flatMap(_.imports).collect { case value if !value.isDirective => value.alias } ++
         Set(AnyType, "_Entity", "_FieldSet", ServiceType)
 
-    // Ordinary subgraphs keep only the linked specs they can enforce.
-    def enforced(names: Map[String, FederationDirective]): Map[String, FederationDirective] =
-      if (federation) names else names.filter(_._2.specIdentity.nonEmpty)
-
     FederationDirectiveNames(
       features = links,
-      mode =
-        if (!federation) SubgraphMode.Ordinary
-        else if (federationLinks.nonEmpty) SubgraphMode.Federation2
-        else SubgraphMode.Federation1,
-      resolved = enforced(resolved),
-      unsupported = enforced(unresolved).map { case (name, member) =>
+      mode = mode,
+      resolved = resolved,
+      unsupported = unresolved.map { case (name, member) =>
         name -> UnsupportedDirective(
           Code.InvalidGraphQL,
           coordinate => s"Federation @${member.name} ${member.unavailableMessage} at '${coordinate.display}'."
         )
-      } ++ (if (federation) unimportedSecurity else Set.empty[String]).map { name =>
+      } ++ (if (mode.federation) unimportedSecurity else Set.empty[String]).map { name =>
         name -> UnsupportedDirective(
           Code.UnenforceableSecurityDirective,
           coordinate =>
             s"Federation @$name at '${coordinate.display}' is not imported through a supported @link, so it would not be enforced."
         )
       },
-      hidden = Set("link") ++ resolved.keySet ++ unresolved.keySet ++
-        document.directiveDefinitions.iterator.map(_.name).filter(isNamespaced),
-      hiddenTypes = if (federation) hiddenTypes else Set.empty
+      hiddenTypes = if (mode.federation) hiddenTypes else Set.empty
     )
+  }
+
+  /**
+   * Composite subgraphs drop their directive definitions, and with them the types only those definitions use.
+   */
+  def directiveOnlyTypes(rootType: RootType): Set[String] = {
+    val directiveTypes: Set[String] =
+      Types.collectRootTypes(rootType.additionalDirectives.flatMap(_.allArgs.map(_._type)), Nil).flatMap(_.name).toSet
+    val kept: Set[String]           =
+      rootType.copy(additionalTypes = rootType.additionalTypes.filterNot(_.name.exists(directiveTypes))).types.keySet
+    rootType.types.keySet -- kept
   }
 
   def plainFieldSet(selections: List[Selection]): Option[List[KeyField]] =

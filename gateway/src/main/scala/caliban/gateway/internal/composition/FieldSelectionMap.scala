@@ -8,7 +8,7 @@ import caliban.parsing.parsers.Parsers.{ name, value, whitespace }
 import caliban.rendering.DocumentRenderer
 import fastparse._
 
-// The FieldSelectionMap of Composite Schemas Appendix A; the shorthand `{ f(args) }` reads as `{ f: f(args) }`.
+// The FieldSelectionMap of GraphQL Federation Appendix A; the shorthand `{ f(args) }` reads as `{ f: f(args) }`.
 private[gateway] object FieldSelectionMap {
   import Selection._
 

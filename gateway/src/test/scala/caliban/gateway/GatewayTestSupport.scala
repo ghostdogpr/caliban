@@ -7,8 +7,9 @@ import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.{ IntrospectionClient, SupergraphAcquisition }
 import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer }
 import caliban.introspection.Introspector
-import caliban.parsing.Parser
+import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.Document
+import caliban.rendering.DocumentRenderer
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.validation.Validator
@@ -75,10 +76,10 @@ private[gateway] object GatewayTestSupport {
       )
     )
 
-  def supergraphResource(name: String): UIO[String] =
-    ZIO
-      .scoped(ZIO.fromAutoCloseable(ZIO.attempt(scala.io.Source.fromResource(s"supergraph/$name"))).map(_.mkString))
-      .orDie
+  def supergraphResource(name: String): UIO[String] = testResource(s"supergraph/$name")
+
+  def testResource(path: String): UIO[String] =
+    ZIO.scoped(ZIO.fromAutoCloseable(ZIO.attempt(scala.io.Source.fromResource(path))).map(_.mkString)).orDie
 
   final case class Stub(
     endpoint: URL,
@@ -162,6 +163,35 @@ private[gateway] object GatewayTestSupport {
     }).left
       .map(GatewayBuildError.SubgraphLoadingFailed(_))
       .flatMap(SchemaComposer.compose(_).map(_._1))
+
+  def composeSdl(
+    subgraphs: List[(String, String)],
+    federation: Boolean = true,
+    transformations: Map[String, List[SchemaTransformation]] = Map.empty
+  ): Either[GatewayBuildError, ComposedGraph] =
+    collectErrors(subgraphs.map { case (name, sdl) =>
+      Parser
+        .parseQuery(sdl)
+        .left
+        .map(error => List(SubgraphError(name, SchemaAcquisitionError.SchemaParsingFailed(error))))
+        .map(name -> _)
+    }).left
+      .map(GatewayBuildError.SubgraphLoadingFailed(_))
+      .flatMap(composeDocuments(_, federation, transformations))
+
+  def composeComposite(sources: (String, String)*): Either[GatewayBuildError, ComposedGraph] =
+    composeSdl(sources.toList, federation = false)
+
+  /**
+   * Every composed type as SDL, name-ordered, so the comparison is stable and readable on failure.
+   */
+  def renderTypes(graph: ComposedGraph): String =
+    graph.rootType.types.toList
+      .sortBy(_._1)
+      .flatMap { case (_, tpe) => tpe.toTypeDefinition }
+      .map(definition => DocumentRenderer.render(Document(List(definition), SourceMapper.empty)).trim)
+      .filter(_.nonEmpty)
+      .mkString("\n\n")
 
   def queryFields(document: Document): List[String] =
     document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))
@@ -293,6 +323,22 @@ private[gateway] object GatewayTestSupport {
       """directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
         |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
         |""".stripMargin
+
+  /**
+   * A Federation subgraph composing the custom directive `name`, the only way a custom directive reaches the client.
+   */
+  def composedDirectiveSchema(name: String, definition: String, body: String, roots: String = "query: Query"): String =
+    s"""schema
+       |  @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@composeDirective"])
+       |  @link(url: "https://example.com/$name/v1.0", import: ["@$name"])
+       |  @composeDirective(name: "@$name")
+       |{ $roots }
+       |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+       |directive @composeDirective(name: String!) repeatable on SCHEMA
+       |scalar link__Import
+       |$definition
+       |$body
+       |""".stripMargin
 
   def progressiveSchema(body: String, imports: String*): String =
     federationSchemaPreambleWithQueryRootAt("v2.7", ("@override" +: imports): _*)

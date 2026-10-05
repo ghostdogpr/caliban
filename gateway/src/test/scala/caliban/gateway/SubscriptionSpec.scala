@@ -128,8 +128,12 @@ object SubscriptionSpec extends ZIOSpecDefault {
       )
     },
     test("passthrough subscriptions preserve resolved directives and variables") {
-      val schema    =
-        "directive @trace(label: String!) on SUBSCRIPTION | FRAGMENT_DEFINITION type Query { value: String } type Subscription { event: Int }"
+      val schema    = composedDirectiveSchema(
+        "trace",
+        "directive @trace(label: String!) on SUBSCRIPTION | FRAGMENT_DEFINITION",
+        "type Query { value: String } type Subscription { event: Int }",
+        roots = "query: Query subscription: Subscription"
+      )
       val query     =
         """subscription Events($label: String!) @trace(label: $label) { ...Root } fragment Root on Subscription @trace(label: "fragment") { event }"""
       val variables = Some(Map("label" -> Value.StringValue("client")))
@@ -141,7 +145,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
               .flatMap(body => sent.set(Some(readFromString[GraphQLRequest](body))))
               .as(graphQLResponse(sseBody(1), mediaType = "text/event-stream"))
           )
-        runtime  <- remoteGateway(endpoint, schema, sseConfig)
+        runtime  <- Gateway
+                      .compose(Subgraph.federation("remote", endpoint, schema, sseConfig))
                       .withPhaseHooks(PhaseHooks.resolution(_ => ZIO.succeed(query)))
                       .interpreter
         events   <-

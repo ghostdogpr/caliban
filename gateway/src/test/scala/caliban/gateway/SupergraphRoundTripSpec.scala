@@ -3,9 +3,6 @@ package caliban.gateway
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.{ ComposedGraph, SupergraphDecomposition }
 import caliban.gateway.internal.composition.DirectiveComposition.FieldCoordinate
-import caliban.parsing.SourceMapper
-import caliban.parsing.adt.Document
-import caliban.rendering.DocumentRenderer
 import scala.collection.compat._
 import zio._
 import zio.test._
@@ -90,20 +87,12 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
   private def contextArguments(graph: ComposedGraph, source: String, typeName: String, field: String) =
     graph.sources.filter(_.name == source).flatMap(_.contextArguments(typeName, field))
 
-  /** Every composed type as SDL, name-ordered, so the comparison is stable and readable on failure. */
-  private def render(graph: ComposedGraph): String =
-    graph.rootType.types.toList
-      .sortBy(_._1)
-      .flatMap { case (_, tpe) => tpe.toTypeDefinition }
-      .map(definition => DocumentRenderer.render(Document(List(definition), SourceMapper.empty)))
-      .mkString("\n")
-
   def spec = suite("SupergraphRoundTripSpec")(
     test("decomposing then composing yields the same schema as composing the originals") {
       for {
         supergraph <- characterGraphFromSupergraph
         originals  <- characterGraphFromOriginals
-      } yield assertTrue(render(supergraph) == render(originals))
+      } yield assertTrue(renderTypes(supergraph) == renderTypes(originals))
     },
     test("decomposing then composing yields the same routing as composing the originals") {
       // Schema equality above cannot see ownership: this is the assertion that fails if the field
@@ -210,7 +199,7 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
           supergraph <- contextGraphFromSupergraph
           originals  <- contextGraphFromOriginals
         } yield assertTrue(
-          render(supergraph) == render(originals),
+          renderTypes(supergraph) == renderTypes(originals),
           routes(supergraph) == routes(originals)
         )
       },

@@ -12,6 +12,12 @@ object MultiSourceSpec extends ZIOSpecDefault {
 
   private val reviewMutationSchema = "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
 
+  private def federationProductsAndReviews(products: Stub, reviews: Stub, productsSchema: String): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.federation("products", products.endpoint, productsSchema),
+      Subgraph.federation("reviews", reviews.endpoint, "type Query { reviews: [String!]! }")
+    )
+
   private def graphqlProductsAndReviews(
     products: Stub,
     reviews: Stub,
@@ -516,14 +522,16 @@ object MultiSourceSpec extends ZIOSpecDefault {
       },
       test("rejects custom operation directives in split requests") {
         val productsSchema =
-          "directive @trace(label: String!) on QUERY type Query { product: String }"
-        val reviewsSchema  =
-          "type Query { reviews: [String!]! }"
+          composedDirectiveSchema(
+            "trace",
+            "directive @trace(label: String!) on QUERY",
+            "type Query { product: String }"
+          )
 
         for {
           products     <- stub("""{"data":{"product":"Table"}}""")
           reviews      <- stub("""{"data":{"reviews":["Solid"]}}""")
-          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          runtime      <- federationProductsAndReviews(products, reviews, productsSchema).interpreter
           response     <- runtime.execute(
                             """query Traced @trace(label: "client") { product reviews }""",
                             Some("Traced")
@@ -539,14 +547,12 @@ object MultiSourceSpec extends ZIOSpecDefault {
       },
       test("rejects custom fragment-definition directives before routing") {
         val productsSchema =
-          "directive @trace on FRAGMENT_DEFINITION type Query { product: String }"
-        val reviewsSchema  =
-          "directive @trace on FRAGMENT_DEFINITION type Query { reviews: [String!]! }"
+          composedDirectiveSchema("trace", "directive @trace on FRAGMENT_DEFINITION", "type Query { product: String }")
 
         for {
           products     <- stub("""{"data":{"product":"Table"}}""")
           reviews      <- stub("""{"data":{"reviews":["Solid"]}}""")
-          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          runtime      <- federationProductsAndReviews(products, reviews, productsSchema).interpreter
           response     <- runtime.execute(
                             """query { ...Fields } fragment Fields on Query @trace { product reviews }"""
                           )

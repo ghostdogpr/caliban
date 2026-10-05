@@ -22,7 +22,7 @@ final class Subgraph[-R] private[gateway] (
   import Subgraph.{ Resolved, SchemaInput, Source }
 
   /**
-   * Adds an explicit ordinary GraphQL object lookup to this subgraph.
+   * Adds a lookup declared in Scala to this subgraph.
    */
   def withLookup(lookup: Lookup): Subgraph[R] =
     new Subgraph[R](name, source, lookup :: lookups, transformations)
@@ -35,8 +35,17 @@ final class Subgraph[-R] private[gateway] (
 
   private[gateway] def acquired: Boolean =
     source match {
-      case Source.Remote(_, SchemaInput.Acquired(_), _, _) => true
-      case _                                               => false
+      case Source.Remote(_, SchemaInput.Acquired(_) | SchemaInput.Fetched(_, _), _, _) => true
+      case _                                                                           => false
+    }
+
+  /**
+   * Introspection does not expose applied directives.
+   */
+  private[gateway] def introspected: Boolean =
+    source match {
+      case Source.Remote(_, SchemaInput.Acquired(_), federation, _) => !federation
+      case _                                                        => false
     }
 
   private[gateway] def resolve(http: GatewayHttpClient)(implicit trace: Trace): IO[SubgraphBuildError, Resolved[R]] =
@@ -49,8 +58,11 @@ final class Subgraph[-R] private[gateway] (
     (source match {
       case Source.Remote(endpoint, schema, _, config) =>
         val acquisition = schema match {
-          case SchemaInput.Acquired(acquisition) => acquisition.diagnostics
-          case _                                 => Nil
+          case SchemaInput.Acquired(acquisition)     => acquisition.diagnostics
+          case SchemaInput.Fetched(url, acquisition) =>
+            checkAbsolute(url, _.isHttp, "Schema URL must be an absolute http or https URL.") :::
+              acquisition.diagnostics
+          case _                                     => Nil
         }
         // "foo" decodes into a relative URL, which would only fail later at request time.
         checkAbsolute(endpoint, _.isHttp, "Endpoint must be an absolute http or https URL.") :::
@@ -62,13 +74,15 @@ final class Subgraph[-R] private[gateway] (
 object Subgraph {
 
   /**
-   * Describes an ordinary remote GraphQL graph whose schema is acquired through introspection.
+   * Describes a remote GraphQL service whose schema is acquired through introspection, which does not expose applied
+   * directives.
    */
   def graphql(name: String, endpoint: URL): Subgraph[Any] =
     graphql(name, endpoint, RemoteGraphQLConfig.default)
 
   /**
-   * Describes an ordinary remote GraphQL graph with remote GraphQL and schema-acquisition configuration.
+   * Describes a remote GraphQL service whose schema is acquired through introspection, with remote GraphQL and
+   * schema-acquisition configuration.
    */
   def graphql[R](
     name: String,
@@ -79,31 +93,50 @@ object Subgraph {
     remote(name, endpoint, SchemaInput.Acquired(acquisition), federation = false, config = config)
 
   /**
-   * Describes an ordinary remote GraphQL graph from pinned SDL.
+   * Describes a remote GraphQL service from pinned SDL.
    */
   def graphql(name: String, endpoint: URL, schema: String): Subgraph[Any] =
     graphql(name, endpoint, schema, RemoteGraphQLConfig.default)
 
   /**
-   * Describes an ordinary remote GraphQL graph from pinned SDL with remote GraphQL configuration.
+   * Describes a remote GraphQL service from pinned SDL with remote GraphQL configuration.
    */
   def graphql[R](name: String, endpoint: URL, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Pinned(parseSdl(schema)), federation = false, config = config)
 
   /**
-   * Describes an ordinary remote GraphQL graph from an already parsed schema document.
+   * Describes a remote GraphQL service from an already parsed schema document.
    */
   def graphql(name: String, endpoint: URL, schema: Document): Subgraph[Any] =
     graphql(name, endpoint, schema, RemoteGraphQLConfig.default)
 
   /**
-   * Describes an ordinary remote GraphQL graph from a parsed document with remote GraphQL configuration.
+   * Describes a remote GraphQL service from a parsed document with remote GraphQL configuration.
    */
   def graphql[R](name: String, endpoint: URL, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Pinned(Right(schema)), federation = false, config = config)
 
   /**
-   * Describes an ordinary in-process Caliban graph whose environment is supplied when the gateway executes.
+   * Describes a remote GraphQL service whose SDL is fetched with an HTTP GET from `schema`.
+   */
+  def graphql(name: String, endpoint: URL, schema: URL): Subgraph[Any] =
+    graphql(name, endpoint, schema, RemoteGraphQLConfig.default, RemoteGraphQLConfig.Acquisition.default)
+
+  /**
+   * Describes a remote GraphQL service whose SDL is fetched with an HTTP GET from `schema`, with remote GraphQL
+   * and schema-acquisition configuration.
+   */
+  def graphql[R](
+    name: String,
+    endpoint: URL,
+    schema: URL,
+    config: RemoteGraphQLConfig[R],
+    acquisition: RemoteGraphQLConfig.Acquisition
+  ): Subgraph[R] =
+    remote(name, endpoint, SchemaInput.Fetched(schema, acquisition), federation = false, config = config)
+
+  /**
+   * Describes an in-process Caliban GraphQL API whose environment is supplied when the gateway executes.
    */
   def graphql[R](name: String, graph: GraphQL[R]): Subgraph[R] =
     new Subgraph[R](name, Source.Local(graph, federation = false), Nil, Nil)
@@ -199,6 +232,8 @@ object Subgraph {
 
   private[gateway] object SchemaInput {
     final case class Pinned(document: Either[SchemaAcquisitionError, Document]) extends SchemaInput
+    // Introspection, or `_service` for a Federation subgraph.
     final case class Acquired(config: RemoteGraphQLConfig.Acquisition)          extends SchemaInput
+    final case class Fetched(url: URL, config: RemoteGraphQLConfig.Acquisition) extends SchemaInput
   }
 }

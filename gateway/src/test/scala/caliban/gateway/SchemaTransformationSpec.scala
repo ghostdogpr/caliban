@@ -6,6 +6,8 @@ import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.{ FederationCompilation, SchemaMapping }
+import caliban.gateway.internal.composition.FederationCompilation.SubgraphMode
+import caliban.parsing.adt.Document
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
@@ -64,23 +66,28 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
   private val contextPreamble = contextSchemaPreamble("v2.9", "@key", "@context", "@fromContext")
 
-  private def transformedContextSelectors(schema: String, transformations: List[SchemaTransformation]) =
+  private def compiledMapping(
+    schema: String,
+    mode: SubgraphMode,
+    transformations: List[SchemaTransformation]
+  ): IO[Any, (SchemaMapping, Document)] =
     for {
       document   <- parseSdl(schema)
-      normalized <- ZIO.fromEither(RemoteSchema.normalize(document, extensionsCanDefineTypes = true))
-      names       = FederationCompilation.federationDirectiveNames(normalized.document, federation = true)
-      mapping    <- ZIO.fromEither(
-                      SchemaMapping.compile(normalized.rootType, names, transformations)
-                    )
-    } yield mapping
-      .transform(normalized.document, names)
-      .objectTypeDefinitions
-      .flatMap(_.fields)
-      .flatMap(_.args)
-      .flatMap(_.directives)
-      .filter(_.name == "fromContext")
-      .flatMap(_.arguments.get("field"))
-      .collect { case StringValue(value) => value.replaceAll("\\s", "") }
+      normalized <- ZIO.fromEither(RemoteSchema.normalize(document, extensionsCanDefineTypes = mode.federation))
+      names       = FederationCompilation.federationDirectiveNames(normalized.document, mode)
+      mapping    <- ZIO.fromEither(SchemaMapping.compile(normalized.rootType, names, transformations))
+    } yield (mapping, mapping.transform(normalized.document, names))
+
+  private def transformedContextSelectors(schema: String, transformations: List[SchemaTransformation]) =
+    compiledMapping(schema, SubgraphMode.Federation2, transformations).map(
+      _._2.objectTypeDefinitions
+        .flatMap(_.fields)
+        .flatMap(_.args)
+        .flatMap(_.directives)
+        .filter(_.name == "fromContext")
+        .flatMap(_.arguments.get("field"))
+        .collect { case StringValue(value) => value.replaceAll("\\s", "") }
+    )
 
   def spec = suite("SchemaTransformationSpec")(
     test("rewrites context selections through field and type renames") {
@@ -388,35 +395,32 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
 
       for {
-        document   <- parseSdl(schema)
-        rootType   <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
-        names       = FederationCompilation.federationDirectiveNames(document, federation = false)
-        mapping    <- ZIO.fromEither(
-                        SchemaMapping.compile(rootType, names, transformations = transformations)
-                      )
-        transformed = mapping.transform(document, names)
-        directives  = transformed.objectTypeDefinitions
-                        .find(_.name == "Query")
-                        .flatMap(_.fields.find(_.name == "product"))
-                        .toList
-                        .flatMap(_.directives)
-        sqlFields   = directives.find(_.name == "sql").flatMap(_.arguments.get("fields"))
-        flagStatus  = directives.find(_.name == "flag").flatMap(_.arguments.get("status"))
+        compiled  <- compiledMapping(schema, SubgraphMode.Composite(directivesKnown = true), transformations)
+        directives = compiled._2.objectTypeDefinitions
+                       .find(_.name == "Query")
+                       .flatMap(_.fields.find(_.name == "product"))
+                       .toList
+                       .flatMap(_.directives)
+        sqlFields  = directives.find(_.name == "sql").flatMap(_.arguments.get("fields"))
+        flagStatus = directives.find(_.name == "flag").flatMap(_.arguments.get("status"))
       } yield assertTrue(
         sqlFields.contains(StringValue("name")),
         flagStatus.contains(EnumValue("ACTIVE"))
       )
     },
     test("preserves enum defaults when renaming their type") {
-      val schema =
-        "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { product: Product } type Product { name: String @flag(status: ACTIVE) } enum Status { ACTIVE }"
+      val schema = composedDirectiveSchema(
+        "flag",
+        "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION",
+        "type Query { product: Product } type Product { name: String @flag(status: ACTIVE) } enum Status { ACTIVE }"
+      )
 
       for {
         remote  <- stub("""{"data":{"product":{"name":"Table"}}}""")
         runtime <- Gateway
                      .compose(
                        Subgraph
-                         .graphql("directives", remote.endpoint, schema)
+                         .federation("directives", remote.endpoint, schema)
                          .transform(SchemaTransformation.renameType("Status", "State"))
                      )
                      .interpreter
@@ -576,21 +580,17 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "scalar JSON type Query { product: Product } type Product { details: Details json: JSON } type Details { code: String }"
       val json   = InputObjectValue(Map("__typename" -> StringValue("Item"), "key" -> StringValue("unchanged")))
       for {
-        document <- parseSdl(schema)
-        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
-        mapping  <- ZIO.fromEither(
-                      SchemaMapping.compile(
-                        rootType,
-                        FederationCompilation.federationDirectiveNames(document, federation = false),
-                        List(
-                          SchemaTransformation.renameType("Product", "Item"),
-                          SchemaTransformation.renameType("Details", "Info"),
-                          SchemaTransformation.renameField("Product", "details", "info"),
-                          SchemaTransformation.renameField("Details", "code", "key")
-                        )
+        compiled <- compiledMapping(
+                      schema,
+                      SubgraphMode.Composite(directivesKnown = true),
+                      List(
+                        SchemaTransformation.renameType("Product", "Item"),
+                        SchemaTransformation.renameType("Details", "Info"),
+                        SchemaTransformation.renameField("Product", "details", "info"),
+                        SchemaTransformation.renameField("Details", "code", "key")
                       )
                     )
-        value     = mapping.representationToSource(
+        value     = compiled._1.representationToSource(
                       "Item",
                       InputObjectValue(
                         Map(
@@ -612,7 +612,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     },
     test("translates ordinary lookup metadata, arguments, correlation fields, and results") {
       val productsSchema    =
-        "type Query { products: [Product!]! } type Product { id: ID! name: String! }"
+        "type Query { products: [Product!]! } type Product @key(fields: \"id\") { id: ID! name: String! }"
       val reviewsSchema     =
         """
           |input ProductRefInput { productId: ID! }
@@ -744,15 +744,18 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       } yield assertTrue(result.errors.isEmpty)
     },
     test("rejects hidden input fields referenced by directives or defaults") {
-      val directives =
-        "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION input Filter { visible: String hidden: String } type Query { value(filter: Filter): String @flag(filter: { hidden: \"applied\" }) }"
+      val directives = composedDirectiveSchema(
+        "flag",
+        "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION",
+        "input Filter { visible: String hidden: String } type Query { value(filter: Filter): String @flag(filter: { hidden: \"applied\" }) }"
+      )
       val defaults   =
         "input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String }"
 
       def diagnostics(schema: String) =
         compositionErrors(
           Subgraph
-            .graphql("products", unreachableEndpoint, schema)
+            .federation("products", unreachableEndpoint, schema)
             .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
         )
 

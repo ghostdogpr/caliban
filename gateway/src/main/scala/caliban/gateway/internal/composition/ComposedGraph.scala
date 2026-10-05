@@ -10,7 +10,7 @@ import caliban.gateway.internal.composition.DirectiveComposition._
 import caliban.gateway.internal.composition.FederationCompilation._
 import caliban.gateway.internal.composition.FederationCompilation.FederationDirective._
 import caliban.gateway.internal.composition.SchemaComposer.SubgraphKeys
-import caliban.gateway.internal.composition.TypeComposition.{ FieldOverride, RootOperations, SubgraphMode }
+import caliban.gateway.internal.composition.TypeComposition.{ FieldOverride, RootOperations }
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
@@ -187,7 +187,7 @@ private[gateway] object ComposedGraph {
 
     lazy val keys: SubgraphKeys = SchemaComposer.subgraphKeys(this)
 
-    def federation: Boolean = directiveNames.mode != SubgraphMode.Ordinary
+    def federation: Boolean = directiveNames.mode.federation
 
     def invalidApplication[A](application: FederationApplication, code: Code)(
       result: Either[String, A]
@@ -252,6 +252,12 @@ private[gateway] object ComposedGraph {
       }.toSet -- RootOperations.keySet
 
     def isInterfaceObject(typeName: String): Boolean = interfaceObjects.contains(typeName)
+
+    lazy val unmergedTypes: Set[String] =
+      if (federation) directiveNames.hiddenTypes
+      else
+        directiveOnlyTypes(rootType) ++
+          applications(Internal).collect { case FederationApplication(TypeCoordinate(typeName, _), _, _) => typeName }
 
     private lazy val entityLookupsByType: Map[String, List[EntityLookup]] =
       (if (!federation) compiledLookups.collect { case Right(lookup) => lookup }
