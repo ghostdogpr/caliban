@@ -24,7 +24,7 @@ object CompositeSchemaSpec extends ZIOSpecDefault {
   private def routes(graph: ComposedGraph, typeName: String, field: String): List[String] =
     graph.fieldRoutes.getOrElse(FieldCoordinate(typeName, field), Nil).map(_.name)
 
-  // Internal lookups, the spec's scalars and @serializeAs stay out; @require arguments stay until it is supported.
+  // Internal lookups, @require arguments, the spec's scalars and @serializeAs stay out.
   private val eShopClientSchema =
     """"The `Long` scalar type represents a signed 64-bit integer."
       |scalar Long @specifiedBy(url: "https://scalars.graphql.org/chillicream/long.html")
@@ -34,7 +34,7 @@ object CompositeSchemaSpec extends ZIOSpecDefault {
       |  name: String!
       |  price: Long!
       |  reviews: [Review!]!
-      |  shippingEstimate(weight: Long!, price: Long!): Long
+      |  shippingEstimate: Long
       |  upc: String!
       |  weight: Long!
       |}
@@ -97,7 +97,7 @@ object CompositeSchemaSpec extends ZIOSpecDefault {
         assertTrue(graph.map(renderTypes) == Right(eShopClientSchema))
       }
     },
-    test("resolves the eShop benchmark query across local Caliban subgraphs") {
+    test("resolves the eShop benchmark query, @require included, across local Caliban subgraphs") {
       import CompositeEShop._
       for {
         runtime  <- Gateway

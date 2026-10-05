@@ -2,9 +2,10 @@ package caliban.gateway.internal.planning
 
 import caliban.execution.{ isMetaField, ExecutionRequest, Field }
 import caliban.gateway.internal.PrivateAliases
-import caliban.gateway.internal.composition.ComposedGraph
-import caliban.gateway.internal.composition.ComposedGraph.{ OverrideLabel, Source }
+import caliban.gateway.internal.composition.{ ComposedGraph, FieldSelectionMap }
+import caliban.gateway.internal.composition.ComposedGraph.{ OverrideLabel, RequireArgument, Source }
 import caliban.gateway.internal.composition.DirectiveComposition.{ ArgumentCoordinate, FieldCoordinate }
+import caliban.gateway.internal.composition.FieldSelectionMap.StepTree
 import caliban.gateway.internal.planning.CandidateSearch._
 import caliban.gateway.internal.planning.FetchGraphOptimizer.mergeFields
 import caliban.gateway.internal.planning.OperationPlan._
@@ -452,7 +453,8 @@ private[gateway] object OperationPlanner {
             val requirements = subgraph.requiredFieldSet(declaredType, child.name)
             if (
               subgraph == currentSubgraph &&
-              (requirements.isEmpty || satisfiedRequirements.contains(FieldCoordinate(declaredType, child.name)))
+              (requirements.isEmpty && subgraph.requireArguments(declaredType, child.name).isEmpty ||
+                satisfiedRequirements.contains(FieldCoordinate(declaredType, child.name)))
             ) SourceCandidate.Local(requirements)
             else SourceCandidate.Remote(subgraph, requirements)
           }
@@ -692,19 +694,19 @@ private[gateway] object OperationPlanner {
       pending: PendingFetch,
       resolved: ResolvedLookup
     ): Either[PlanningFailure, List[EntityFetchState]] = {
-      val entityField                    = context.field.copy(fieldType = resolved.parentType)
-      val selectedTypes                  = traverseOption(pending.fields)(_._condition).map(_.flatten.toSet)
-      val condition                      = entityTypeCondition(context.parentType, resolved.entityType).map(types =>
+      val entityField                  = context.field.copy(fieldType = resolved.parentType)
+      val selectedTypes                = traverseOption(pending.fields)(_._condition).map(_.flatten.toSet)
+      val condition                    = entityTypeCondition(context.parentType, resolved.entityType).map(types =>
         selectedTypes.map(types intersect _).filter(_.nonEmpty).getOrElse(types)
       )
-      val routedThroughInterfaceObject   =
+      val routedThroughInterfaceObject =
         resolved.entityType != context.typeName &&
           pending.targetSubgraph.isInterfaceObject(resolved.entityType) &&
           !context.scope.currentSubgraph.isInterfaceObject(context.typeName)
-      val entityFields                   =
+      val entityFields                 =
         if (routedThroughInterfaceObject) pending.fields.map(_.copy(_condition = None, targets = None))
         else pending.fields
-      val satisfiedRequirements          = pending.fields.iterator
+      val satisfiedRequirements        = pending.fields.iterator
         .flatMap(child =>
           (child.parentType
             .flatMap(_.name)
@@ -712,18 +714,42 @@ private[gateway] object OperationPlanner {
             .map(FieldCoordinate(_, child.name))
         )
         .toSet
-      val ordinaryRequirements           = fieldSetFields(pending.requirements, resolved.parentType)
-      val (requiredFields, requirements) =
-        injectRequirementFields(entityField, state.downstream, ordinaryRequirements)(List(_))
+      // A field selected on a supertype of the entity type reads the entity type's selection map.
+      val arguments                    = entityFields.flatMap { field =>
+        val parent = parentTypeName(field)
+        val owner  = if (graph.acceptsRuntimeType(parent, resolved.entityType)) resolved.entityType else parent
+        pending.targetSubgraph.requireArguments(owner, field.name).map { argument =>
+          argument.copy(at = argument.at.copy(typeName = parent))
+        }
+      }.distinct
+      val ordinaryRequirements         = fieldSetFields(pending.requirements, resolved.parentType)
+      val argumentTrees                = FieldSelectionMap.stepTrees(arguments.flatMap(_.value))
       for {
-        requirementPlans <- planRequirementCandidates(
-                              entityField,
-                              context.scope,
-                              context.carriedKeys,
-                              context.provided,
-                              requiredFields
-                            )
-        completed        <-
+        argumentFields                <-
+          traverseOption(argumentTrees)(tree => requirementField(tree, resolved.parentType, None).map(Some(tree) -> _))
+            .toRight(
+              PlanningFailure.Rejected(s"A @require selection map of '${resolved.entityType}' reads unknown fields.")
+            )
+        // Requirements are read on the entity type, under a type condition when the parent is abstract.
+        (requiredFields, requirements) =
+          injectRequirementFields(
+            entityField,
+            state.downstream,
+            ordinaryRequirements.map(None -> _) ::: argumentFields
+          ) { case (_, field) =>
+            List(field.copy(targets = field.targets.orElse(condition)))
+          }
+        argumentSelections             = requirements.collect { case ((Some(tree), _), selection :: Nil) => tree -> selection }
+        requiredArguments             <-
+          bindRequiredArguments(arguments, resolved.entityType, argumentSelections)
+        requirementPlans              <- planRequirementCandidates(
+                                           entityField,
+                                           context.scope,
+                                           context.carriedKeys,
+                                           context.provided,
+                                           requiredFields
+                                         )
+        completed                     <-
           search.flatEvaluate(requirementPlans) { requirementPlan =>
             for {
               _                     <- Either.cond(
@@ -760,7 +786,9 @@ private[gateway] object OperationPlanner {
                                              resolved.entityType,
                                              resolved.selection.lookup,
                                              injected.keys,
-                                             requirements.flatMap(_._2),
+                                             requirements.collect { case ((None, _), selections) => selections }.flatten,
+                                             argumentSelections.map(selected => byResponseName(selected._2)),
+                                             requiredArguments,
                                              contextArguments
                                            ),
                                            injected.typenameAlias,
@@ -979,6 +1007,52 @@ private[gateway] object OperationPlanner {
           Set.empty
         )
 
+    private def byResponseName(selection: RequiredSelection): RequiredSelection =
+      selection.copy(field = selection.responseName, children = selection.children.map(byResponseName))
+
+    /**
+     * The field that selects a step of a `@require` selection map, with aliases where siblings select the same field.
+     */
+    private def requirementField(tree: StepTree, parentType: __Type, alias: Option[String]): Option[Field] = {
+      val step     = tree.step
+      val repeated = duplicates(tree.children.map(_.step.field)).toSet
+      val aliases  = new PrivateAliases(tree.children.map(_.step.field).toSet)
+      for {
+        owner      <- step.typeCondition.fold(Option(parentType))(graph.rootType.types.get)
+        // A field hidden from clients is still read from the subgraphs that define it.
+        definition <-
+          fieldDefinition(owner, step.field).orElse(
+            owner.name.flatMap(name => graph.sources.view.flatMap(_.sourceField(name, step.field)).headOption)
+          )
+        children   <- traverseOption(tree.children) { child =>
+                        val name = child.step.field
+                        requirementField(child, definition._type.innerType, Some(name).filter(repeated).map(aliases.next))
+                      }
+      } yield Field(
+        step.field,
+        definition._type,
+        Some(owner),
+        alias = alias,
+        fields = children,
+        targets = step.typeCondition.map(Set(_)),
+        arguments = step.arguments,
+        _condition = step.typeCondition.map(name => graph.possibleTypesByName.getOrElse(name, Set(name)))
+      )
+    }
+
+    /**
+     * Binds each `@require` argument, named by the type its field is selected on, and its selection map to the response
+     * names of the requirements it reads.
+     */
+    private def bindRequiredArguments(
+      arguments: List[RequireArgument],
+      entityType: String,
+      selected: List[(StepTree, RequiredSelection)]
+    ): Either[PlanningFailure, List[RequiredArgument]] =
+      traverseOption(arguments)(argument =>
+        FieldSelectionMap.bind(argument.value, selected).map(RequiredArgument(argument.at, _, argument.inputType))
+      ).toRight(PlanningFailure.Rejected(s"A @require selection map of '$entityType' could not be bound."))
+
     private def addRuntimeTypename(field: Field, planned: EntityFetchState): EntityFetchState = {
       val parentType = field.fieldType.innerType
       if (isAbstractType(parentType) && (planned.downstream.isEmpty || planned.downstream.exists(_.targets.nonEmpty))) {
@@ -1193,7 +1267,7 @@ private[gateway] object OperationPlanner {
     private def internalSelectionCount(entities: List[EntityFetch]): Int =
       entities.map { entity =>
         val contexts = entity.target.contextArguments.flatMap(_.selections)
-        (entity.target.keys ::: entity.target.requirements ::: contexts)
+        (entity.target.parentSelections ::: contexts)
           .map(selectionCount)
           .sum + entity.typenameAlias.size
       }.sum

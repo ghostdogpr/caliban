@@ -1,7 +1,8 @@
 package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, InputValue, PathValue, ResponseValue }
-import caliban.gateway.internal.composition.ComposedGraph
+import caliban.gateway.internal.composition.{ ComposedGraph, FieldSelectionMap }
+import caliban.gateway.internal.composition.DirectiveComposition.ArgumentCoordinate
 import caliban.gateway.internal.execution.EntityExecutor._
 import caliban.gateway.internal.execution.ResponseMerge.{ Fill, Patch }
 import caliban.gateway.internal.planning.OperationPlan._
@@ -99,7 +100,7 @@ private[gateway] final class EntityExecutor[-R](
   ): PreparedGroup = {
     val batches   =
       mutable.LinkedHashMap.empty[
-        Map[ContextualArgument, InputValue],
+        Map[ArgumentCoordinate, InputValue],
         (EntityFetch, mutable.LinkedHashMap[Representation, mutable.ListBuffer[EntityLocation]])
       ]
     val errors    = mutable.ListBuffer.empty[CalibanError]
@@ -110,6 +111,20 @@ private[gateway] final class EntityExecutor[-R](
       errors += missingRepresentation(location.fetch, location.path)
       blockedAt += location
     }
+
+    // Fields whose @require arguments have no value are null for this entity; it is fetched only for the others.
+    def unfilled(location: EntityLocation, representation: Representation): Boolean =
+      representation.arguments.lengthCompare(location.fetch.target.requiredArguments.size) < 0 && {
+        val filled  = representation.arguments.toMap
+        val skipped = location.fetch.fields
+          .map(field => field -> location.fetch.target.requiredArguments.filter(EntityLookup.missing(_, field, filled)))
+          .filter(_._2.nonEmpty)
+        patches += location.fetch.root -> (location.path -> Fill(RemoteError.nullObject(skipped.map(_._1))))
+        errors ++= skipped.map { case (field, absent) =>
+          missingRequirement(absent, location.path :+ PathValue.Key(field.aliasedName))
+        }
+        skipped.size == location.fetch.fields.size
+      }
 
     fetches.foreach { fetch =>
       val blockedPaths = PathIndex(blocked.iterator.collect {
@@ -131,12 +146,13 @@ private[gateway] final class EntityExecutor[-R](
                   patches += location.nullPatch
                 case Some(name)                                                             =>
                   sourceRepresentation(fetch, path, name, fields, candidates) match {
-                    case Some((contexts, representation)) =>
-                      batches
-                        .getOrElseUpdate(contexts, fetch -> mutable.LinkedHashMap.empty)
-                        ._2
-                        .getOrElseUpdate(representation, mutable.ListBuffer.empty) += location
-                    case None                             => unreadable(location)
+                    case Some((arguments, representation)) =>
+                      if (!unfilled(location, representation))
+                        batches
+                          .getOrElseUpdate(arguments, fetch -> mutable.LinkedHashMap.empty)
+                          ._2
+                          .getOrElseUpdate(representation, mutable.ListBuffer.empty) += location
+                    case None                              => unreadable(location)
                   }
               }
             case _                => unreadable(location)
@@ -146,34 +162,67 @@ private[gateway] final class EntityExecutor[-R](
 
     PreparedGroup(
       EntityResult(patches.toList, errors.toList, blockedAt.toList),
-      batches.iterator.map { case (contexts, (first, representations)) =>
+      batches.iterator.map { case (arguments, (first, representations)) =>
         val entries = representations.iterator.map { case (representation, locations) =>
-          EntityBatchEntry(representation.identity, representation.requirements, locations.toList)
+          EntityBatchEntry(representation, locations.toList)
         }.toVector
         val rest    = fetches.filter(fetch => (fetch ne first) && entries.exists(_.locations.exists(_.fetch eq fetch)))
-        EntityBatch(::(first, rest), contexts, entries)
+        EntityBatch(::(first, rest), arguments, entries)
       }.toList
     )
   }
 
+  /**
+   * An entity's representation, and the arguments its batch shares: its context arguments, and the values of its
+   * `@require` arguments when its lookup cannot take them per entity.
+   */
   private def sourceRepresentation(
     fetch: EntityFetch,
     path: List[PathValue],
     runtimeType: String,
     fields: IndexedFields,
     candidates: Candidates
-  ): Option[(Map[ContextualArgument, InputValue], Representation)] =
+  ): Option[(Map[ArgumentCoordinate, InputValue], Representation)] = {
+    val target = fetch.target
     for {
-      identity     <- readIdentity(runtimeType, fetch.target.keys, fields)
-      requirements <- readRequirements(fetch.target.requirements, runtimeType, fields)
+      identity     <- readIdentity(runtimeType, target.keys, fields)
+      requirements <- readRequirements(target.requirements, runtimeType, fields)
       contexts     <- readContextArguments(fetch, path, candidates)
-    } yield contexts.toMap -> Representation(identity, requirements)
+    } yield {
+      val arguments = requiredArguments(target, runtimeType, fields)
+      val shared    = target.lookup.operation match {
+        case _: ComposedGraph.LookupOperation.ByKey => contexts ::: arguments
+        case _                                      => contexts
+      }
+      shared.toMap -> Representation(identity, requirements, arguments)
+    }
+  }
+
+  /**
+   * The value of each `@require` argument, evaluated from the entity's argument requirements. An argument whose value
+   * is missing or does not fit its type is left out.
+   */
+  private def requiredArguments(
+    target: EntityTarget,
+    runtimeType: String,
+    fields: IndexedFields
+  ): List[(ArgumentCoordinate, InputValue)] =
+    if (target.requiredArguments.isEmpty) Nil
+    else {
+      val read = readRequirements(target.argumentRequirements, runtimeType, fields)
+      target.requiredArguments.flatMap(argument =>
+        read
+          .flatMap(FieldSelectionMap.evaluate(argument.value, _))
+          .flatMap(EntityLookup.coerce(_, argument.inputType))
+          .map(argument.at -> _)
+      )
+    }
 
   private def readContextArguments(
     fetch: EntityFetch,
     entityPath: List[PathValue],
     candidates: Candidates
-  ): Option[List[(ContextualArgument, InputValue)]] =
+  ): Option[List[(ArgumentCoordinate, InputValue)]] =
     traverseOption(fetch.target.contextArguments) { argument =>
       // A nested context shadows its ancestors; keep the last match when depths are equal.
       val source = candidates
@@ -195,7 +244,7 @@ private[gateway] final class EntityExecutor[-R](
             }
         }
         selection.flatMap(projectContextInput(_, fields))
-      }.map(argument -> _)
+      }.map(argument.at -> _)
     }
 
   private def projectContextInput(selection: RequiredSelection, fields: IndexedFields): Option[InputValue] =
@@ -231,6 +280,12 @@ private[gateway] final class EntityExecutor[-R](
 
   private def missingRepresentation(fetch: EntityFetch, path: List[PathValue]): CalibanError.ExecutionError =
     CalibanError.ExecutionError(s"Entity key '${entityKey(fetch)}' was missing from the source result.", path = path)
+
+  private def missingRequirement(absent: List[RequiredArgument], path: List[PathValue]): CalibanError.ExecutionError =
+    CalibanError.ExecutionError(
+      s"The @require value of '${absent.map(_.at.display).mkString("', '")}' is missing or invalid.",
+      path = path
+    )
 }
 
 private[gateway] object EntityExecutor {
@@ -282,15 +337,11 @@ private[gateway] object EntityExecutor {
     def nullPatch: (FetchId, Patch) = fetch.root -> (path -> Fill(RemoteError.nullObject(fetch.fields)))
   }
 
-  private[execution] final case class EntityBatchEntry(
-    identity: EntityIdentity,
-    requirements: List[(String, InputValue)],
-    locations: List[EntityLocation]
-  )
+  private[execution] final case class EntityBatchEntry(representation: Representation, locations: List[EntityLocation])
 
   private[execution] final case class EntityBatch(
     fetches: ::[EntityFetch],
-    contexts: Map[ContextualArgument, InputValue],
+    arguments: Map[ArgumentCoordinate, InputValue],
     entries: Vector[EntityBatchEntry]
   ) {
     def fetch: EntityFetch = fetches.head
@@ -299,9 +350,9 @@ private[gateway] object EntityExecutor {
 
     lazy val mergePaths: List[List[PathValue]] = fetches.map(fetchPath).distinct
 
-    // Context argument values are injected into the lookup, so only context-free batches are shared.
+    // Argument values are injected into the lookup, so only argument-free batches are shared.
     lazy val variant: EntityLookup.Variant =
-      if (contexts.isEmpty) fetch.lookupVariant else EntityLookup.variant(fetch, contexts)
+      if (arguments.isEmpty) fetch.lookupVariant else EntityLookup.variant(fetch, arguments)
   }
 
   private final case class CandidatePath(root: FetchId, path: Vector[String])
@@ -343,19 +394,25 @@ private[gateway] object EntityExecutor {
 
   private final case class PreparedGroup(result: EntityResult, batches: List[EntityBatch])
 
-  private final case class Representation(identity: EntityIdentity, requirements: List[(String, InputValue)]) {
+  private[execution] final case class Representation(
+    identity: EntityIdentity,
+    requirements: List[(String, InputValue)],
+    arguments: List[(ArgumentCoordinate, InputValue)]
+  ) {
     @transient @threadUnsafe
-    final override lazy val hashCode: Int = namedValuesHash(identity.hashCode, requirements)
+    final override lazy val hashCode: Int =
+      namedValuesHash(namedValuesHash(identity.hashCode, requirements), arguments)
 
     final override def equals(other: Any): Boolean =
       other match {
         case that: Representation =>
-          (this eq that) || (identity == that.identity && namedValuesEqual(requirements, that.requirements))
+          (this eq that) || (identity == that.identity && namedValuesEqual(requirements, that.requirements) &&
+            namedValuesEqual(arguments, that.arguments))
         case _                    => false
       }
   }
 
-  private def namedValuesHash(seed: Int, values: List[(String, InputValue)]): Int = {
+  private def namedValuesHash[K](seed: Int, values: List[(K, InputValue)]): Int = {
     var hash      = seed
     var remaining = values
     while (remaining ne Nil) {
@@ -367,7 +424,7 @@ private[gateway] object EntityExecutor {
     hash
   }
 
-  private def namedValuesEqual(left: List[(String, InputValue)], right: List[(String, InputValue)]): Boolean = {
+  private def namedValuesEqual[K](left: List[(K, InputValue)], right: List[(K, InputValue)]): Boolean = {
     var remainingLeft  = left
     var remainingRight = right
     while ((remainingLeft ne Nil) && (remainingRight ne Nil)) {

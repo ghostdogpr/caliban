@@ -248,6 +248,8 @@ private[gateway] object ComposedGraph {
 
     lazy val lookupFields: LookupFieldCompilation.Compiled = LookupFieldCompilation.compile(this)
 
+    lazy val requiredArguments: RequireCompilation.Compiled = RequireCompilation.compile(this)
+
     private lazy val interfaceObjects: Set[String] =
       applications(InterfaceObject).collect { case FederationApplication(TypeCoordinate(typeName, _), _, _) =>
         typeName
@@ -258,7 +260,10 @@ private[gateway] object ComposedGraph {
     lazy val unmergedTypes: Set[String] =
       if (federation) directiveNames.hiddenTypes
       else
-        directiveOnlyTypes(rootType) ++
+        droppedTypes(
+          rootType,
+          applications(Require).collect { case FederationApplication(at: ArgumentCoordinate, _, _) => at }.toSet
+        ) ++
           applications(Internal).collect { case FederationApplication(TypeCoordinate(typeName, _), _, _) => typeName }
 
     private lazy val entityLookupsByType: Map[String, List[EntityLookup]] =
@@ -299,10 +304,11 @@ private[gateway] object ComposedGraph {
       keys.diagnostics ::: overrides.values.toList.flatMap(_._2) ::: federationErrors.flatten :::
         repeatedDirectives ::: LookupCompilation.declarationDiagnostics(this) :::
         compiledLookups.flatMap(_.left.getOrElse(Nil)) ::: lookupFields.diagnostics :::
-        fieldSetErrors ::: contextErrors ::: costs.left.getOrElse(Nil)
+        requiredArguments.diagnostics ::: fieldSetErrors ::: contextErrors ::: costs.left.getOrElse(Nil)
 
     lazy val hidden: Set[Coordinate] =
-      mapping.hidden ++ (applications(Inaccessible) ::: applications(FromContext)).map(_.coordinate)
+      mapping.hidden ++ (applications(Inaccessible) ::: applications(FromContext) ::: applications(Require))
+        .map(_.coordinate)
 
     def sourceField(typeName: String, field: String): Option[__Field] =
       types.get(typeName).flatMap(fieldDefinition(_, field))
@@ -319,6 +325,9 @@ private[gateway] object ComposedGraph {
 
     def requiredFieldSet(typeName: String, field: String): List[Selection] =
       requiredFieldSets.getOrElse(FieldCoordinate(typeName, field), Nil)
+
+    def requireArguments(typeName: String, field: String): List[RequireArgument] =
+      requiredArguments.requirements.getOrElse(FieldCoordinate(typeName, field), Nil)
 
     def providedFieldSet(typeName: String, field: String): List[Selection] =
       providedFieldSets.getOrElse(FieldCoordinate(typeName, field), Nil)
@@ -447,6 +456,11 @@ private[gateway] object ComposedGraph {
   }
 
   final case class EntityLookup(key: List[KeyField], operation: LookupOperation)
+
+  /**
+   * The selection map from which the gateway fills a `@require` argument with data from other subgraphs.
+   */
+  final case class RequireArgument(at: ArgumentCoordinate, value: FieldSelectionMap.SelectedValue, inputType: __Type)
 
   sealed trait LookupOperation
 

@@ -158,6 +158,19 @@ The gateway picks, for each fetch, a lookup whose key the source of the objects 
 
 Key fields resolved by several subgraphs must be declared as keys in each of them. Here, the catalog schema declares `type Product @key(fields: "id")` when it is pinned.
 
+### Fields that require data from other services
+
+A field can take arguments that the gateway fills with data from other services. `@require` names that data with a field selection map, as `@is` does. The map may also pass constant arguments, as in `weight(unit: IMPERIAL)`. Clients don't see these arguments:
+
+```graphql
+type Product @key(fields: "id") {
+  id: ID!
+  shippingEstimate(weight: Int! @require(field: "weight")): Int
+}
+```
+
+The gateway fetches the required fields first. It then calls the service through one of its lookups and fills in the values for each object. If a value is missing, or null for a non-null argument, the gateway doesn't request that field for the object: the field is null and the response reports an error. A `Lookup.list` lookup takes one set of values per call, so objects with different values go in separate calls.
+
 ## Operation cache
 
 The gateway reuses validated operations and query plans for repeated requests. Subgraph calls still fetch current data. Set the total estimated cache weight with `GatewayConfig.withMaxOperationCacheWeight`:

@@ -7,6 +7,7 @@ import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObj
 import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
 import caliban.gateway.internal.composition.ComposedGraph.ContextName
 import caliban.gateway.internal.composition.DirectiveComposition._
+import caliban.gateway.internal.composition.FieldSelectionMap.{ Selection => MapSelection, _ }
 import caliban.gateway.internal.composition.FederationCompilation.FederationDirective
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.{ Definition, Directive, Document, Selection, Type }
@@ -306,6 +307,48 @@ private[gateway] final class SchemaMapping private (
 
   private def transformNamedType(tpe: NamedType): NamedType =
     tpe.copy(name = clientType(tpe.name))
+
+  /**
+   * Renames the steps of a selection map rooted at the source type `typeName` to client names.
+   */
+  private[composition] def clientSelectionMap(value: SelectedValue, typeName: Option[String]): SelectedValue =
+    ::(clientSelection(value.head, typeName), value.tail.map(clientSelection(_, typeName)))
+
+  private[composition] def clientSelection(selection: MapSelection, typeName: Option[String]): MapSelection =
+    selection match {
+      case MapSelection.Leaf(steps)             => MapSelection.Leaf(clientPath(steps, typeName)._1)
+      case MapSelection.ObjectOf(steps, fields) =>
+        val (renamed, end) = clientSteps(steps, typeName)
+        MapSelection.ObjectOf(
+          renamed,
+          ::(clientObjectField(fields.head, end), fields.tail.map(clientObjectField(_, end)))
+        )
+      case MapSelection.ListOf(steps, element)  =>
+        val (renamed, end) = clientSteps(steps, typeName)
+        MapSelection.ListOf(renamed, clientSelectionMap(element, end))
+    }
+
+  private def clientObjectField(field: ObjectField, typeName: Option[String]): ObjectField =
+    field.copy(value = clientSelectionMap(field.value, typeName))
+
+  private def clientPath(steps: ::[PathStep], typeName: Option[String]): (::[PathStep], Option[String]) = {
+    val step         = steps.head
+    val owner        = step.typeCondition.orElse(typeName)
+    val next         = owner.flatMap(sourceFieldDefinition(_, step.field)).flatMap(_._type.innerType.name)
+    val renamed      = PathStep(
+      step.typeCondition.map(clientType),
+      owner.fold(step.field)(clientField(_, step.field)),
+      step.arguments
+    )
+    val (tail, last) = clientSteps(steps.tail, next)
+    ::(renamed, tail) -> last
+  }
+
+  private def clientSteps(steps: List[PathStep], typeName: Option[String]): (List[PathStep], Option[String]) =
+    steps match {
+      case head :: tail => clientPath(::(head, tail), typeName)
+      case Nil          => Nil -> typeName
+    }
 
   private def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
     sourceRootType.types.get(typeName).flatMap(fieldDefinition(_, field))

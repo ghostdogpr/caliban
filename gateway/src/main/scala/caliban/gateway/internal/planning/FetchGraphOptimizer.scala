@@ -96,7 +96,7 @@ private[planning] object FetchGraphOptimizer {
         if (!needPrerequisites(fetch.id)) fetch
         else {
           val required                                         =
-            (fetch.target.keys ::: fetch.target.requirements).flatMap(selectionPaths(fetch.mergePath)).toSet ++
+            fetch.target.parentSelections.flatMap(selectionPaths(fetch.mergePath)).toSet ++
               fetch.target.contextArguments.flatMap(argument =>
                 argument.selections.flatMap(selectionPaths(argument.sourcePath))
               )

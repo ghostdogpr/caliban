@@ -57,11 +57,14 @@ object FieldRoutingSpec extends ZIOSpecDefault {
        |}
        |""".stripMargin
 
+  private val RequirementPrice = "_caliban_gateway_requirement_price\\w*".r
+
   private val pricesByRequest =
     stubByRequest(request =>
-      if (request.query.exists(_.contains("_caliban_gateway_requirement_price")))
-        """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
-      else """{"data":{"_entities":[{"displayPrice":10}]}}"""
+      request.query.flatMap(RequirementPrice.findFirstIn) match {
+        case Some(alias) => s"""{"data":{"_entities":[{"$alias":100}]}}"""
+        case None        => """{"data":{"_entities":[{"displayPrice":10}]}}"""
+      }
     )
 
   def spec = suite("FieldRoutingSpec")(
@@ -211,6 +214,42 @@ object FieldRoutingSpec extends ZIOSpecDefault {
               )
             )
           )
+        )
+      },
+      test("selects requirements on the entity type under an abstract parent") {
+        val mediaSchema   =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { media: [Media!]! }
+             |interface Media { id: ID! }
+             |type Book implements Media @key(fields: "id") { id: ID! isbn: String! }
+             |type Movie implements Media @key(fields: "id") { id: ID! }
+             |""".stripMargin
+        val ratingsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Book @key(fields: "id") {
+             |  id: ID!
+             |  isbn: String! @external
+             |  rating: Int! @requires(fields: "isbn")
+             |}
+             |""".stripMargin
+
+        for {
+          media   <- stub("""{"data":{"media":[]}}""")
+          ratings <- stub("""{"data":{"_entities":[]}}""")
+          runtime <- Gateway
+                       .compose(
+                         Subgraph.federation("media", media.endpoint, mediaSchema),
+                         Subgraph.federation("ratings", ratings.endpoint, ratingsSchema)
+                       )
+                       .interpreter
+          _       <- runtime.execute("{ media { ... on Book { rating } } }")
+          sent    <- queries(media)
+        } yield assertTrue(
+          sent.size == 1,
+          sent.exists(_.contains("...on Book{")),
+          !sent.exists(query => query.takeWhile(_ != '.').contains("isbn"))
         )
       },
       test("evaluates nested fragment requirements for the returned runtime type") {

@@ -5,11 +5,9 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.SchemaCoordinate.{ Argument, Member }
 import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.composition.ComposedGraph.LookupOperation
-import caliban.interop.jsoniter.ValueJsoniter.responseValueCodec
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
-import caliban.{ graphQL, GraphQL, ResponseValue, RootResolver }
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
+import caliban.{ graphQL, GraphQL, RootResolver }
 import zio._
 import zio.http._
 import zio.test._
@@ -23,15 +21,6 @@ object CompositeLookupSpec extends ZIOSpecDefault {
     List("Book", "Clothing", "Electronics", "Movie", "Person", "Podcast", "Product").filter(
       lookups(graph, subgraph, _).nonEmpty
     )
-
-  private def served(api: GraphQL[Any]): ZIO[Server with Ref[Int], Nothing, Stub] =
-    api.interpreter.orDie.flatMap(interpreter =>
-      stubByRequestZIO(request =>
-        interpreter.executeRequest(request).map(response => writeToString[ResponseValue](response.toResponseValue))
-      )
-    )
-
-  private def queries(stub: Stub): UIO[List[String]] = stub.requests.get.map(_.toList.flatMap(_.query))
 
   private object People extends GenericSchema[Any] {
     import auto._

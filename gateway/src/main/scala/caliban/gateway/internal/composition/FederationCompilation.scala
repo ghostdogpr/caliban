@@ -8,6 +8,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Document, Selection }
 import caliban.schema.{ RootType, Types }
 
+import scala.annotation.tailrec
 import scala.collection.compat._
 
 private[gateway] object FederationCompilation {
@@ -59,6 +60,7 @@ private[gateway] object FederationCompilation {
     lazy val definition: __Directive               = __Directive(name, None, locations, _ => arguments, repeatable)
     def allowedAt(coordinate: Coordinate): Boolean = locations(coordinate.location)
     def unavailableMessage: String                 = "is not available in the linked feature version"
+    def invalidArguments: Code                     = Code.InvalidGraphQL
   }
 
   object FederationDirective {
@@ -105,8 +107,12 @@ private[gateway] object FederationCompilation {
         extends FederationDirective("override", Set(FIELD_DEFINITION), List(required("from"), optional("label")))
     case object LookupField extends FederationDirective("lookup", Set(FIELD_DEFINITION))
     case object Internal      extends FederationDirective("internal", Set(OBJECT, FIELD_DEFINITION))
-    case object Is            extends FederationDirective("is", Set(ARGUMENT_DEFINITION), List(required("field"))) {
+    case object Is            extends FederationDirective("is", Set(ARGUMENT_DEFINITION), List(required("field")))      {
       override def allowedAt(coordinate: Coordinate): Boolean = coordinate.isInstanceOf[ArgumentCoordinate]
+    }
+    case object Require       extends FederationDirective("require", Set(ARGUMENT_DEFINITION), List(required("field"))) {
+      override def allowedAt(coordinate: Coordinate): Boolean = coordinate.isInstanceOf[ArgumentCoordinate]
+      override def invalidArguments: Code                     = Code.RequireInvalidFieldType
     }
     case object Context
         extends FederationDirective("context", Set(OBJECT, INTERFACE, UNION), List(required("name")), true, v28)
@@ -145,7 +151,7 @@ private[gateway] object FederationCompilation {
 
     // Composite source schemas apply these by their bare names.
     val composite: List[FederationDirective] =
-      List(Key, External, Shareable, Inaccessible, Provides, Override, LookupField, Internal, Is)
+      List(Key, External, Shareable, Inaccessible, Provides, Override, LookupField, Internal, Is, Require)
     val linkedSpecIdentities: Set[String]    = all.flatMap(_.specIdentity).toSet
   }
 
@@ -167,7 +173,8 @@ private[gateway] object FederationCompilation {
         )
       )
     else
-      validateArguments(source, s"Federation @${member.name}", coordinate, directive, member.definition)
+      validateArguments(source, s"Federation @${member.name}", coordinate, directive, member.definition).left
+        .map(_.map(_.copy(code = member.invalidArguments)))
         .map(FederationApplication(coordinate, member, _))
 
   def federationDirectiveNames(document: Document, mode: SubgraphMode): FederationDirectiveNames = {
@@ -230,14 +237,40 @@ private[gateway] object FederationCompilation {
   }
 
   /**
-   * Composite subgraphs drop their directive definitions, and with them the types only those definitions use.
+   * Composite subgraphs drop their directive definitions and their `dropped` arguments, and with them the types only
+   * those use.
    */
-  def directiveOnlyTypes(rootType: RootType): Set[String] = {
-    val directiveTypes: Set[String] =
-      Types.collectRootTypes(rootType.additionalDirectives.flatMap(_.allArgs.map(_._type)), Nil).flatMap(_.name).toSet
-    val kept: Set[String]           =
-      rootType.copy(additionalTypes = rootType.additionalTypes.filterNot(_.name.exists(directiveTypes))).types.keySet
-    rootType.types.keySet -- kept
+  def droppedTypes(rootType: RootType, dropped: Set[ArgumentCoordinate]): Set[String] = {
+    val types = rootType.types
+
+    def references(name: String): Iterator[String] =
+      types
+        .get(name)
+        .iterator
+        .flatMap { tpe =>
+          tpe.allFields.iterator.flatMap(field =>
+            Iterator(field._type) ++
+              field.allArgs.iterator
+                .filterNot(arg => dropped(ArgumentCoordinate(name, field.name, arg.name)))
+                .map(_._type)
+          ) ++ tpe.allInputFields.iterator.map(_._type)
+        }
+        .flatMap(_.innerType.name)
+
+    @tailrec
+    def closure(level: Set[String], found: Set[String]): Set[String] = {
+      val next = level.flatMap(name => references(name).filterNot(found)) -- level
+      if (next.isEmpty) found else closure(next, found ++ next)
+    }
+
+    val droppedInputs = rootType.additionalDirectives.flatMap(_.allArgs) ::: dropped.toList.flatMap {
+      case ArgumentCoordinate(typeName, fieldName, argument) =>
+        types.get(typeName).flatMap(fieldDefinition(_, fieldName)).toList.flatMap(_.allArgs.filter(_.name == argument))
+    }
+    val roots         = droppedInputs.flatMap(_._type.innerType.name).toSet
+    val candidates    = closure(roots, roots)
+    val kept          = types.keySet -- candidates
+    candidates -- closure(kept, kept)
   }
 
   def plainFieldSet(selections: List[Selection]): Option[List[KeyField]] =

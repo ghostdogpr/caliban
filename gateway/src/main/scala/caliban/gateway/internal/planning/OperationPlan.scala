@@ -3,9 +3,10 @@ package caliban.gateway.internal.planning
 import caliban.{ Hash, InputValue }
 import caliban.execution.{ isIntrospectionField, isMetaField, Field, Fragment }
 import caliban.gateway.{ responseNames, TypenameField }
-import caliban.gateway.internal.composition.{ ComposedGraph, DirectiveComposition }
+import caliban.gateway.internal.composition.{ ComposedGraph, DirectiveComposition, FieldSelectionMap }
 import caliban.gateway.internal.execution.{ EntityLookup, PlanExecutor, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
+import caliban.introspection.adt.__Type
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.parsing.adt.Type.NamedType
 import caliban.rendering.DocumentRenderer
@@ -70,6 +71,16 @@ private[gateway] object OperationPlan {
   )
 
   /**
+   * A `@require` argument the gateway fills per entity: its selection map reads the entity's argument requirements
+   * under their response names, since it may select one field twice, and its value is coerced to `inputType`.
+   */
+  final case class RequiredArgument(
+    at: DirectiveComposition.ArgumentCoordinate,
+    value: FieldSelectionMap.SelectedValue,
+    inputType: __Type
+  )
+
+  /**
    * The response path and alias of an injected __typename field used during response completion.
    */
   final case class TypenameSelection(path: Vector[String], responseName: String)
@@ -80,10 +91,14 @@ private[gateway] object OperationPlan {
     lookup: ComposedGraph.EntityLookup,
     keys: List[RequiredSelection],
     requirements: List[RequiredSelection],
+    argumentRequirements: List[RequiredSelection],
+    requiredArguments: List[RequiredArgument],
     contextArguments: List[ContextualArgument]
   ) {
     @transient @threadUnsafe
     final override lazy val hashCode: Int = Hash.caseClassHash(this)
+
+    def parentSelections: List[RequiredSelection] = keys ::: requirements ::: argumentRequirements
   }
 
   final case class EntityFetch(

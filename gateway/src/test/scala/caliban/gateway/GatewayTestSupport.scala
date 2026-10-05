@@ -1,6 +1,7 @@
 package caliban.gateway
 
 import caliban.ResponseValue
+import caliban.interop.jsoniter.ValueJsoniter.responseValueCodec
 import caliban.ResponseValue.ObjectValue
 import caliban.execution.RequestPreparation
 import caliban.gateway.internal.GatewayHttpClient
@@ -427,6 +428,16 @@ private[gateway] object GatewayTestSupport {
 
   def stubByRequestZIO(response: GraphQLRequest => UIO[String]): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubRespondingZIO(ZIO.unit)((request, _) => response(request).map(Status.Ok -> _))
+
+  // A stub that serves a local Caliban API, so tests can read what the gateway sent.
+  def served(api: GraphQL[Any]): ZIO[Server with Ref[Int], Nothing, Stub] =
+    api.interpreter.orDie.flatMap(interpreter =>
+      stubByRequestZIO(request =>
+        interpreter.executeRequest(request).map(response => writeToString[ResponseValue](response.toResponseValue))
+      )
+    )
+
+  def queries(stub: Stub): UIO[List[String]] = stub.requests.get.map(_.toList.flatMap(_.query))
 
   def stubWithStatuses(responses: (Status, String)*): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubResponding(ZIO.unit)((_, index) => responses(math.min(index, responses.size - 1)))

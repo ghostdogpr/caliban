@@ -101,7 +101,7 @@ private[composition] final class TypeComposition(
         (owned.size > 1 || values.exists(_.field.shareable))
       val sharedUnshareable  = !sharedSubscription && compatible && owned.size > 1 &&
         entries.exists(_.tpe.kind == __TypeKind.OBJECT) && unshared
-      overrideDiagnostics(at, values, resolving) ::: contextualArgumentDiagnostics(at, values) :::
+      overrideDiagnostics(at, values, resolving) ::: suppliedArgumentDiagnostics(at, values) :::
         check(
           !sharedSubscription,
           error(Code.InvalidFieldSharing, values.map(_.owner.source), Some(at))(
@@ -191,23 +191,28 @@ private[composition] final class TypeComposition(
     at: SchemaCoordinate.Member,
     values: List[FieldEntry],
     hidden: String => Boolean
-  ): List[CompositionDiagnostic] =
+  ): List[CompositionDiagnostic] = {
+    // The gateway fills @require arguments, so they never reach the client schema.
+    val required = values.flatMap(_.field.requiredArguments).toSet
     values.flatMap { case FieldEntry(entry, field) =>
       check(
         !hasInaccessibleType(field.definition._type),
         error(Code.ReferencedInaccessible, List(entry.source), Some(at))(
           s"Field '${at.render}' must be @inaccessible because its return type is inaccessible."
         )
-      ) ::: field.definition.allArgs.flatMap(argument =>
-        inputVisibility(
-          entry.source,
-          "argument",
-          SchemaCoordinate.Argument(at.typeName, at.memberName, argument.name),
-          argument,
-          hidden(argument.name)
+      ) ::: field.definition.allArgs
+        .filterNot(argument => required(argument.name))
+        .flatMap(argument =>
+          inputVisibility(
+            entry.source,
+            "argument",
+            SchemaCoordinate.Argument(at.typeName, at.memberName, argument.name),
+            argument,
+            hidden(argument.name)
+          )
         )
-      )
     }
+  }
 
   private def inputVisibility(
     source: String,
@@ -394,7 +399,8 @@ private[composition] object TypeComposition {
     owned: Boolean,
     shareable: Boolean,
     overrideDirective: Option[FieldOverride],
-    contextualArguments: Set[String]
+    contextualArguments: Set[String],
+    requiredArguments: Set[String]
   )
 
   final case class FieldEntry(owner: SubgraphType, field: SubgraphField)
@@ -418,20 +424,33 @@ private[composition] object TypeComposition {
   def includeDeprecated[A](values: List[A], include: Option[Boolean])(isDeprecated: A => Boolean): List[A] =
     if (include.getOrElse(false)) values else values.filterNot(isDeprecated)
 
-  private def contextualArgumentDiagnostics(
+  /**
+   * An argument the gateway supplies in one subgraph cannot be required from clients in another. For @fromContext the
+   * other subgraph is reported, for @require the supplying one, as Fusion does.
+   */
+  private def suppliedArgumentDiagnostics(
     at: SchemaCoordinate.Member,
     values: List[FieldEntry]
   ): List[CompositionDiagnostic] = {
-    val contextual = values.flatMap(_.field.contextualArguments).toSet
-    contextual.toList.sorted.flatMap { argumentName =>
-      values.collect {
-        case FieldEntry(entry, field)
-            if !field.contextualArguments.contains(argumentName) && field.definition.allArgs
-              .exists(argument => argument.name == argumentName && isRequiredInput(argument)) =>
-          val argument = SchemaCoordinate.Argument(at.typeName, at.memberName, argumentName)
-          error(Code.ContextualArgumentNotContextualInAllSubgraphs, List(entry.source), Some(argument))(
-            s"Argument '${argument.render}' must be nullable or define a default value because it is supplied by @fromContext in another subgraph."
-          )
+    def argument(name: String): SchemaCoordinate.Argument =
+      SchemaCoordinate.Argument(at.typeName, at.memberName, name)
+    def fromClients(name: String): List[FieldEntry]       =
+      values.filter { case FieldEntry(_, field) =>
+        !field.contextualArguments(name) && !field.requiredArguments(name) &&
+        field.definition.allArgs.exists(argument => argument.name == name && isRequiredInput(argument))
+      }
+
+    values.flatMap(_.field.contextualArguments).distinct.sorted.flatMap { name =>
+      fromClients(name).map { entry =>
+        error(Code.ContextualArgumentNotContextualInAllSubgraphs, List(entry.owner.source), Some(argument(name)))(
+          s"Argument '${argument(name).render}' must be nullable or define a default value because it is supplied by @fromContext in another subgraph."
+        )
+      }
+    } ::: values.flatMap(_.field.requiredArguments).distinct.sorted.filter(fromClients(_).nonEmpty).flatMap { name =>
+      values.filter(_.field.requiredArguments(name)).map { entry =>
+        error(Code.FieldWithMissingRequiredArgument, List(entry.owner.source), Some(argument(name)))(
+          s"Argument '${argument(name).render}' cannot be filled by @require because another subgraph requires it from clients."
+        )
       }
     }
   }

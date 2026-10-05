@@ -11,9 +11,10 @@ import zio.{ UIO, ZIO }
 // benchmark's data, and the same data served by one monolithic API to compare results against.
 private[gateway] object CompositeEShop {
 
-  final class key(fields: String) extends GQLDirective(Directive("key", Map("fields" -> StringValue(fields))))
-  final class lookup              extends GQLDirective(Directive("lookup"))
-  final class internal            extends GQLDirective(Directive("internal"))
+  final class key(fields: String)    extends GQLDirective(Directive("key", Map("fields" -> StringValue(fields))))
+  final class lookup                 extends GQLDirective(Directive("lookup"))
+  final class internal               extends GQLDirective(Directive("internal"))
+  final class require(field: String) extends GQLDirective(Directive("require", Map("field" -> StringValue(field))))
 
   @GQLValueType(isScalar = true)
   @GQLName("ID")
@@ -90,16 +91,23 @@ private[gateway] object CompositeEShop {
     )
   }
 
+  // As in the benchmark's inventory subgraph.
+  private def shippingEstimate(weight: Long, price: Long): Long = if (price > 1000) 0 else weight / 2
+
   object Inventory extends GenericSchema[Any] {
     import auto._
 
+    final case class Estimate(@require("weight") weight: Long, @require("price") price: Long)
     @key("upc")
-    final case class Product(upc: String, inStock: Boolean)
+    final case class Product(upc: String, inStock: Boolean, shippingEstimate: Estimate => Option[Long])
     final case class Query(@lookup @internal productByUpc: ByUpc => Option[Product])
 
-    val api: GraphQL[Any] = graphQL(
-      RootResolver(Query(args => products.find(_.upc == args.upc.value).map(row => Product(row.upc, row.inStock))))
-    )
+    implicit val estimate: ArgBuilder[Estimate] = ArgBuilder.gen
+
+    private def product(row: ProductRow) =
+      Product(row.upc, row.inStock, args => Some(CompositeEShop.shippingEstimate(args.weight, args.price)))
+
+    val api: GraphQL[Any] = graphQL(RootResolver(Query(args => products.find(_.upc == args.upc.value).map(product))))
   }
 
   object Products extends GenericSchema[Any] {
@@ -196,6 +204,7 @@ private[gateway] object CompositeEShop {
       price: Long,
       weight: Long,
       inStock: Boolean,
+      shippingEstimate: Option[Long],
       reviews: UIO[List[Review]]
     )
     final case class Review(id: ID, body: String, author: Option[User], product: Option[Product])
@@ -215,6 +224,7 @@ private[gateway] object CompositeEShop {
         row.price,
         row.weight,
         row.inStock,
+        Some(shippingEstimate(row.weight, row.price)),
         ZIO.succeed(reviews.filter(_.productUpc == row.upc).map(review))
       )
     private def review(row: ReviewRow): Review    =
@@ -230,11 +240,11 @@ private[gateway] object CompositeEShop {
     )
   }
 
-  // The benchmark's k6 query without `shippingEstimate`, which needs @require.
+  // The benchmark's k6 query.
   val query: String =
     """fragment User on User { id username name }
       |fragment Review on Review { id body }
-      |fragment Product on Product { inStock name price upc weight }
+      |fragment Product on Product { inStock name price shippingEstimate upc weight }
       |query TestQuery {
       |  users {
       |    ...User

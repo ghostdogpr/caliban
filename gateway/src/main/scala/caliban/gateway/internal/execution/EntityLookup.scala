@@ -5,6 +5,7 @@ import caliban.execution.Field
 import caliban.gateway.internal.PrivateAliases
 import caliban.gateway.internal.composition.{ ComposedGraph, FieldSelectionMap }
 import caliban.gateway.internal.composition.ComposedGraph.Source
+import caliban.gateway.internal.composition.DirectiveComposition.ArgumentCoordinate
 import caliban.gateway.internal.execution.EntityExecutor._
 import caliban.gateway.internal.execution.EntityLookup._
 import caliban.gateway.internal.execution.PlanExecutor.renderOperation
@@ -19,6 +20,8 @@ import caliban.parsing.adt.Type.NamedType
 import caliban.rendering.DocumentRenderer
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, NullValue, StringValue }
+
+import scala.collection.mutable
 
 /**
  * Builds entity lookup requests together with the rules for translating and correlating their responses.
@@ -35,12 +38,14 @@ private[internal] object EntityLookup {
         )
         Some(request -> new Call(batch, variant.projection, ResponseShape.Ordered(EntitiesField)))
       case SingleVariant(projection, path, field, arguments, selections) =>
-        val aliases = Vector.tabulate(batch.entries.size)(index => s"${LookupAlias}_$index")
+        val aliases  = Vector.tabulate(batch.entries.size)(index => s"${LookupAlias}_$index")
+        val selected = entrySelections(batch, selections)
         // An entity whose key does not map to the arguments, as under a type condition it fails, has no result.
-        val fields  = batch.entries.iterator
+        val fields   = batch.entries.iterator
           .zip(aliases.iterator)
           .flatMap { case (entry, alias) =>
-            argumentValues(arguments)(keyValue(entry.identity.keys)).map(lookupField(field, Some(alias), _, selections))
+            argumentValues(arguments)(keyValue(entry.representation.identity.keys))
+              .map(lookupField(field, Some(alias), _, selected(entry)))
           }
           .toList
         Some(fields).filter(_.nonEmpty).map { fields =>
@@ -50,7 +55,7 @@ private[internal] object EntityLookup {
         }
       case ByKeyVariant(projection, field, arguments, keys, selections)  =>
         val values = argumentValues(arguments) { key =>
-          traverseOption(batch.entries)(entry => argumentValue(key)(keyValue(entry.identity.keys)))
+          traverseOption(batch.entries)(entry => argumentValue(key)(keyValue(entry.representation.identity.keys)))
             .map(InputListValue(_))
         }
         values.map { values =>
@@ -194,7 +199,7 @@ private[internal] object EntityLookup {
         entryIndex(index, values.get(index)).map(_ -> tail)
       }
 
-    private lazy val expected = batch.entries.iterator.map(_.identity).zipWithIndex.toMap
+    private lazy val expected = batch.entries.iterator.map(_.representation.identity).zipWithIndex.toMap
 
     private def entryIndex(index: Int, value: Option[ResponseValue]): Option[Int] =
       (shape match {
@@ -208,17 +213,17 @@ private[internal] object EntityLookup {
 
   }
 
-  def variant(fetch: EntityFetch, contexts: Map[ContextualArgument, InputValue]): Variant = {
+  /**
+   * The lookup for a fetch with `arguments` injected. A field whose `@require` argument has no value is left out.
+   */
+  def variant(fetch: EntityFetch, arguments: Map[ArgumentCoordinate, InputValue]): Variant = {
     val target     = fetch.target
     val mapping    = target.source.mapping
-    val executable = target.source.prepareFields(
-      target.entityType,
-      injectContextArguments(target.source, fetch.fields, contexts)
-    )
+    val executable = executableFields(fetch, arguments)
     val projection = ResponseProjection.compile(fetch.fields, executable, mapping.typeNames)
-    val selections = executable.flatMap(field => targetedSelections(mapping.fieldToSource(field)))
+    val selections = lookupSelections(fetch, executable, arguments)
     target.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities                            =>
+      case ComposedGraph.LookupOperation.FederationEntities           =>
         val fragment =
           Selection.InlineFragment(
             Some(NamedType(mapping.sourceType(target.entityType), nonNull = false)),
@@ -226,22 +231,62 @@ private[internal] object EntityLookup {
             selections
           )
         FederationVariant(projection, DocumentRenderer.selectionsRenderer.renderCompact(fragment :: Nil))
-      case ComposedGraph.LookupOperation.Single(path, field, arguments, typeCondition) =>
-        val typed = typeCondition.fold(selections) { name =>
-          val unwrapped = selections.flatMap {
-            case Selection.InlineFragment(Some(NamedType(`name`, _)), Nil, inner) => inner
-            case selection                                                        => selection :: Nil
-          }
-          Selection.InlineFragment(Some(NamedType(name, nonNull = false)), Nil, unwrapped) :: Nil
-        }
-        SingleVariant(projection, path, field, arguments, typed)
-      case ComposedGraph.LookupOperation.ByKey(field, arguments)                       =>
+      case ComposedGraph.LookupOperation.Single(path, field, args, _) =>
+        SingleVariant(projection, path, field, args, selections)
+      case ComposedGraph.LookupOperation.ByKey(field, args)           =>
         val aliases = new PrivateAliases(responseNames(executable))
         val keys    = target.keys.map(key => RequiredSelection(key.field, aliases.next(LookupKeyAliasBase)))
         val fields  = keys.map(key => requiredSelection(mapping.requiredSelectionToSource(target.entityType, key)))
-        ByKeyVariant(projection, field, arguments, keys, selections ::: fields)
+        ByKeyVariant(projection, field, args, keys, selections ::: fields)
     }
   }
+
+  private def executableFields(fetch: EntityFetch, arguments: Map[ArgumentCoordinate, InputValue]): List[Field] =
+    fetch.target.source.prepareFields(
+      fetch.target.entityType,
+      injectArguments(fetch.target.source, fetch.fields, arguments)
+    )
+
+  private def lookupSelections(
+    fetch: EntityFetch,
+    executable: List[Field],
+    arguments: Map[ArgumentCoordinate, InputValue]
+  ): List[Selection] = {
+    val target     = fetch.target
+    val filled     =
+      if (target.requiredArguments.isEmpty) executable
+      else executable.filterNot(field => target.requiredArguments.exists(missing(_, field, arguments)))
+    val selections = filled.flatMap(field => targetedSelections(target.source.mapping.fieldToSource(field)))
+    target.lookup.operation match {
+      case ComposedGraph.LookupOperation.Single(_, _, _, Some(name)) =>
+        val unwrapped = selections.flatMap {
+          case Selection.InlineFragment(Some(NamedType(`name`, _)), Nil, inner) => inner
+          case selection                                                        => selection :: Nil
+        }
+        Selection.InlineFragment(Some(NamedType(name, nonNull = false)), Nil, unwrapped) :: Nil
+      case _                                                         => selections
+    }
+  }
+
+  def missing(argument: RequiredArgument, field: Field, arguments: Map[ArgumentCoordinate, InputValue]): Boolean =
+    argument.at.fieldName == field.name && argument.at.typeName == parentTypeName(field) &&
+      !arguments.contains(argument.at)
+
+  /**
+   * Each entity's selections, with the values of its `@require` arguments injected.
+   */
+  private def entrySelections(batch: EntityBatch, shared: List[Selection]): EntityBatchEntry => List[Selection] =
+    if (batch.fetch.target.requiredArguments.isEmpty) _ => shared
+    else {
+      val selections = mutable.HashMap.empty[List[(ArgumentCoordinate, InputValue)], List[Selection]]
+      entry =>
+        selections.getOrElseUpdate(
+          entry.representation.arguments, {
+            val arguments = batch.arguments ++ entry.representation.arguments
+            lookupSelections(batch.fetch, executableFields(batch.fetch, arguments), arguments)
+          }
+        )
+    }
 
   private def requiredSelection(value: RequiredSelection): Selection =
     Selection.Field(
@@ -253,58 +298,53 @@ private[internal] object EntityLookup {
       0
     )
 
-  private def injectContextArguments(
+  private def injectArguments(
     source: Source,
     fields: List[Field],
-    values: Map[ContextualArgument, InputValue]
+    values: Map[ArgumentCoordinate, InputValue]
   ): List[Field] =
     if (values.isEmpty) fields
     else
       fields.map { field =>
         val parent = parentTypeName(field)
         val added  = values.iterator.collect {
-          case (context, value) if context.at.typeName == parent && context.at.fieldName == field.name =>
-            val expected = source
-              .sourceField(parent, field.name)
-              .flatMap(_.allArgs.find(_.name == context.at.argumentName))
-              .map(_._type)
-            val input    = expected.fold(value)(coerceInput(value, _))
-            context.at.argumentName -> input
+          case (at, value) if at.typeName == parent && at.fieldName == field.name =>
+            val expected = source.sourceField(parent, field.name).flatMap(_.allArgs.find(_.name == at.argumentName))
+            at.argumentName -> expected.flatMap(argument => coerce(value, argument._type)).getOrElse(value)
         }.toMap
-        field.copy(arguments = field.arguments ++ added, fields = injectContextArguments(source, field.fields, values))
+        field.copy(arguments = field.arguments ++ added, fields = injectArguments(source, field.fields, values))
       }
 
-  private def coerceInput(value: InputValue, expected: __Type): InputValue =
-    expected.kind match {
-      case __TypeKind.NON_NULL     => expected.ofType.fold(value)(coerceInput(value, _))
-      case __TypeKind.LIST         =>
-        (value, expected.ofType) match {
-          case (InputValue.ListValue(values), Some(element)) =>
-            InputValue.ListValue(values.map(coerceInput(_, element)))
-          case _                                             => value
-        }
-      case __TypeKind.ENUM         =>
-        value match {
-          case StringValue(entry) => EnumValue(entry)
-          case _                  => value
-        }
-      case __TypeKind.INPUT_OBJECT =>
-        value match {
-          case InputObjectValue(fields) =>
-            InputObjectValue(fields.map { case (name, field) =>
-              name -> inputFieldDefinition(expected, name).fold(field)(definition =>
-                coerceInput(field, definition._type)
-              )
-            })
-          case _                        => value
-        }
-      case _                       => value
+  /**
+   * Coerces a value read from a response to an input type, where enum values arrive as strings. `None` when the value
+   * does not fit the type, as a null for a non-null type or a missing required input field.
+   */
+  def coerce(value: InputValue, expected: __Type): Option[InputValue] =
+    (expected.kind, value) match {
+      case (__TypeKind.NON_NULL, NullValue)                    => None
+      case (__TypeKind.NON_NULL, _)                            => expected.ofType.fold(Option(value))(coerce(value, _))
+      case (_, NullValue)                                      => Some(NullValue)
+      case (__TypeKind.LIST, InputListValue(values))           =>
+        expected.ofType.fold(Option(value))(element =>
+          traverseOption(values)(coerce(_, element)).map(InputListValue(_))
+        )
+      case (__TypeKind.LIST, single)                           =>
+        expected.ofType.fold(Option(value))(element => coerce(single, element).map(item => InputListValue(item :: Nil)))
+      case (__TypeKind.ENUM, StringValue(entry))               => Some(EnumValue(entry))
+      case (__TypeKind.INPUT_OBJECT, InputObjectValue(fields)) =>
+        traverseOption(expected.allInputFields) { definition =>
+          fields.get(definition.name) match {
+            case Some(field) => coerce(field, definition._type).map(value => Some(definition.name -> value))
+            case None        => if (isRequiredInput(definition)) None else Some(None)
+          }
+        }.map(values => InputObjectValue(values.flatten.toMap))
+      case _                                                   => Some(value)
     }
 
   private def federationRepresentation(typename: Option[String], entry: EntityBatchEntry): InputObjectValue =
     InputObjectValue(
-      entry.identity.keys.toMap ++ entry.requirements +
-        (TypenameField -> StringValue(typename.getOrElse(entry.identity.typename)))
+      entry.representation.identity.keys.toMap ++ entry.representation.requirements +
+        (TypenameField -> StringValue(typename.getOrElse(entry.representation.identity.typename)))
     )
 
   private def argumentValues[A](arguments: List[(String, Lookup.Argument[A])])(
@@ -319,10 +359,7 @@ private[internal] object EntityLookup {
     }
 
   private def keyValue(keys: List[(String, InputValue)])(key: ComposedGraph.KeyArgument): Option[InputValue] =
-    FieldSelectionMap.evaluate(key.value, keys) match {
-      case Some(value) => Some(coerceInput(value, key.expectedType))
-      case None        => None
-    }
+    FieldSelectionMap.evaluate(key.value, keys).flatMap(coerce(_, key.expectedType))
 
   private def executionError(error: CalibanError): CalibanError.ExecutionError =
     error match {

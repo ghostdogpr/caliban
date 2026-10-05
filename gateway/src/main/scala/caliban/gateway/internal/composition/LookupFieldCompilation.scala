@@ -77,7 +77,9 @@ private[composition] final class LookupFieldCompilation private (subgraph: Sourc
         combination <- combinations(alternatives)
         entity      <- possibleTypes
         narrowed    <- traverseOption(combination) { case (argument, value) =>
-                         narrow(value, admits(entity)).map(narrowed => argument -> clientSelection(narrowed, Some(entity)))
+                         narrow(value, admits(entity)).map(narrowed =>
+                           argument -> mapping.clientSelection(narrowed, Some(entity))
+                         )
                        }.toList
       } yield mapping.clientType(entity) -> EntityLookup(
         keyFields(narrowed.map(_._2)),
@@ -92,8 +94,9 @@ private[composition] final class LookupFieldCompilation private (subgraph: Sourc
       )
       val maps          = arguments.collect { case (argument, Some(value)) =>
         SelectionMapUse(
+          Is,
           argumentAt(argument),
-          clientValue(value, Some(typeName)),
+          mapping.clientSelectionMap(value, Some(typeName)),
           clientInputType(argument._type),
           mapping.clientType(typeName)
         )
@@ -147,42 +150,6 @@ private[composition] final class LookupFieldCompilation private (subgraph: Sourc
 
   private def clientInputType(tpe: __Type): __Type =
     tpe.mapInnerType(named => named.name.map(mapping.clientType).flatMap(subgraph.rootType.types.get).getOrElse(named))
-
-  private def clientValue(value: SelectedValue, typeName: Option[String]): SelectedValue =
-    ::(clientSelection(value.head, typeName), value.tail.map(clientSelection(_, typeName)))
-
-  private def clientSelection(selection: Selection, typeName: Option[String]): Selection =
-    selection match {
-      case Selection.Leaf(steps)             => Selection.Leaf(clientPath(steps, typeName)._1)
-      case Selection.ObjectOf(steps, fields) =>
-        val (renamed, end) = clientSteps(steps, typeName)
-        Selection.ObjectOf(renamed, ::(clientField(fields.head, end), fields.tail.map(clientField(_, end))))
-      case Selection.ListOf(steps, element)  =>
-        val (renamed, end) = clientSteps(steps, typeName)
-        Selection.ListOf(renamed, clientValue(element, end))
-    }
-
-  private def clientField(field: ObjectField, typeName: Option[String]): ObjectField =
-    field.copy(value = clientValue(field.value, typeName))
-
-  private def clientPath(steps: ::[PathStep], typeName: Option[String]): (::[PathStep], Option[String]) = {
-    val step         = steps.head
-    val owner        = step.typeCondition.orElse(typeName)
-    val next         = owner.flatMap(schema.types.get).flatMap(fieldDefinition(_, step.field)).flatMap(_._type.innerType.name)
-    val renamed      = PathStep(
-      step.typeCondition.map(mapping.clientType),
-      owner.fold(step.field)(mapping.clientField(_, step.field)),
-      step.arguments
-    )
-    val (tail, last) = clientSteps(steps.tail, next)
-    ::(renamed, tail) -> last
-  }
-
-  private def clientSteps(steps: List[PathStep], typeName: Option[String]): (List[PathStep], Option[String]) =
-    steps match {
-      case head :: tail => clientPath(::(head, tail), typeName)
-      case Nil          => Nil -> typeName
-    }
 }
 
 private[composition] object LookupFieldCompilation {
@@ -194,13 +161,6 @@ private[composition] object LookupFieldCompilation {
     diagnostics: List[CompositionDiagnostic],
     lookups: List[(String, EntityLookup)],
     maps: List[SelectionMapUse]
-  )
-
-  final case class SelectionMapUse(
-    at: SchemaCoordinate.Argument,
-    value: SelectedValue,
-    inputType: __Type,
-    outputType: String
   )
 
   def compile(subgraph: Source): Compiled = new LookupFieldCompilation(subgraph).compile

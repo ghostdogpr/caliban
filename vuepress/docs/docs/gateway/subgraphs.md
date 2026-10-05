@@ -49,7 +49,7 @@ val catalog = Subgraph.graphql(
 )
 ```
 
-The gateway reads each GraphQL service as a source schema of the [GraphQL Federation spec](https://github.com/graphql/graphql-federation-spec) and recognizes its directives by name: `@key`, `@lookup`, `@is`, `@internal`, `@shareable`, `@provides`, `@external`, `@override` and `@inaccessible`. Introspection does not expose applied directives, so use pinned SDL, an SDL URL or a local API when the schema relies on them. GraphQL Federation support is experimental.
+The gateway reads each GraphQL service as a source schema of the [GraphQL Federation spec](https://github.com/graphql/graphql-federation-spec) and recognizes its directives by name: `@key`, `@lookup`, `@is`, `@require`, `@internal`, `@shareable`, `@provides`, `@external`, `@override` and `@inaccessible`. Introspection does not expose applied directives, so use pinned SDL, an SDL URL or a local API when the schema relies on them. GraphQL Federation support is experimental.
 
 ## Federation subgraphs
 
@@ -76,7 +76,7 @@ The gateway acquires each Federation schema through `_service`. To pin a Federat
 The gateway combines root fields into one public schema and merges types by name. A `Product` declared in two services describes the same public type. Rename a type before composition if the names match but the concepts differ.
 
 - A field that several GraphQL services resolve, root fields included, must be a key field or `@shareable` in each of them. A field mapped by a lookup argument counts as a key field. Fields of a service acquired through introspection are treated as shareable. Otherwise, rename or hide one field with a [schema transformation](#shaping-the-public-schema).
-- `@internal` types and fields stay out of the public schema and out of merging; the gateway uses them only as lookups. Other directives of GraphQL services don't reach the public schema, except `@deprecated`, `@specifiedBy` and `@oneOf`.
+- `@internal` types and fields stay out of the public schema and out of merging; the gateway uses them only as lookups. Arguments that the gateway fills with [`@require`](planning.md#fields-that-require-data-from-other-services) stay out too, with the input types that only they use. Other directives of GraphQL services don't reach the public schema, except `@deprecated`, `@specifiedBy` and `@oneOf`.
 - Object types can contribute different fields. Shared fields need compatible output types and arguments. For example, `Product.price: Int` and `Product.price: String` conflict. Output nullability can differ. The composed field is nullable if a contributing source allows null.
 - Input fields must agree on their types and defaults. A required input field must exist in every service that declares that input type.
 - Federation 2 fields with multiple owners need compatible `@shareable` declarations or an applicable `@override`. A subgraph whose `@interfaceObject` declares a field owns that field on every implementing type. Subscription root fields always need one owner. Interface and `@interfaceObject` fields cannot declare `@override`, and `@override` cannot take a field from a subgraph that resolves it through an `@interfaceObject`.

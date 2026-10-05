@@ -301,13 +301,21 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
 
   private def selectionMapDiagnostics: List[CompositionDiagnostic] =
     sortedSubgraphs.flatMap { subgraph =>
-      subgraph.lookupFields.maps.flatMap { use =>
+      (subgraph.lookupFields.maps ::: subgraph.requiredArguments.maps).flatMap { use =>
+        val required                                = use.directive == Require
+        // As Fusion does, a @require selection map may not read a field that its own subgraph defines.
+        val local: (String, String) => List[String] = (owner, field) =>
+          check(
+            !required || subgraph.sourceField(owner, field).isEmpty,
+            s"The required field '$owner.$field' must not be defined by this subgraph."
+          )
         selectionMapTypes.get(use.outputType).toList.flatMap { outputType =>
-          val errors = FieldSelectionMap.validate(use.value, use.inputType, outputType, selectionMapTypes)
+          val errors =
+            FieldSelectionMap.validate(use.value, use.inputType, outputType, selectionMapTypes, local).distinct
           check(
             errors.isEmpty,
-            error(Code.IsInvalidFields, List(subgraph.name), Some(use.at))(
-              s"Invalid @is field selection map on '${use.at.render}': ${errors.mkString(" ")}"
+            error(if (required) Code.RequireInvalidFields else Code.IsInvalidFields, List(subgraph.name), Some(use.at))(
+              s"Invalid @${use.directive.name} field selection map on '${use.at.render}': ${errors.mkString(" ")}"
             )
           )
         }
@@ -337,15 +345,19 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
     def subgraphField(field: __Field): SubgraphField = {
       val at       = FieldCoordinate(name, field.name)
       val external = typeExternal || subgraph.applied(External, at)
+
+      def appliedArguments(directive: FederationDirective): Set[String] =
+        field.allArgs.iterator
+          .map(_.name)
+          .filter(argument => subgraph.applied(directive, ArgumentCoordinate(name, field.name, argument)))
+          .toSet
       SubgraphField(
         definition = field,
         owned = !external || !isRoot && subgraph.keys.federation1Owned(at),
         shareable = typeShareable || subgraph.applied(Shareable, at) || !isRoot && subgraph.keys.shared(at),
         overrideDirective = subgraph.overrides.get(at).map(_._1),
-        contextualArguments = field.allArgs.iterator
-          .map(_.name)
-          .filter(argument => subgraph.applied(FromContext, ArgumentCoordinate(name, field.name, argument)))
-          .toSet
+        contextualArguments = appliedArguments(FromContext),
+        requiredArguments = appliedArguments(Require)
       )
     }
 
