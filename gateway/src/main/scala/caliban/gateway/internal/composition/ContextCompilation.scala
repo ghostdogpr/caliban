@@ -1,6 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition.{ ArgumentCoordinate, FieldCoordinate, TypeCoordinate }
 import caliban.gateway.internal.composition.FederationCompilation._
@@ -12,7 +13,7 @@ import caliban.schema.Types
 import scala.collection.compat._
 
 private[composition] object ContextCompilation {
-  def compile(subgraph: Source): Either[List[String], FederationContexts] = {
+  def compile(subgraph: Source): Either[List[CompositionDiagnostic], FederationContexts] = {
     val contexts       = subgraph.applications(FederationDirective.Context).collect {
       case FederationApplication(TypeCoordinate(typeName, _), _, directive) =>
         ContextDeclaration(typeName, ContextName(stringArgument(directive.arguments, "name").getOrElse("")))
@@ -23,35 +24,53 @@ private[composition] object ContextCompilation {
       at: ArgumentCoordinate,
       parent: __Type,
       argument: __InputValue,
-      directive: Directive
-    ): Either[String, (FieldCoordinate, ContextArgument)] = {
-      val result = for {
-        value             <- stringArgument(directive.arguments, "field").toRight("the 'field' argument must be a string.")
-        parsed            <- parseSelection(value).toRight("the context selection could not be parsed.")
+      application: FederationApplication
+    ): Either[CompositionDiagnostic, (FieldCoordinate, ContextArgument)] = {
+      def invalid[A](code: Code)(result: Either[String, A]): Either[CompositionDiagnostic, A] =
+        subgraph.invalidApplication(application, code)(result)
+      for {
+        parsed            <- invalid(Code.NoContextInSelection)(
+                               stringArgument(application.directive.arguments, "field")
+                                 .toRight("the 'field' argument must be a string.")
+                                 .flatMap(parseSelection(_).toRight("the context selection could not be parsed."))
+                             )
         (name, selections) = parsed
-        contextTypes      <- typesByContext.get(name).toRight(s"context '${name.value}' is not declared by this subgraph.")
-        _                 <- Either.cond(argument._type.isNullable, (), "context arguments must be nullable.")
-        _                 <- Either.cond(argument.defaultValue.isEmpty, (), "context arguments must not define a default value.")
-        _                 <- validateContextReceiver(subgraph, parent, at.typeName, at.fieldName)
-        _                 <- validateSelections(subgraph, selections, topLevel = true)
-        parents           <- contextParents(subgraph, contextTypes)
-        _                 <- validateContextTypeConditions(parents, selections)
-        // The last-declared context type is checked first, so its error is the one reported.
-        _                 <- traverseEither(parents.reverse)(validateContextValue(subgraph, _, selections, argument._type))
+        contextTypes      <- invalid(Code.ContextNotSet)(
+                               for {
+                                 types <- typesByContext
+                                            .get(name)
+                                            .toRight(s"context '${name.value}' is not declared by this subgraph.")
+                                 _     <- Either.cond(argument._type.isNullable, (), "context arguments must be nullable.")
+                                 _     <- Either.cond(
+                                            argument.defaultValue.isEmpty,
+                                            (),
+                                            "context arguments must not define a default value."
+                                          )
+                                 _     <- validateContextReceiver(subgraph, parent, at.typeName, at.fieldName)
+                               } yield types
+                             )
+        _                 <- invalid(Code.ContextInvalidSelection)(
+                               for {
+                                 _       <- validateSelections(subgraph, selections, topLevel = true)
+                                 parents <- contextParents(subgraph, contextTypes)
+                                 _       <- validateContextTypeConditions(parents, selections)
+                                 // The last-declared context type is checked first, so its error is the one reported.
+                                 _       <- traverseEither(parents.reverse)(
+                                              validateContextValue(subgraph, _, selections, argument._type)
+                                            )
+                               } yield ()
+                             )
       } yield FieldCoordinate(at.typeName, at.fieldName) -> ContextArgument(at, name, selections)
-      result.left.map(error =>
-        s"[${subgraph.name}] Invalid Federation @fromContext application at '${at.display}': $error"
-      )
     }
 
     val bindings = subgraph.applications(FederationDirective.FromContext).flatMap {
-      case FederationApplication(at @ ArgumentCoordinate(typeName, fieldName, argumentName), _, directive) =>
+      case application @ FederationApplication(at @ ArgumentCoordinate(typeName, fieldName, argumentName), _, _) =>
         for {
           parent   <- subgraph.rootType.types.get(typeName)
           field    <- fieldDefinition(parent, fieldName)
           argument <- field.allArgs.find(_.name == argumentName)
-        } yield compileContextArgument(at, parent, argument, directive)
-      case _                                                                                               => None
+        } yield compileContextArgument(at, parent, argument, application)
+      case _                                                                                                     => None
     }
 
     validated(contexts.flatMap(declarationDiagnostics(subgraph.name, _)), validateAll(bindings)).map { bound =>
@@ -188,11 +207,15 @@ private[composition] object ContextCompilation {
 
   private def isContextName(name: String): Boolean = ContextNamePattern.pattern.matcher(name).matches()
 
-  private def declarationDiagnostics(source: String, declaration: ContextDeclaration): List[String] = {
+  private def declarationDiagnostics(source: String, declaration: ContextDeclaration): List[CompositionDiagnostic] = {
     val ContextDeclaration(typeName, ContextName(name)) = declaration
-    if (!isContextName(name)) List(s"[$source] Invalid Federation @context name '$name' on '$typeName'.")
+
+    def invalid(code: Code, message: String): List[CompositionDiagnostic] =
+      List(error(code, List(source), Some(SchemaCoordinate.Type(typeName)))(message))
+    if (!isContextName(name))
+      invalid(Code.ContextNameInvalid, s"Invalid Federation @context name '$name' on '$typeName'.")
     else if (typeName == "Mutation" || typeName == "Subscription")
-      List(s"[$source] Federation @context is not supported on the $typeName root type '$typeName'.")
+      invalid(Code.UnsupportedFeature, s"Federation @context is not supported on the $typeName root type '$typeName'.")
     else Nil
   }
 

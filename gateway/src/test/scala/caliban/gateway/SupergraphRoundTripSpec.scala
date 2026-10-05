@@ -31,7 +31,7 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
       documents <- ZIO.foreach(names.toList) { case (name, file) =>
                      supergraphResource(file).flatMap(parseSdl).map(name -> _)
                    }
-      composed  <- orDie(composeDocuments(documents))
+      composed  <- ZIO.fromEither(composeDocuments(documents)).orDie
     } yield composed
 
   /** The same graph reached by decomposing the supergraph and composing the projections. */
@@ -78,7 +78,7 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
     for {
       document  <- parseSdl(sdl)
       projected <- orDie(SupergraphDecomposition.decompose(document))
-      composed  <- orDie(composeDocuments(projected.map(entry => entry.graph.name -> entry.document)))
+      composed  <- ZIO.fromEither(composeDocuments(projected.map(entry => entry.graph.name -> entry.document))).orDie
     } yield composed
 
   private def orDie[A](result: Either[List[String], A]): UIO[A] =

@@ -2,7 +2,9 @@ package caliban.gateway
 
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.SchemaCoordinate.{ Argument, Member, Type }
 import zio.{ Scope, ZIO }
 import zio.test._
 
@@ -380,12 +382,18 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(
-        Gateway.compose(
-          Subgraph.federation("contextual", unreachableEndpoint, contextual),
-          Subgraph.federation("required", unreachableEndpoint, required)
+      compositionErrors(
+        Subgraph.federation("contextual", unreachableEndpoint, contextual),
+        Subgraph.federation("required", unreachableEndpoint, required)
+      ).map(errors =>
+        assertTrue(
+          errors.reports(
+            Code.ContextualArgumentNotContextualInAllSubgraphs,
+            Argument("Product", "price", "locale"),
+            "required"
+          )
         )
-      ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("must be nullable or define a default value"))))
+      )
     },
     test("rejects contexts on mutation and subscription root types") {
       def schema(operation: String): String =
@@ -396,16 +404,12 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        mutation     <- compositionDiagnostics(
-                          Gateway.compose(Subgraph.federation("mutation", unreachableEndpoint, schema("Mutation")))
-                        )
+        mutation     <- compositionErrors(Subgraph.federation("mutation", unreachableEndpoint, schema("Mutation")))
         subscription <-
-          compositionDiagnostics(
-            Gateway.compose(Subgraph.federation("subscription", unreachableEndpoint, schema("Subscription")))
-          )
+          compositionErrors(Subgraph.federation("subscription", unreachableEndpoint, schema("Subscription")))
       } yield assertTrue(
-        mutation.exists(_.contains("not supported on the Mutation root type")),
-        subscription.exists(_.contains("not supported on the Subscription root type"))
+        mutation.reports(Code.UnsupportedFeature, Type("Mutation"), "mutation"),
+        subscription.reports(Code.UnsupportedFeature, Type("Subscription"), "subscription")
       )
     },
     test("accepts type-conditioned selectors across context locations") {
@@ -460,18 +464,13 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(Gateway.compose(Subgraph.federation("unsupported", unreachableEndpoint, schema))).map {
-        diagnostics =>
-          assertTrue(
-            !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@override")),
-            !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@context")),
-            !diagnostics.exists(message =>
-              message.startsWith("[unsupported]") && message.contains("@fromContext is not supported")
-            ),
-            diagnostics.exists(message =>
-              message.startsWith("[unsupported]") && message.contains("Invalid Federation @fromContext")
-            )
-          )
+      // The aliases resolve, so only the missing 'from' subgraph and the entity-less receiver are reported.
+      compositionErrors(Subgraph.federation("unsupported", unreachableEndpoint, schema)).map { errors =>
+        assertTrue(
+          errors.size == 2,
+          errors.reports(Code.UnsupportedFeature, Member("Query", "migrated"), "legacy", "unsupported"),
+          errors.reports(Code.ContextNotSet, Argument("Query", "value", "input"), "unsupported")
+        )
       }
     },
     test("validates the context feature version, names, selectors, and argument nullability") {
@@ -527,25 +526,30 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         nestedCondition
       )
 
+      val amount    = Argument("User", "amount", "currency")
+      val result    = Argument("Child", "result", "value")
+      val selection = Code.ContextInvalidSelection
+
+      def rejects(errors: List[CompositionDiagnostic], index: Int, code: Code, at: SchemaCoordinate, text: String) =
+        errors.reports(code, at, s"invalid-$index") && errors.exists(_.message.contains(text))
+
       for {
-        diagnostics <- ZIO.foreach(schemas.zipWithIndex) { case (schema, index) =>
-                         compositionDiagnostics(
-                           Gateway.compose(Subgraph.federation(s"invalid-$index", unreachableEndpoint, schema))
-                         )
-                       }
+        errors <- ZIO.foreach(schemas.zipWithIndex) { case (schema, index) =>
+                    compositionErrors(Subgraph.federation(s"invalid-$index", unreachableEndpoint, schema))
+                  }
       } yield assertTrue(
-        diagnostics(0).exists(_.contains("not available in the linked feature version")),
-        diagnostics(1).exists(_.contains("Invalid Federation @context name")),
-        diagnostics(2).exists(message => message.contains("@fromContext") && message.contains("missing")),
-        diagnostics(3).exists(_.contains("context arguments must be nullable")),
-        diagnostics(4).exists(_.contains("selected value is incompatible")),
-        diagnostics(5).exists(_.contains("multiple fields")),
-        diagnostics(6).exists(_.contains("directives are not allowed")),
-        diagnostics(7).exists(_.contains("must not define a default value")),
-        diagnostics(8).exists(_.contains("multiple fields")),
-        diagnostics(9).exists(_.contains("concrete object types")),
-        diagnostics(10).exists(_.contains("do not match a context location")),
-        diagnostics(11).exists(_.contains("inline fragments are only allowed at the top level"))
+        rejects(errors(0), 0, Code.InvalidGraphQL, Type("User"), "not available in the linked feature version"),
+        rejects(errors(1), 1, Code.ContextNameInvalid, Type("User"), "Invalid Federation @context name"),
+        rejects(errors(2), 2, selection, amount, "missing"),
+        rejects(errors(3), 3, Code.ContextNotSet, amount, "context arguments must be nullable"),
+        rejects(errors(4), 4, selection, amount, "selected value is incompatible"),
+        rejects(errors(5), 5, selection, amount, "multiple fields"),
+        rejects(errors(6), 6, selection, amount, "directives are not allowed"),
+        rejects(errors(7), 7, Code.ContextNotSet, amount, "must not define a default value"),
+        rejects(errors(8), 8, selection, amount, "multiple fields"),
+        rejects(errors(9), 9, selection, result, "concrete object types"),
+        rejects(errors(10), 10, selection, result, "do not match a context location"),
+        rejects(errors(11), 11, selection, result, "inline fragments are only allowed at the top level")
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential

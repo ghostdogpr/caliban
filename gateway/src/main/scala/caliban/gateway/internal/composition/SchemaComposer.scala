@@ -1,6 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code, Severity }
 import caliban.gateway.GatewayBuildError.SchemaCompositionFailed
 import caliban.gateway.SubgraphBuildError.{ InvalidTransformations, SchemaValidationFailed }
 import caliban.gateway.internal.composition.ComposedGraph._
@@ -26,8 +27,8 @@ private[gateway] object SchemaComposer {
   import DirectiveComposition._
   import TypeComposition._
 
-  def compose(prepared: List[Source]): Either[GatewayBuildError, ComposedGraph] =
-    new SchemaComposer(prepared).compose.left.map(errors => SchemaCompositionFailed(errors.distinct.sorted))
+  def compose(prepared: List[Source]): Either[SchemaCompositionFailed, (ComposedGraph, List[CompositionDiagnostic])] =
+    new SchemaComposer(prepared).compose
 
   def prepare[R](subgraph: Subgraph[R], document: Document): Either[SubgraphBuildError, Source] = {
     val federation                    = subgraph.source.federation
@@ -118,17 +119,20 @@ private[gateway] object SchemaComposer {
     val arguments = application.directive.arguments
     val at        = application.coordinate.display
     val label     = stringArgument(arguments, "label").map(parseProgressiveOverrideLabel)
-    val error     =
+    val invalid   =
       if (label.nonEmpty && !subgraph.directiveNames.supportsProgressiveOverride)
         Some(s"Federation @override(label:) is not available in the linked feature version at '$at'.")
-      else label.flatMap(_.left.toOption).map(error => s"$error At '$at'.")
+      else label.flatMap(_.left.toOption).map(message => s"$message At '$at'.")
     FieldOverride(stringArgument(arguments, "from").getOrElse(""), label.flatMap(_.toOption)) ->
-      error.map(error => s"[${subgraph.name}] $error")
+      invalid.map(error(Code.OverrideLabelInvalid, List(subgraph.name), application.coordinate.schemaCoordinate)(_))
   }
 
-  private[composition] def validateFieldSet[A](subgraph: Source, application: FederationApplication, parent: __Type)(
-    shape: List[Selection] => Either[String, A]
-  ): Either[String, A] = {
+  private[composition] def validateFieldSet[A](
+    subgraph: Source,
+    application: FederationApplication,
+    parent: __Type,
+    code: Code
+  )(shape: List[Selection] => Either[String, A]): Either[CompositionDiagnostic, A] = {
     val directive = application.directive
     val result    = for {
       selections <- stringArgument(directive.arguments, "fields")
@@ -137,8 +141,10 @@ private[gateway] object SchemaComposer {
       shaped     <- shape(selections)
       _          <- validateFieldSetSelections(subgraph, parent, selections)
     } yield shaped
-    result.left.map(error =>
-      s"[${subgraph.name}] Invalid @${directive.name} field set on '${application.coordinate.display}': $error"
+    result.left.map(message =>
+      error(code, List(subgraph.name), application.coordinate.schemaCoordinate)(
+        s"Invalid @${directive.name} field set on '${application.coordinate.display}': $message"
+      )
     )
   }
 
@@ -159,7 +165,7 @@ private[gateway] object SchemaComposer {
       .applications(Key)
       .collect { case application @ FederationApplication(TypeCoordinate(name, _), _, directive) =>
         subgraph.rootType.types.get(name).map { parent =>
-          validateFieldSet(subgraph, application, parent)(
+          validateFieldSet(subgraph, application, parent, Code.KeyInvalidFields)(
             plainFieldSet(_).toRight("only fields without aliases, arguments, or directives can be selected.")
           ).map { fields =>
             val resolvable = !directive.arguments.get("resolvable").contains(BooleanValue(false))
@@ -212,7 +218,7 @@ private[gateway] object SchemaComposer {
 
   private[composition] final case class SubgraphKeys(
     all: List[FederationKey],
-    diagnostics: List[String],
+    diagnostics: List[CompositionDiagnostic],
     shared: Set[FieldCoordinate],
     federation1Owned: Set[FieldCoordinate]
   )
@@ -229,11 +235,36 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
   import DirectiveComposition._
   import TypeComposition._
 
-  def compose: Either[List[String], ComposedGraph] = {
-    val errors =
-      sortedSubgraphs.flatMap(_.diagnostics) ::: composedDirectives.diagnostics ::: typeComposition.diagnostics
-    if (errors.nonEmpty) Left(errors) else composedRootType(typeComposition.composed).flatMap(buildGraph)
-  }
+  def compose: Either[SchemaCompositionFailed, (ComposedGraph, List[CompositionDiagnostic])] =
+    for {
+      warnings <-
+        checked(
+          sortedSubgraphs.flatMap(_.diagnostics) ::: composedDirectives.diagnostics ::: typeComposition.diagnostics
+        )
+      rootType <- composedRootType(typeComposition.composed).left.map(failed(_, warnings))
+      graph     = composedGraph(rootType)
+      warnings <- checked(
+                    warnings ::: invalidTransformationDiagnostics(rootType) :::
+                      composedDirectives.schemaDiagnostics(rootType) ::: SecurityCompilation.diagnostics(graph)
+                  )
+      _        <- SchemaValidator
+                    .validateRootType(rootType)
+                    .left
+                    .map(invalid => failed(error(Code.InvalidGraphQL, Nil, None)(invalid.getMessage), warnings))
+    } yield graph -> warnings
+
+  // Composition stops at the first phase that fails; warnings found so far are reported with the failure.
+  private def checked(
+    diagnostics: List[CompositionDiagnostic]
+  ): Either[SchemaCompositionFailed, List[CompositionDiagnostic]] =
+    diagnostics.distinct.sortBy(_.render) match {
+      case all @ first :: rest if all.exists(_.severity == Severity.Error) =>
+        Left(SchemaCompositionFailed(::(first, rest)))
+      case warnings                                                        => Right(warnings)
+    }
+
+  private def failed(error: CompositionDiagnostic, warnings: List[CompositionDiagnostic]): SchemaCompositionFailed =
+    SchemaCompositionFailed(::(error, warnings))
 
   private val sortedSubgraphs    = subgraphs.sortBy(_.name)
   private val composedDirectives = DirectiveComposition.compile(sortedSubgraphs)
@@ -289,8 +320,8 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
     )
   }
 
-  private def buildGraph(rootType: RootType): Either[List[String], ComposedGraph] = {
-    val graph       = new ComposedGraph(
+  private def composedGraph(rootType: RootType): ComposedGraph =
+    new ComposedGraph(
       rootType = rootType,
       fieldRoutes = typeComposition.inactiveRoutes,
       progressiveRoutes = typeComposition.progressiveRoutes,
@@ -299,34 +330,26 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
       costMetadata = CostCompilation.merge(sortedSubgraphs.flatMap(_.costs.toOption)),
       securityApplications = sortedSubgraphs.flatMap(SecurityCompilation.compile)
     )
-    val diagnostics = invalidTransformationDiagnostics(rootType) :::
-      composedDirectives.schemaDiagnostics(rootType) ::: SecurityCompilation.diagnostics(graph)
 
-    if (diagnostics.nonEmpty) Left(diagnostics)
-    else
-      SchemaValidator
-        .validateRootType(rootType)
-        .left
-        .map(error => List(s"[composition] ${error.getMessage}"))
-        .map(_ => graph)
-  }
-
-  private def composedRootType(composedTypes: Map[String, __Type]): Either[List[String], RootType] = {
+  private def composedRootType(composedTypes: Map[String, __Type]): Either[CompositionDiagnostic, RootType] = {
     val additionalTypes = composedTypes.toList.sortBy(_._1).collect {
       case (name, tpe) if !RootOperations.contains(name) => tpe
     } ::: composedDirectives.additionalTypes.filterNot(tpe => tpe.name.exists(composedTypes.contains))
-    composedTypes.get("Query").toRight(List("[composition] No subgraph defines a query root type.")).map { query =>
-      RootType(
-        query,
-        composedTypes.get("Mutation").filter(_.allFields.nonEmpty),
-        composedTypes.get("Subscription").filter(_.allFields.nonEmpty),
-        additionalTypes,
-        composedDirectives.definitions(rewriteType(_, composedTypes))
-      )
-    }
+    composedTypes
+      .get("Query")
+      .toRight(error(Code.NoQueries, Nil, None)("No subgraph defines a query root type."))
+      .map { query =>
+        RootType(
+          query,
+          composedTypes.get("Mutation").filter(_.allFields.nonEmpty),
+          composedTypes.get("Subscription").filter(_.allFields.nonEmpty),
+          additionalTypes,
+          composedDirectives.definitions(rewriteType(_, composedTypes))
+        )
+      }
   }
 
-  private def invalidTransformationDiagnostics(rootType: RootType): List[String] =
+  private def invalidTransformationDiagnostics(rootType: RootType): List[CompositionDiagnostic] =
     sortedSubgraphs.flatMap { subgraph =>
       subgraph.mapping.hidden.toList.collect {
         case FieldCoordinate(name, _)      => name
@@ -336,7 +359,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
           .get(name)
           .filter(tpe => tpe.allFields.isEmpty && tpe.allInputFields.isEmpty)
           .flatMap(tpe => TransformedKinds.get(tpe.kind))
-          .map(kind => s"[${subgraph.name}] Transformation leaves $kind '$name' with no visible fields.")
+          .map(kind =>
+            error(Code.OnlyInaccessibleChildren, List(subgraph.name), Some(SchemaCoordinate.Type(name)))(
+              s"Transformation leaves $kind '$name' with no visible fields."
+            )
+          )
       }
     }
 

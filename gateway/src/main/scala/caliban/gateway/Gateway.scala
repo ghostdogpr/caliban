@@ -105,7 +105,12 @@ final class Gateway[-R] private[gateway] (
   ): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R1]] =
     for {
       executables <- loadAll(subgraphs)(_.subgraph.name)(_.load(http, config.remoteErrorMessages, hooks))
-      graph       <- ZIO.fromEither(SchemaComposer.compose(executables.map(_.prepared)))
+      graph       <- ZIO.fromEither(SchemaComposer.compose(executables.map(_.prepared))).flatMap {
+                       case (_, first :: rest) if config.fatalCompositionWarnings =>
+                         ZIO.fail(GatewayBuildError.SchemaCompositionFailed(::(first, rest)))
+                       case (graph, warnings)                                     =>
+                         ZIO.foreachDiscard(warnings)(warning => ZIO.logWarning(warning.render)).as(graph)
+                     }
       security     = new OperationSecurity(graph)
       _           <- validate(if (hooks.authorization.nonEmpty) Nil else security.diagnostics)
       executors    = executables.map(value => value.prepared.name -> value.executor).toMap

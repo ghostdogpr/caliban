@@ -17,6 +17,7 @@ final case class GatewayConfig private (
   reloadPollInterval: Duration,
   reloadJitter: Double,
   remoteErrorMessages: Boolean,
+  fatalCompositionWarnings: Boolean,
   subscriptions: GatewaySubscriptionConfig
 ) {
 
@@ -98,6 +99,12 @@ final case class GatewayConfig private (
     copy(remoteErrorMessages = value)
 
   /**
+   * Fails the build when composition reports warnings, as it does for errors.
+   */
+  def withFatalCompositionWarnings(value: Boolean): GatewayConfig =
+    copy(fatalCompositionWarnings = value)
+
+  /**
    * The fastest delay [[reloadPollInterval]] and [[reloadJitter]] can produce, which is what a source with a
    * published polling floor has to be checked against.
    */
@@ -140,6 +147,7 @@ object GatewayConfig {
       reloadPollInterval = Duration.fromSeconds(30),
       reloadJitter = 0.2,
       remoteErrorMessages = false,
+      fatalCompositionWarnings = false,
       subscriptions = GatewaySubscriptionConfig.default
     )
 }

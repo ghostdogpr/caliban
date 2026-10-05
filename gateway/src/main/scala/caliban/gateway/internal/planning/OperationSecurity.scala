@@ -18,7 +18,7 @@ private[gateway] final class OperationSecurity(graph: ComposedGraph) {
     securityApplications
       .filter(_.scopes.nonEmpty)
       .map(application =>
-        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an authorization hook."
+        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate.render}' requires an authorization hook."
       )
       .distinct
       .sorted

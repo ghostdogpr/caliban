@@ -53,7 +53,10 @@ object GatewayBuildError {
   /**
    * The loaded subgraph schemas could not be composed.
    */
-  final case class SchemaCompositionFailed(diagnostics: List[String]) extends GatewayBuildError
+  final case class SchemaCompositionFailed(compositionDiagnostics: ::[CompositionDiagnostic])
+      extends GatewayBuildError {
+    override val diagnostics: List[String] = compositionDiagnostics.map(_.render)
+  }
 
   final case class SupergraphAcquisitionFailed(error: SupergraphAcquisitionError)
       extends GatewayBuildError

@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.Value.IntValue.IntNumber
 import caliban.{ CalibanError, GraphQLRequest, InputValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.internal.composition.ComposedGraph
@@ -67,9 +68,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       request   <-
         RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root)
       graph     <- parseSdl(schema).flatMap(document =>
-                     ZIO
-                       .fromEither(composeDocuments(List("nodes" -> document), federation = false))
-                       .orDieWith(errors => new AssertionError(errors.mkString))
+                     ZIO.fromEither(composeDocuments(List("nodes" -> document), federation = false)).orDie
                    )
       limits     = CandidateSearch.Limits(Int.MaxValue, Int.MaxValue, Duration.Infinity)
       plan      <- ZIO
@@ -747,7 +746,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       )
     },
     test("validates listSize paths and Federation version") {
-      def invalid(version: String, application: String) =
+      def invalid(version: String, application: String)                                           =
         s"""
            |schema @link(url: "https://specs.apollo.dev/federation/$version", import: ["@listSize"]) { query: Query }
            |$directives
@@ -756,8 +755,12 @@ object OperationCostSpec extends ZIOSpecDefault {
            |type Cursor { page: [Book!]! }
            |type Book { title: String }
            |""".stripMargin
-      def diagnostics(name: String, schema: String)     =
-        compositionDiagnostics(Gateway.compose(Subgraph.federation(name, unreachableEndpoint, schema)))
+      def diagnostics(name: String, schema: String)                                               =
+        compositionErrors(Subgraph.federation(name, unreachableEndpoint, schema))
+      def rejects(errors: List[CompositionDiagnostic], code: Code, name: String, message: String) =
+        errors.reports(code, SchemaCoordinate.Member("Query", "books"), name) && errors.exists(
+          _.message.contains(message)
+        )
       for {
         oldErrors   <-
           diagnostics("old", invalid("v2.8", "@listSize(slicingArguments: [\"first\"], sizedFields: [\"page\"])"))
@@ -794,13 +797,34 @@ object OperationCostSpec extends ZIOSpecDefault {
                            |""".stripMargin
                        )
       } yield assertTrue(
-        oldErrors.exists(_.contains("@listSize requires Federation v2.9 or cost spec v0.1")),
-        pathErrors.exists(_.contains("slicing argument 'missing' must resolve to an Int or list argument")),
-        sizedErrors.exists(_.contains("sized field 'unknown' must exist and return a list")),
-        emptyErrors.exists(_.contains("sized field '' is not a valid field path")),
-        listErrors.exists(_.contains("slicing argument 'filters.first' must resolve to an Int or list argument")),
-        leafErrors.exists(_.contains("sized field 'page recent' must not select sibling leaf fields")),
-        linkErrors.exists(_.contains("@cost requires Federation v2.9 or cost spec v0.1"))
+        rejects(oldErrors, Code.InvalidGraphQL, "old", "@listSize requires Federation v2.9 or cost spec v0.1"),
+        rejects(
+          pathErrors,
+          Code.ListSizeInvalidSlicingArgument,
+          "bad-path",
+          "slicing argument 'missing' must resolve to an Int or list argument"
+        ),
+        rejects(
+          sizedErrors,
+          Code.ListSizeInvalidSizedField,
+          "bad-sized",
+          "sized field 'unknown' must exist and return a list"
+        ),
+        rejects(emptyErrors, Code.ListSizeInvalidSizedField, "empty-sized", "sized field '' is not a valid field path"),
+        rejects(
+          listErrors,
+          Code.ListSizeInvalidSlicingArgument,
+          "list-input",
+          "slicing argument 'filters.first' must resolve to an Int or list argument"
+        ),
+        rejects(
+          leafErrors,
+          Code.ListSizeInvalidSizedField,
+          "many-leaves",
+          "sized field 'page recent' must not select sibling leaf fields"
+        ),
+        linkErrors.reports(Code.InvalidGraphQL, SchemaCoordinate.Member("Query", "value"), "mixed-links"),
+        linkErrors.exists(_.message.contains("@cost requires Federation v2.9 or cost spec v0.1"))
       )
     },
     test("rejects cost directives at unsupported locations") {
@@ -814,15 +838,14 @@ object OperationCostSpec extends ZIOSpecDefault {
            |type Item implements Node { id: ID }
            |enum Status { ACTIVE @cost(weight: 2) }
            |""".stripMargin
-      compositionDiagnostics(Gateway.compose(Subgraph.federation("locations", unreachableEndpoint, schema))).map {
-        diagnostics =>
-          assertTrue(
-            diagnostics == List(
-              "[locations] Federation @cost is not supported at 'Status.ACTIVE'.",
-              "[locations] Federation @listSize is not supported at 'Query.status(limit:)'.",
-              "[locations] Invalid Federation @cost application at 'Node.id': @cost cannot be applied to an interface field."
-            )
+      compositionErrors(Subgraph.federation("locations", unreachableEndpoint, schema)).map { errors =>
+        assertTrue(
+          errors.map(error => (error.code, error.coordinate, error.subgraphs)) == List(
+            (Code.InvalidGraphQL, Some(SchemaCoordinate.Member("Status", "ACTIVE")), List("locations")),
+            (Code.InvalidGraphQL, Some(SchemaCoordinate.Argument("Query", "status", "limit")), List("locations")),
+            (Code.CostAppliedToInterfaceField, Some(SchemaCoordinate.Member("Node", "id")), List("locations"))
           )
+        )
       }
     },
     test("accepts @cost on a directive definition argument, as Apollo composition does") {

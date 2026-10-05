@@ -3,6 +3,7 @@ package caliban.gateway
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.{ FederationCompilation, SchemaMapping }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
@@ -154,15 +155,18 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
       for {
         remote    <- stub("""{"data":{"a":null}}""")
-        baseline  <- compositionDiagnostics(Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)))
+        baseline  <- compositionErrors(Subgraph.federation("contexts", remote.endpoint, schema))
         renamed   <-
-          compositionDiagnostics(
-            Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
-          )
+          compositionErrors(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
         selectors <- transformedContextSelectors(schema, transformations)
       } yield assertTrue(
         selectors == List("$ctx{...onMember{money}...onC{currency}...onMember{transaction{id}}}"),
-        baseline.exists(_.contains("the context selection resolves to multiple fields")),
+        baseline.reports(
+          Code.ContextInvalidSelection,
+          SchemaCoordinate.Argument("Tx", "amount", "currency"),
+          "contexts"
+        ),
+        baseline.exists(_.message.contains("the context selection resolves to multiple fields")),
         renamed == baseline
       )
     },
@@ -674,20 +678,18 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       val schema =
         "type Query { empty: Empty state: Status search(input: Only): String } type Empty { value: String } input Only { value: String } enum Status { ACTIVE }"
 
-      compositionDiagnostics(
-        Gateway.compose(
-          Subgraph
-            .graphql("products", unreachableEndpoint, schema)
-            .transform(
-              SchemaTransformation.hideField("Empty", "value"),
-              SchemaTransformation.hideInputField("Only", "value")
-            )
-        )
-      ).map { diagnostics =>
+      compositionErrors(
+        Subgraph
+          .graphql("products", unreachableEndpoint, schema)
+          .transform(
+            SchemaTransformation.hideField("Empty", "value"),
+            SchemaTransformation.hideInputField("Only", "value")
+          )
+      ).map { errors =>
         assertTrue(
-          diagnostics.forall(_.startsWith("[products]")),
-          diagnostics.exists(_.contains("object 'Empty' with no visible fields")),
-          diagnostics.exists(_.contains("input object 'Only' with no visible fields"))
+          errors.forall(_.subgraphs == List("products")),
+          errors.reports(Code.OnlyInaccessibleChildren, SchemaCoordinate.Type("Empty"), "products"),
+          errors.reports(Code.OnlyInaccessibleChildren, SchemaCoordinate.Type("Only"), "products")
         )
       }
     },
@@ -748,23 +750,30 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String }"
 
       def diagnostics(schema: String) =
-        compositionDiagnostics(
-          Gateway.compose(
-            Subgraph
-              .graphql("products", unreachableEndpoint, schema)
-              .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
-          )
+        compositionErrors(
+          Subgraph
+            .graphql("products", unreachableEndpoint, schema)
+            .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
         )
 
       for {
-        directiveDiagnostics <- diagnostics(directives)
-        defaultDiagnostics   <- diagnostics(defaults)
+        directiveErrors <- diagnostics(directives)
+        defaultErrors   <- diagnostics(defaults)
       } yield assertTrue(
-        directiveDiagnostics.sorted == List(
-          "[products] Composed directive '@flag' at '@flag(filter:)' references non-visible input field 'Filter.hidden'.",
-          "[products] Composed directive '@flag' at 'Query.value' references non-visible input field 'Filter.hidden'."
+        directiveErrors.map(error => (error.code, error.coordinate, error.subgraphs)) == List(
+          (Code.ReferencedInaccessible, Some(SchemaCoordinate.DirectiveArgument("flag", "filter")), List("products")),
+          (Code.ReferencedInaccessible, Some(SchemaCoordinate.Member("Query", "value")), List("products"))
         ),
-        defaultDiagnostics == List("[composition] Input field 'hidden' is not defined on type 'Filter'.")
+        directiveErrors.forall(_.message.contains("references non-visible input field 'Filter.hidden'")),
+        defaultErrors == List(
+          CompositionDiagnostic(
+            CompositionDiagnostic.Severity.Error,
+            Code.InvalidGraphQL,
+            Nil,
+            None,
+            "Input field 'hidden' is not defined on type 'Filter'."
+          )
+        )
       )
     },
     test("rejects invalid and colliding transformations with source diagnostics") {

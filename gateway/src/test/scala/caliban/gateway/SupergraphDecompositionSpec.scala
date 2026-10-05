@@ -1,6 +1,7 @@
 package caliban.gateway
 
-import caliban.gateway.GatewayTestSupport.{ composeDocuments, parseSdl, supergraphResource }
+import caliban.gateway.CompositionDiagnostic.Code
+import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.DirectiveComposition.FieldCoordinate
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.gateway.internal.composition.SupergraphDecomposition.Graph
@@ -714,8 +715,9 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           )
         ).map(result =>
           assertTrue(
-            result.flatMap(graphs => composeDocuments(graphs.toList)).left.toOption == Some(
-              List("[subscription.ticks] Subscription fields require one effective owner and cannot be @shareable.")
+            result.exists(graphs =>
+              composeDocuments(graphs.toList)
+                .reportsOnly(Code.InvalidFieldSharing, SchemaCoordinate.Member("Subscription", "ticks"), "a", "b")
             )
           )
         )

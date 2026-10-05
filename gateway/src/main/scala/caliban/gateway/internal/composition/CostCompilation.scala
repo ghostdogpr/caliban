@@ -2,6 +2,7 @@ package caliban.gateway.internal.composition
 
 import caliban.InputValue
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition._
 import caliban.gateway.internal.composition.FederationCompilation._
@@ -16,51 +17,63 @@ private[composition] final class CostCompilation private (subgraph: Source) {
 
   private val types = subgraph.rootType.types
 
-  def compile: Either[List[String], CostMetadata] = {
+  def compile: Either[List[CompositionDiagnostic], CostMetadata] = {
     val costs     = subgraph.applications(FederationDirective.Cost).flatMap { application =>
       application.directive.arguments.get("weight").collect { case weight: IntValue =>
-        cost(application.coordinate, weight.toBigInt)
+        cost(application, weight.toBigInt)
       }
     }
     val listSizes = subgraph.applications(FederationDirective.ListSize).flatMap {
-      case FederationApplication(FieldCoordinate(typeName, fieldName), _, directive) =>
-        types.get(typeName).flatMap(fieldDefinition(_, fieldName)).map(listSize(directive, typeName, _))
-      case _                                                                         => None
+      case application @ FederationApplication(FieldCoordinate(typeName, fieldName), _, _) =>
+        types.get(typeName).flatMap(fieldDefinition(_, fieldName)).map(listSize(application, typeName, _))
+      case _                                                                               => None
     }
     validateAll(costs ::: listSizes).map(merge)
   }
 
-  private def cost(coordinate: Coordinate, weight: BigInt): Either[String, CostMetadata] =
-    (coordinate match {
+  private def cost(application: FederationApplication, weight: BigInt): Either[CompositionDiagnostic, CostMetadata] =
+    application.coordinate match {
       case TypeCoordinate(typeName, _)                                                                => Right(CostMetadata(types = Map(typeName -> weight)))
       case FieldCoordinate(typeName, _) if types.get(typeName).exists(_.kind == __TypeKind.INTERFACE) =>
-        Left("@cost cannot be applied to an interface field.")
-      case _                                                                                          => Right(CostMetadata(weights = Map(coordinate -> weight)))
-    }).left.map(error => s"[${subgraph.name}] Invalid Federation @cost application at '${coordinate.display}': $error")
+        subgraph.invalidApplication(application, Code.CostAppliedToInterfaceField)(
+          Left("@cost cannot be applied to an interface field.")
+        )
+      case coordinate                                                                                 => Right(CostMetadata(weights = Map(coordinate -> weight)))
+    }
 
   private def listSize(
-    directive: Directive,
+    application: FederationApplication,
     typeName: String,
     field: __Field
-  ): Either[String, CostMetadata] = {
-    val arguments = directive.arguments
-    val result    = for {
-      assumedSize  <- assumedSize(arguments)
-      slicingPaths <- traverseEither(strings(arguments, "slicingArguments"))(slicingPath)
-      slicing      <- traverseEither(slicingPaths)(slicingArgument(field, _))
-      sizedPaths   <- traverseEither(strings(arguments, "sizedFields"))(sizedFieldPaths).map(_.flatten)
-      _            <- Either.cond(
-                        field._type.isList || sizedPaths.nonEmpty,
-                        (),
-                        "the field must return a list or define 'sizedFields'."
-                      )
-      _            <- traverseEither(sizedPaths)(path =>
-                        Either.cond(
-                          sizedPathType(field, path).exists(_.isList),
-                          (),
-                          s"sized field '${path.mkString(".")}' must exist and return a list."
-                        )
-                      )
+  ): Either[CompositionDiagnostic, CostMetadata] = {
+    val arguments                                                                           = application.directive.arguments
+    def invalid[A](code: Code)(result: Either[String, A]): Either[CompositionDiagnostic, A] =
+      subgraph.invalidApplication(application, code)(result)
+    for {
+      assumedSize <- invalid(Code.ListSizeInvalidAssumedSize)(assumedSize(arguments))
+      slicing     <- invalid(Code.ListSizeInvalidSlicingArgument)(
+                       traverseEither(strings(arguments, "slicingArguments"))(slicingPath)
+                         .flatMap(traverseEither(_)(slicingArgument(field, _)))
+                     )
+      sizedPaths  <- invalid(Code.ListSizeInvalidSizedField)(
+                       for {
+                         paths <- traverseEither(strings(arguments, "sizedFields"))(sizedFieldPaths).map(_.flatten)
+                         _     <- traverseEither(paths)(path =>
+                                    Either.cond(
+                                      sizedPathType(field, path).exists(_.isList),
+                                      (),
+                                      s"sized field '${path.mkString(".")}' must exist and return a list."
+                                    )
+                                  )
+                       } yield paths
+                     )
+      _           <- invalid(Code.ListSizeAppliedToNonList)(
+                       Either.cond(
+                         field._type.isList || sizedPaths.nonEmpty,
+                         (),
+                         "the field must return a list or define 'sizedFields'."
+                       )
+                     )
     } yield CostMetadata(listSizes =
       Map(
         SourceField(subgraph.name, typeName, field.name) -> ListSize(
@@ -70,9 +83,6 @@ private[composition] final class CostCompilation private (subgraph: Source) {
           !arguments.get("requireOneSlicingArgument").contains(BooleanValue(false))
         )
       )
-    )
-    result.left.map(error =>
-      s"[${subgraph.name}] Invalid Federation @listSize application at '$typeName.${field.name}': $error"
     )
   }
 
@@ -101,7 +111,7 @@ private[composition] final class CostCompilation private (subgraph: Source) {
 
 private[composition] object CostCompilation {
 
-  def compile(subgraph: Source): Either[List[String], CostMetadata] =
+  def compile(subgraph: Source): Either[List[CompositionDiagnostic], CostMetadata] =
     new CostCompilation(subgraph).compile
 
   def merge(values: List[CostMetadata]): CostMetadata =

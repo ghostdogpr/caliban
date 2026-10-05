@@ -3,6 +3,7 @@ package caliban.gateway
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloPersistedQueries
@@ -124,19 +125,13 @@ object GatewaySpec extends ZIOSpecDefault {
         val api       = localGraph(ZIO.succeed("shared"))
         val federated = api @@ caliban.federation.v2_6.federated
         for {
-          ordinary  <- compositionDiagnostics(
-                         Gateway.compose(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
-                       )
-          annotated <- compositionDiagnostics(
-                         Gateway.compose(Subgraph.graphql("first", federated), Subgraph.graphql("second", federated))
-                       )
+          ordinary  <- compositionErrors(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
+          annotated <- compositionErrors(Subgraph.graphql("first", federated), Subgraph.graphql("second", federated))
           runtime   <- Gateway.compose(Subgraph.federation("first", api), Subgraph.federation("second", api)).interpreter
           response  <- runtime.execute("{ value }")
         } yield assertTrue(
-          ordinary.exists(_.contains("Field is resolved by multiple ordinary subgraphs")),
-          annotated.exists(message =>
-            message.contains("query.value") && message.contains("Field is resolved by multiple ordinary subgraphs")
-          ),
+          ordinary.reports(Code.InvalidFieldSharing, SchemaCoordinate.Member("Query", "value"), "first", "second"),
+          annotated.reports(Code.InvalidFieldSharing, SchemaCoordinate.Member("Query", "value"), "first", "second"),
           response.errors.isEmpty,
           field(response.data, "value").contains(StringValue("shared"))
         )

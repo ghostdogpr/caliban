@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.ResponseValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.{ graphQL, PathValue, ResponseValue, RootResolver }
@@ -419,11 +420,9 @@ object LookupSpec extends ZIOSpecDefault {
       )
 
       def lookupDiagnostics(lookup: Lookup, schema: String = defaultReviewsSchema) =
-        compositionDiagnostics(
-          Gateway.compose(
-            Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
-            Subgraph.graphql("reviews", unreachableEndpoint, schema).withLookup(lookup)
-          )
+        compositionErrors(
+          Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+          Subgraph.graphql("reviews", unreachableEndpoint, schema).withLookup(lookup)
         )
 
       for {
@@ -438,37 +437,42 @@ object LookupSpec extends ZIOSpecDefault {
           lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: Review!"))
         listKey    <-
           lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: [String!]!"))
-        duplicate  <- compositionDiagnostics(
-                        Gateway.compose(
-                          Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
-                          Subgraph
-                            .graphql("reviews", unreachableEndpoint, defaultReviewsSchema)
-                            .withLookup(keyedLookup)
-                            .withLookup(keyedLookup)
-                        )
+        duplicate  <- compositionErrors(
+                        Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+                        Subgraph
+                          .graphql("reviews", unreachableEndpoint, defaultReviewsSchema)
+                          .withLookup(keyedLookup)
+                          .withLookup(keyedLookup)
                       )
-        federation <- compositionDiagnostics(
-                        Gateway.compose(
-                          Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
-                          Subgraph
-                            .federation("reviews", unreachableEndpoint, defaultReviewsSchema)
-                            .withLookup(keyedLookup)
-                        )
+        federation <- compositionErrors(
+                        Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+                        Subgraph
+                          .federation("reviews", unreachableEndpoint, defaultReviewsSchema)
+                          .withLookup(keyedLookup)
                       )
-      } yield assertTrue(
-        key.exists(_.contains("[reviews] Lookup key field 'Product.missing' does not exist")),
-        shape.exists(_.contains("[reviews] Lookup field 'Query.productsByRefs' must return 'Product'")),
-        batch.exists(_.contains("[reviews] Lookup for 'Product' must declare at least one key field")),
-        nullable.exists(_.contains("[reviews] By-key lookup field 'Query.productsByRefs' must return non-null items")),
-        unknown.exists(_.contains("[reviews] Lookup argument 'productByRef.missing' does not exist")),
-        unknown.exists(_.contains("[reviews] Required lookup argument 'productByRef.ref' has no mapping")),
-        types.count(_.contains("is incompatible with key field")) == 2,
-        repeated.exists(_.contains("Lookup argument 'productByRef.ref' is mapped more than once")),
-        nonScalar.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
-        listKey.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
-        duplicate.exists(_.contains("[reviews] More than one lookup is declared for type 'Product'")),
-        federation.exists(_.contains("[reviews] Ordinary GraphQL lookups cannot be declared on a Federation subgraph"))
-      )
+      } yield {
+        def rejects(errors: List[CompositionDiagnostic], message: String) =
+          errors.exists(error =>
+            error.code == Code.InvalidLookup && error.subgraphs == List("reviews") && error.message.contains(message)
+          )
+        val product                                                       = SchemaCoordinate.Type("Product")
+
+        assertTrue(
+          key.reports(Code.InvalidLookup, product, "reviews"),
+          rejects(key, "Lookup key field 'Product.missing' does not exist"),
+          rejects(shape, "Lookup field 'Query.productsByRefs' must return 'Product'"),
+          rejects(batch, "Lookup for 'Product' must declare at least one key field"),
+          rejects(nullable, "By-key lookup field 'Query.productsByRefs' must return non-null items"),
+          rejects(unknown, "Lookup argument 'productByRef.missing' does not exist"),
+          rejects(unknown, "Required lookup argument 'productByRef.ref' has no mapping"),
+          types.count(_.message.contains("is incompatible with key field")) == 2,
+          rejects(repeated, "Lookup argument 'productByRef.ref' is mapped more than once"),
+          rejects(nonScalar, "Lookup key field 'Product.region' must be a scalar or enum"),
+          rejects(listKey, "Lookup key field 'Product.region' must be a scalar or enum"),
+          duplicate.reports(Code.InvalidLookup, product, "reviews"),
+          rejects(federation, "Ordinary GraphQL lookups cannot be declared on a Federation subgraph")
+        )
+      }
     },
     test("rejects misplaced batch mappings at compile time") {
       for {

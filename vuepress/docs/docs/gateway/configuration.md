@@ -134,6 +134,7 @@ The defaults are:
 | `withReloadPollInterval` | 30 seconds | Delay after each reload cycle |
 | `withReloadJitter` | 0.2 | Vary the reload delay by up to 20% in either direction |
 | `withRemoteErrorMessages` | `false` | Hide remote GraphQL error messages |
+| `withFatalCompositionWarnings` | `false` | Log composition warnings without failing the build |
 | `withSubscriptions` | See [Subscriptions](subscriptions.md#limits-and-reconnecting) | Active subscriptions, buffers, and timeouts |
 
 Local Caliban subgraphs run within the request budget. Remote subgraphs also have their own call timeouts. Subscription setup and events use separate deadlines.

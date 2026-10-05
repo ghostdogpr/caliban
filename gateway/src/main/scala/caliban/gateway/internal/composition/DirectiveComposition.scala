@@ -4,6 +4,7 @@ import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.Value._
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.gateway.internal.composition.ComposedGraph.Source
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Document }
@@ -35,7 +36,11 @@ private[gateway] object DirectiveComposition {
       .collect {
         case (name, keys) if keys.size > 1 =>
           val identities = keys.map(_.identity.fold("an unlinked definition")(id => s"'$id'")).toList.distinct.sorted
-          s"[directive @$name] Linked directive identities collide: ${identities.mkString(" and ")}."
+          error(
+            Code.DirectiveCompositionError,
+            renamed.collect { case value if keys.exists(_ == value.key) => value.source },
+            Some(SchemaCoordinate.Directive(name))
+          )(s"Linked directive identities collide on '@$name': ${identities.mkString(" and ")}.")
       }
       .toList
     val hidden                       =
@@ -50,7 +55,10 @@ private[gateway] object DirectiveComposition {
     }
     val definitionDiagnostics        = groupNonEmpty(selectedDefinitions)(_.key).values.collect {
       case values if values.map(value => definitionSignature(value.definition)).distinct.size > 1 =>
-        s"[directive @${values.head.definition.name}] Definitions are incompatible between subgraphs: ${formatSources(values.map(_.source))}."
+        val name = values.head.definition.name
+        error(Code.DirectiveCompositionError, values.map(_.source), Some(SchemaCoordinate.Directive(name)))(
+          s"Definitions of directive '@$name' are incompatible."
+        )
     }.toList
     val rawApplications              = sourceDirectives.flatMap(_.applications(composedNames))
     val (invalid, validApplications) = rawApplications.map(compileApplication(_, hidden)).partitionMap(identity)
@@ -120,41 +128,46 @@ private[gateway] object DirectiveComposition {
    * The location distinguishes elements with the same display name, such as output and input fields.
    */
   sealed trait Coordinate {
-    def display: String
     def location: __DirectiveLocation
+
+    def schemaCoordinate: Option[SchemaCoordinate] = this match {
+      case SchemaDefinitionCoordinate                               => None
+      case TypeCoordinate(typeName, _)                              => Some(SchemaCoordinate.Type(typeName))
+      case FieldCoordinate(typeName, fieldName)                     => Some(SchemaCoordinate.Member(typeName, fieldName))
+      case ArgumentCoordinate(typeName, fieldName, argumentName)    =>
+        Some(SchemaCoordinate.Argument(typeName, fieldName, argumentName))
+      case InputFieldCoordinate(typeName, fieldName)                => Some(SchemaCoordinate.Member(typeName, fieldName))
+      case EnumValueCoordinate(typeName, valueName)                 => Some(SchemaCoordinate.Member(typeName, valueName))
+      case DirectiveArgumentCoordinate(directiveName, argumentName) =>
+        Some(SchemaCoordinate.DirectiveArgument(directiveName, argumentName))
+    }
+
+    def display: String = schemaCoordinate.fold("schema")(_.render)
   }
 
-  case object SchemaCoordinate extends Coordinate {
-    val display  = "schema"
+  case object SchemaDefinitionCoordinate extends Coordinate {
     val location = __DirectiveLocation.SCHEMA
   }
 
-  final case class TypeCoordinate(typeName: String, location: __DirectiveLocation) extends Coordinate {
-    val display = typeName
-  }
+  final case class TypeCoordinate(typeName: String, location: __DirectiveLocation) extends Coordinate
 
   final case class FieldCoordinate(typeName: String, fieldName: String) extends Coordinate {
-    def display  = s"$typeName.$fieldName"
     val location = __DirectiveLocation.FIELD_DEFINITION
   }
 
   final case class ArgumentCoordinate(typeName: String, fieldName: String, argumentName: String) extends Coordinate {
-    def display  = s"$typeName.$fieldName($argumentName:)"
     val location = __DirectiveLocation.ARGUMENT_DEFINITION
   }
 
   final case class InputFieldCoordinate(typeName: String, fieldName: String) extends Coordinate {
-    def display  = s"$typeName.$fieldName"
     val location = __DirectiveLocation.INPUT_FIELD_DEFINITION
   }
 
   final case class EnumValueCoordinate(typeName: String, valueName: String) extends Coordinate {
-    def display  = s"$typeName.$valueName"
     val location = __DirectiveLocation.ENUM_VALUE
   }
 
   final case class DirectiveArgumentCoordinate(directiveName: String, argumentName: String) extends Coordinate {
-    def display  = s"@$directiveName($argumentName:)"
     val location = __DirectiveLocation.ARGUMENT_DEFINITION
   }
 
@@ -162,7 +175,7 @@ private[gateway] object DirectiveComposition {
     private val selectedDefinitions: List[LocalDefinition],
     private val applicationGroups: List[::[Application]],
     val hidden: Set[Coordinate],
-    val diagnostics: List[String]
+    val diagnostics: List[CompositionDiagnostic]
   ) {
     private val applications = applicationGroups
       .sortBy(_.head.directive.name)
@@ -218,7 +231,7 @@ private[gateway] object DirectiveComposition {
       value.copy(directives = attach(value.directives, EnumValueCoordinate(parent, value.name)))
 
     // Conflicts on elements removed from the composed schema are irrelevant.
-    def schemaDiagnostics(rootType: RootType): List[String] = {
+    def schemaDiagnostics(rootType: RootType): List[CompositionDiagnostic] = {
       val visible = applicationGroups.filter(values => coordinateExists(rootType, values.head.coordinate))
       visible.flatMap(applicationConflicts) ::: visibilityDiagnostics(rootType, visible.flatten)
     }
@@ -228,8 +241,16 @@ private[gateway] object DirectiveComposition {
       if (values.isEmpty) None else Some(values)
     }
 
-    private def visibilityDiagnostics(rootType: RootType, applications: List[Application]): List[String] = {
-      def missing(source: String, directive: String, context: String, references: Set[Coordinate]): List[String] =
+    private def visibilityDiagnostics(
+      rootType: RootType,
+      applications: List[Application]
+    ): List[CompositionDiagnostic] = {
+      def missing(
+        source: String,
+        directive: String,
+        context: Coordinate,
+        references: Set[Coordinate]
+      ): List[CompositionDiagnostic] =
         references.toList.collect {
           case reference if !coordinateExists(rootType, reference) =>
             val kind = reference match {
@@ -237,7 +258,9 @@ private[gateway] object DirectiveComposition {
               case _: EnumValueCoordinate  => "enum value"
               case _                       => "input type"
             }
-            s"[$source] Composed directive '@$directive' at '$context' references non-visible $kind '${reference.display}'."
+            error(Code.ReferencedInaccessible, List(source), context.schemaCoordinate)(
+              s"Composed directive '@$directive' at '${context.display}' references non-visible $kind '${reference.display}'."
+            )
         }
 
       val definitionDiagnostics  = selectedDefinitions.flatMap { selected =>
@@ -245,7 +268,7 @@ private[gateway] object DirectiveComposition {
           missing(
             selected.source,
             selected.definition.name,
-            s"@${selected.definition.name}(${argument.name}:)",
+            DirectiveArgumentCoordinate(selected.definition.name, argument.name),
             SchemaMapping.namedReference(argument._type.innerType) ++
               argument.parsedDefaultValue.toList.flatMap(SchemaMapping.inputReferences(argument._type, _))
           )
@@ -260,7 +283,7 @@ private[gateway] object DirectiveComposition {
               missing(
                 application.local.source,
                 application.directive.name,
-                application.coordinate.display,
+                application.coordinate,
                 SchemaMapping.inputReferences(argument._type, value)
               )
             )
@@ -290,28 +313,38 @@ private[gateway] object DirectiveComposition {
     }
     private val definitionsByName             = definitions.map(local => local.definition.name -> local).toMap
 
-    val diagnostics: List[String] = linkedKeys.collect { case (definition, keys @ _ :: _ :: _) =>
+    val diagnostics: List[CompositionDiagnostic] = linkedKeys.collect { case (definition, keys @ _ :: _ :: _) =>
       val identities = keys.flatMap(_.identity).sorted.map(value => s"'$value'").mkString(" and ")
-      s"[${subgraph.name}] Directive '@${definition.name}' resolves to multiple linked feature identities: $identities."
+      error(Code.InvalidLinkDirectiveUsage, List(subgraph.name), Some(SchemaCoordinate.Directive(definition.name)))(
+        s"Directive '@${definition.name}' resolves to multiple linked feature identities: $identities."
+      )
     }
 
-    val composeDeclarations: List[Either[String, DirectiveKey]] =
+    private def composeError(directive: Option[String], message: String): CompositionDiagnostic =
+      error(Code.DirectiveCompositionError, List(subgraph.name), directive.map(SchemaCoordinate.Directive(_)))(message)
+
+    val composeDeclarations: List[Either[CompositionDiagnostic, DirectiveKey]] =
       subgraph.applications(FederationCompilation.FederationDirective.ComposeDirective).map { application =>
         stringArgument(application.directive.arguments, "name") match {
           case Some(value) if value.startsWith("@") && value.length > 1 => composedDefinition(value.drop(1))
           case _                                                        =>
-            Left(s"[${subgraph.name}] The composeDirective 'name' argument must start with '@' and name a directive.")
+            Left(composeError(None, "The composeDirective 'name' argument must start with '@' and name a directive."))
         }
       }
 
-    private def composedDefinition(localName: String): Either[String, DirectiveKey] =
+    private def composedDefinition(localName: String): Either[CompositionDiagnostic, DirectiveKey] =
       definitionsByName.get(localName) match {
         case None                                                     =>
-          Left(s"[${subgraph.name}] Composed directive '@$localName' is not defined by this subgraph.")
+          Left(composeError(Some(localName), s"Composed directive '@$localName' is not defined by this subgraph."))
         case Some(definition) if definition.key.identity.isEmpty      =>
-          Left(s"[${subgraph.name}] Composed directive '@$localName' must be imported from a linked custom feature.")
+          Left(
+            composeError(
+              Some(localName),
+              s"Composed directive '@$localName' must be imported from a linked custom feature."
+            )
+          )
         case Some(definition) if isTransportDirective(definition.key) =>
-          Left(s"[${subgraph.name}] Federation transport directive '@$localName' cannot be composed.")
+          Left(composeError(Some(localName), s"Federation transport directive '@$localName' cannot be composed."))
         case Some(definition)                                         => Right(definition.key)
       }
 
@@ -362,11 +395,13 @@ private[gateway] object DirectiveComposition {
     (if (values.head.local.definition.isRepeatable) values.toList.distinctBy(_.directive.arguments) else values.take(1))
       .map(_.directive)
 
-  private def applicationConflicts(values: ::[Application]): List[String] = {
+  private def applicationConflicts(values: ::[Application]): List[CompositionDiagnostic] = {
     val first = values.head
     check(
       first.local.definition.isRepeatable || values.map(_.directive.arguments).distinct.size <= 1,
-      s"[${first.coordinate.display}] Non-repeatable directive '@${first.directive.name}' has incompatible applications between subgraphs: ${formatSources(values.map(_.local.source))}."
+      error(Code.DirectiveCompositionError, values.map(_.local.source), first.coordinate.schemaCoordinate)(
+        s"Non-repeatable directive '@${first.directive.name}' has incompatible applications at '${first.coordinate.display}'."
+      )
     )
   }
 
@@ -375,7 +410,9 @@ private[gateway] object DirectiveComposition {
 
     val location = check(
       definition.locations(coordinate.location),
-      s"[$source] Composed directive '@${directive.name}' does not support ${coordinate.location} at '${coordinate.display}'."
+      error(Code.InvalidGraphQL, List(source), coordinate.schemaCoordinate)(
+        s"Composed directive '@${directive.name}' does not support ${coordinate.location} at '${coordinate.display}'."
+      )
     )
     val label    = s"composed directive '@${directive.name}'"
     validated(location, validateArguments(source, label, coordinate, directive, definition)).map { valid =>
@@ -392,16 +429,19 @@ private[gateway] object DirectiveComposition {
     coordinate: Coordinate,
     directive: Directive,
     definition: __Directive
-  ): Either[List[String], Directive] = {
+  ): Either[List[CompositionDiagnostic], Directive] = {
+    def invalid(message: String): CompositionDiagnostic =
+      error(Code.InvalidGraphQL, List(source), coordinate.schemaCoordinate)(message)
+
     val arguments   = definition.allArgs.map(argument => argument.name -> argument).toMap
     val unknown     = directive.arguments.keySet
       .diff(arguments.keySet)
       .toList
       .sorted
-      .map(name => s"[$source] Unknown argument '$name' on $label at '${coordinate.display}'.")
+      .map(name => invalid(s"Unknown argument '$name' on $label at '${coordinate.display}'."))
     val missing     = definition.allArgs.collect {
       case argument if isRequiredInput(argument) && !directive.arguments.contains(argument.name) =>
-        s"[$source] Required argument '${argument.name}' is missing on $label at '${coordinate.display}'."
+        invalid(s"Required argument '${argument.name}' is missing on $label at '${coordinate.display}'.")
     }
     val valueErrors = directive.arguments.toList.flatMap { case (name, value) =>
       arguments
@@ -412,7 +452,7 @@ private[gateway] object DirectiveComposition {
             .validateInputValues(argument, value, Context.empty, s"Argument '$name' of directive '@${directive.name}'")
             .left
             .toOption
-            .map(error => s"[$source] ${error.getMessage}")
+            .map(validation => invalid(validation.getMessage))
         )
     }
     val errors      = unknown ::: missing ::: valueErrors
@@ -466,7 +506,7 @@ private[gateway] object DirectiveComposition {
 
   private def coordinateExists(rootType: RootType, coordinate: Coordinate): Boolean =
     coordinate match {
-      case SchemaCoordinate                                         => true
+      case SchemaDefinitionCoordinate                               => true
       case TypeCoordinate(typeName, _)                              => rootType.types.contains(typeName)
       case FieldCoordinate(typeName, fieldName)                     =>
         rootType.types.get(typeName).flatMap(fieldDefinition(_, fieldName)).nonEmpty

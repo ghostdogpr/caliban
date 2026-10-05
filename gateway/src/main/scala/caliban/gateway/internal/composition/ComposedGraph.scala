@@ -1,6 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.gateway.internal.PrivateAliases
@@ -188,6 +189,15 @@ private[gateway] object ComposedGraph {
 
     def federation: Boolean = directiveNames.mode != SubgraphMode.Ordinary
 
+    def invalidApplication[A](application: FederationApplication, code: Code)(
+      result: Either[String, A]
+    ): Either[CompositionDiagnostic, A] =
+      result.left.map(message =>
+        error(code, List(name), application.coordinate.schemaCoordinate)(
+          s"Invalid Federation @${application.member.name} application at '${application.coordinate.display}': $message"
+        )
+      )
+
     lazy val (federationErrors, federationApplications) =
       (for {
         application <- directiveApplications
@@ -195,10 +205,10 @@ private[gateway] object ComposedGraph {
         coordinate   = application.coordinate
         result      <-
           directiveNames.resolved.get(directive.name).map(validateApplication(name, coordinate, _, directive)) ++
-            directiveNames.unsupported.get(directive.name).map(message => Left(List(s"[$name] ${message(coordinate)}")))
+            directiveNames.unsupported.get(directive.name).map(unsupported => Left(List(unsupported(name, coordinate))))
       } yield result).partitionMap(identity)
 
-    lazy val repeatedDirectives: List[String] = {
+    lazy val repeatedDirectives: List[CompositionDiagnostic] = {
       val repeatable =
         rootType.additionalDirectives.map(definition => definition.name -> definition.isRepeatable).toMap ++
           directiveNames.resolved.map { case (local, member) => local -> member.definition.isRepeatable }
@@ -206,7 +216,9 @@ private[gateway] object ComposedGraph {
         duplicates(application.directives.map(_.name))
           .filter(repeatable.get(_).contains(false))
           .map(directive =>
-            s"[$name] Non-repeatable directive '@$directive' is applied more than once at '${application.coordinate.display}'."
+            error(Code.InvalidGraphQL, List(name), application.coordinate.schemaCoordinate)(
+              s"Non-repeatable directive '@$directive' is applied more than once at '${application.coordinate.display}'."
+            )
           )
       }
     }
@@ -219,12 +231,12 @@ private[gateway] object ComposedGraph {
 
     def applied(member: FederationDirective, coordinate: Coordinate): Boolean = appliedAt(member -> coordinate)
 
-    lazy val overrides: Map[Coordinate, (FieldOverride, Option[String])] =
+    lazy val overrides: Map[Coordinate, (FieldOverride, Option[CompositionDiagnostic])] =
       applications(Override)
         .map(application => application.coordinate -> SchemaComposer.fieldOverride(this, application))
         .toMap
 
-    lazy val compiledLookups: List[Either[List[String], (String, EntityLookup)]] =
+    lazy val compiledLookups: List[Either[List[CompositionDiagnostic], (String, EntityLookup)]] =
       lookups.map(lookup =>
         LookupCompilation
           .compile(this, lookup)
@@ -251,28 +263,31 @@ private[gateway] object ComposedGraph {
     def entityLookups(typeName: String): List[EntityLookup] = entityLookupsByType.getOrElse(typeName, Nil)
 
     lazy val (fieldSetErrors, requiredFieldSets, providedFieldSets) = {
-      val (requiredErrors, required) = fieldSets(Requires)
-      val (providedErrors, provided) = fieldSets(Provides)
+      val (requiredErrors, required) = fieldSets(Requires, Code.RequiresInvalidFields)
+      val (providedErrors, provided) = fieldSets(Provides, Code.ProvidesInvalidFields)
       (requiredErrors ::: providedErrors, required.toMap, provided.toMap)
     }
 
-    private def fieldSets(member: FederationDirective): (List[String], List[(FieldCoordinate, List[Selection])]) =
+    private def fieldSets(
+      member: FederationDirective,
+      code: Code
+    ): (List[CompositionDiagnostic], List[(FieldCoordinate, List[Selection])]) =
       applications(member).flatMap {
         case application @ FederationApplication(at @ FieldCoordinate(typeName, fieldName), _, _) =>
           for {
             parent <- types.get(typeName)
             field  <- fieldDefinition(parent, fieldName)
             target  = if (member == Provides) field._type.innerType else parent
-          } yield SchemaComposer.validateFieldSet(this, application, target)(Right(_)).map(at -> _)
+          } yield SchemaComposer.validateFieldSet(this, application, target, code)(Right(_)).map(at -> _)
         case _                                                                                    => None
       }.partitionMap(identity)
 
     lazy val (contextErrors, contexts) =
       ContextCompilation.compile(this).fold(_ -> ContextCompilation.FederationContexts(Nil, Map.empty), Nil -> _)
 
-    lazy val costs: Either[List[String], CostMetadata] = CostCompilation.compile(this)
+    lazy val costs: Either[List[CompositionDiagnostic], CostMetadata] = CostCompilation.compile(this)
 
-    lazy val diagnostics: List[String] =
+    lazy val diagnostics: List[CompositionDiagnostic] =
       keys.diagnostics ::: overrides.values.toList.flatMap(_._2) ::: federationErrors.flatten :::
         repeatedDirectives ::: LookupCompilation.declarationDiagnostics(this) :::
         compiledLookups.flatMap(_.left.getOrElse(Nil)) ::: fieldSetErrors ::: contextErrors :::
@@ -401,7 +416,8 @@ private[gateway] object ComposedGraph {
     member: FederationCompilation.FederationDirective.Security,
     groups: List[List[String]]
   ) {
-    val coordinate: String                 = fieldName.fold(typeName)(name => s"$typeName.$name")
+    val coordinate: SchemaCoordinate       =
+      fieldName.fold[SchemaCoordinate](SchemaCoordinate.Type(typeName))(SchemaCoordinate.Member(typeName, _))
     val directiveName: String              = s"@${member.name}"
     val scopes: Option[List[List[String]]] =
       if (member == FederationCompilation.FederationDirective.Policy) None else Some(groups)

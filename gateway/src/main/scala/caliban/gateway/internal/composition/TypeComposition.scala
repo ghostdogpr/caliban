@@ -1,6 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.gateway.internal.composition.ComposedGraph.{ rootName, ProgressiveRoute, Source }
 import caliban.gateway.internal.composition.TypeComposition._
 import caliban.introspection.adt._
@@ -17,8 +18,20 @@ private[composition] final class TypeComposition(
 ) {
   import DirectiveComposition._
 
-  lazy val diagnostics: List[String] =
-    check(!inaccessibleTypes("Query"), "[type Query] The query root type cannot be @inaccessible.") :::
+  lazy val diagnostics: List[CompositionDiagnostic] =
+    check(
+      !inaccessibleTypes("Query"),
+      error(
+        Code.QueryRootTypeInaccessible,
+        types.collect {
+          case entry
+              if entry.name == "Query" && entry.subgraph
+                .hidden(TypeCoordinate("Query", typeLocation(entry.tpe.kind))) =>
+            entry.source
+        },
+        Some(SchemaCoordinate.Type("Query"))
+      )("The query root type cannot be @inaccessible.")
+    ) :::
       groups.flatMap { case group @ TypeGroup(name, entries) =>
         entries.map(_.tpe.kind).distinct match {
           case (__TypeKind.OBJECT | __TypeKind.INTERFACE) :: Nil => objectDiagnostics(group)
@@ -26,7 +39,7 @@ private[composition] final class TypeComposition(
           case __TypeKind.ENUM :: Nil                            => enumDiagnostics(name, entries)
           case __TypeKind.SCALAR :: Nil                          => scalarDiagnostics(name, entries)
           case _ :: _ :: _                                       =>
-            List(s"[type $name] Kinds are incompatible between subgraphs: ${sources(entries)}.")
+            List(typeError(Code.TypeKindMismatch, name, entries, s"Kinds of type '$name' are incompatible."))
           case _                                                 => Nil
         }
       }
@@ -72,12 +85,12 @@ private[composition] final class TypeComposition(
   private def hiddenArguments(typeName: String, fieldName: String): String => Boolean =
     argument => directives.hidden(ArgumentCoordinate(typeName, fieldName, argument))
 
-  private def objectDiagnostics(group: TypeGroup): List[String] = {
+  private def objectDiagnostics(group: TypeGroup): List[CompositionDiagnostic] = {
     val TypeGroup(name, entries) = group
     val operation                = RootOperations.get(name)
     val abstracted               = interfaceObjectFields(entries)
     group.fields.toList.flatMap { case (fieldName, values) =>
-      val fieldPath          = if (operation.isEmpty) s"$name.$fieldName" else s"${name.toLowerCase}.$fieldName"
+      val at                 = SchemaCoordinate.Member(name, fieldName)
       val resolving          = values ::: abstracted.getOrElse(fieldName, Nil)
       val owned              = owners(resolving, withLabels = true)
       val ownerTypes         = owned.map(_.owner)
@@ -94,23 +107,33 @@ private[composition] final class TypeComposition(
       val sharedUnshareable  = !sharedSubscription && compatible && owned.size > 1 &&
         entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
         unshared.nonEmpty && (operation.isEmpty || ownerTypes.forall(_.subgraph.federation))
-      val prefix             = if (operation.isEmpty) s"[type $fieldPath]" else s"[$fieldPath]"
-      overrideDiagnostics(prefix, values, resolving) ::: contextualArgumentDiagnostics(fieldPath, values) :::
+      overrideDiagnostics(at, values, resolving) ::: contextualArgumentDiagnostics(at, values) :::
         check(
           !sharedSubscription,
-          s"$prefix Subscription fields require one effective owner and cannot be @shareable."
+          error(Code.InvalidFieldSharing, values.map(_.owner.source), Some(at))(
+            s"Subscription field '${at.render}' requires one effective owner and cannot be @shareable."
+          )
         ) :::
-        check(!sharedOrdinary, s"$prefix Field is resolved by multiple ordinary subgraphs: ${sources(ownerTypes)}.") :::
+        check(
+          !sharedOrdinary,
+          error(Code.InvalidFieldSharing, ownerTypes.map(_.source), Some(at))(
+            s"Field '${at.render}' is resolved by multiple ordinary subgraphs."
+          )
+        ) :::
         check(
           compatible,
-          s"$prefix Definitions are incompatible between subgraphs: ${sources(values.map(_.owner))}."
+          error(Code.FieldTypeMismatch, values.map(_.owner.source), Some(at))(
+            s"Definitions of field '${at.render}' are incompatible."
+          )
         ) :::
         check(
           !sharedUnshareable,
-          s"$prefix Field is resolved by multiple subgraphs without compatible @shareable declarations: ${sources(ownerTypes)}."
+          error(Code.InvalidFieldSharing, ownerTypes.map(_.source), Some(at))(
+            s"Field '${at.render}' is resolved by multiple subgraphs without compatible @shareable declarations."
+          )
         ) :::
         (if (inaccessibleTypes(name) || directives.hidden(FieldCoordinate(name, fieldName))) Nil
-         else visibilityDiagnostics(fieldPath, values, hiddenArgument))
+         else visibilityDiagnostics(at, values, hiddenArgument))
     }
   }
 
@@ -123,19 +146,32 @@ private[composition] final class TypeComposition(
       .groupBy(_.field.definition.name)
   }
 
-  private def overrideDiagnostics(prefix: String, values: List[FieldEntry], resolving: List[FieldEntry]) = {
+  private def overrideDiagnostics(
+    at: SchemaCoordinate.Member,
+    values: List[FieldEntry],
+    resolving: List[FieldEntry]
+  ): List[CompositionDiagnostic] = {
     val overrides         = values.flatMap(value => value.field.overrideDirective.map(value -> _))
     val invalid           = overrides.flatMap { case (FieldEntry(entry, field), value) =>
       val name = field.definition.name
       val from = resolving.filter(_.owner.source == value.from)
-      check(entry.source != value.from, s"$prefix Subgraph '${entry.source}' cannot @override itself.") :::
+      check(
+        entry.source != value.from,
+        error(Code.OverrideFromSelfError, List(entry.source), Some(at))(
+          s"Subgraph '${entry.source}' cannot @override itself at '${at.render}'."
+        )
+      ) :::
         check(
           value.progressive.isEmpty || from.exists(_.field.owned),
-          s"$prefix Progressive @override in subgraph '${entry.source}' requires its 'from' subgraph '${value.from}' to own the field."
+          error(Code.UnsupportedFeature, List(entry.source, value.from), Some(at))(
+            s"Progressive @override of '${at.render}' in subgraph '${entry.source}' requires its 'from' subgraph '${value.from}' to own the field."
+          )
         ) :::
         check(
           entry.tpe.kind != __TypeKind.INTERFACE,
-          s"[${entry.source}] Federation @override is not supported at '${entry.name}.$name'."
+          error(Code.OverrideOnInterface, List(entry.source), Some(at))(
+            s"Federation @override is not supported at '${entry.name}.$name'."
+          )
         ) :::
         from.collectFirst {
           case resolved if resolved.owner.name != entry.name                                   => value.from -> "@interfaceObject"
@@ -146,43 +182,70 @@ private[composition] final class TypeComposition(
         }
           .orElse(if (field.owned) None else Some(entry.source -> "@external"))
           .map { case (subgraph, directive) =>
-            s"$prefix @override from '${value.from}' conflicts with $directive on the field in '$subgraph'."
+            error(Code.OverrideCollisionWithAnotherDirective, List(entry.source, subgraph), Some(at))(
+              s"@override of '${at.render}' from '${value.from}' conflicts with $directive on the field in '$subgraph'."
+            )
           }
           .toList
     }
     val overridingSources = overrides.map(_._1.owner.source).distinct.sorted
     invalid ::: check(
       overridingSources.size <= 1,
-      s"$prefix Subgraphs ${formatSources(overridingSources)} declare @override for the field."
+      error(Code.OverrideSourceHasOverride, overridingSources, Some(at))(
+        s"Field '${at.render}' is overridden by more than one subgraph."
+      )
     )
   }
 
   private def visibilityDiagnostics(
-    fieldPath: String,
+    at: SchemaCoordinate.Member,
     values: List[FieldEntry],
     hidden: String => Boolean
-  ): List[String] =
+  ): List[CompositionDiagnostic] =
     values.flatMap { case FieldEntry(entry, field) =>
       check(
         !hasInaccessibleType(field.definition._type),
-        s"[${entry.source}] Field '$fieldPath' must be @inaccessible because its return type is inaccessible."
+        error(Code.ReferencedInaccessible, List(entry.source), Some(at))(
+          s"Field '${at.render}' must be @inaccessible because its return type is inaccessible."
+        )
       ) ::: field.definition.allArgs.flatMap(argument =>
-        inputVisibility(entry.source, "argument", s"$fieldPath.${argument.name}", argument, hidden(argument.name))
+        inputVisibility(
+          entry.source,
+          "argument",
+          SchemaCoordinate.Argument(at.typeName, at.memberName, argument.name),
+          argument,
+          hidden(argument.name)
+        )
       )
     }
 
-  private def inputVisibility(source: String, kind: String, path: String, input: __InputValue, hidden: Boolean) =
+  private def inputVisibility(
+    source: String,
+    kind: String,
+    at: SchemaCoordinate,
+    input: __InputValue,
+    hidden: Boolean
+  ): Option[CompositionDiagnostic] =
     if (!hidden && hasInaccessibleType(input._type))
-      Some(s"[$source] ${kind.capitalize} '$path' must be @inaccessible because its input type is inaccessible.")
+      Some(
+        error(Code.ReferencedInaccessible, List(source), Some(at))(
+          s"${kind.capitalize} '${at.render}' must be @inaccessible because its input type is inaccessible."
+        )
+      )
     else if (hidden && isRequiredInput(input))
-      Some(s"[$source] Required @inaccessible $kind '$path' must define a default value.")
+      Some(
+        error(Code.RequiredInaccessible, List(source), Some(at))(
+          s"Required @inaccessible $kind '${at.render}' must define a default value."
+        )
+      )
     else None
 
-  private def inputDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
+  private def inputDiagnostics(name: String, entries: List[SubgraphType]): List[CompositionDiagnostic] = {
     val sourceNames = entries.map(_.source).toSet
     val fields      = entries.flatMap(entry => entry.tpe.allInputFields.map(entry -> _)).groupBy(_._2.name)
 
     fields.toList.flatMap { case (fieldName, values) =>
+      val at            = SchemaCoordinate.Member(name, fieldName)
       val signatures    = values.map(value => inputSignature(value._2)).distinct
       val omittedFrom   = sourceNames -- values.map(_._1.source)
       val required      = values.exists(value => isRequiredInput(value._2))
@@ -190,24 +253,28 @@ private[composition] final class TypeComposition(
       val compatibility =
         if (signatures.size > 1)
           List(
-            s"[type $name.$fieldName] Input field definitions are incompatible between subgraphs: ${sources(values.map(_._1))}."
+            error(Code.FieldTypeMismatch, values.map(_._1.source), Some(at))(
+              s"Definitions of input field '${at.render}' are incompatible."
+            )
           )
         else if (omittedFrom.nonEmpty && required)
           omittedFrom.toList.sorted.map(source =>
-            s"[$source] Required input field '$name.$fieldName' is not declared by this subgraph."
+            error(Code.RequiredInputFieldMissingInSomeSubgraph, List(source), Some(at))(
+              s"Required input field '${at.render}' is not declared by this subgraph."
+            )
           )
         else Nil
       val visibility    =
         if (inaccessibleTypes(name)) Nil
         else
           values.flatMap { case (entry, field) =>
-            inputVisibility(entry.source, "input field", s"$name.$fieldName", field, inaccessible)
+            inputVisibility(entry.source, "input field", at, field, inaccessible)
           }
       compatibility ::: visibility
     }
   }
 
-  private def enumDiagnostics(name: String, entries: List[SubgraphType]): List[String] =
+  private def enumDiagnostics(name: String, entries: List[SubgraphType]): List[CompositionDiagnostic] =
     if (!inputTypeNames(name) || !outputTypeNames(name)) Nil
     else {
       val valueSets =
@@ -216,15 +283,18 @@ private[composition] final class TypeComposition(
         )
       check(
         valueSets.distinct.size <= 1,
-        s"[type $name] Input/output enum values are incompatible between subgraphs: ${sources(entries)}."
+        typeError(Code.EnumValueMismatch, name, entries, s"Values of input/output enum '$name' are incompatible.")
       )
     }
 
-  private def scalarDiagnostics(name: String, entries: List[SubgraphType]): List[String] =
+  private def scalarDiagnostics(name: String, entries: List[SubgraphType]): List[CompositionDiagnostic] =
     check(
       entries.map(entry => scalarSignature(entry.tpe)).distinct.size <= 1,
-      s"[type $name] Definitions are incompatible between subgraphs: ${sources(entries)}."
+      typeError(Code.ScalarDefinitionMismatch, name, entries, s"Definitions of scalar '$name' are incompatible.")
     )
+
+  private def typeError(code: Code, name: String, entries: List[SubgraphType], message: String): CompositionDiagnostic =
+    error(code, entries.map(_.source), Some(SchemaCoordinate.Type(name)))(message)
 
   private def mergeTypes: Map[String, __Type] = {
     val chosen  = groups.collect {
@@ -366,16 +436,19 @@ private[composition] object TypeComposition {
     if (include.getOrElse(false)) values else values.filterNot(isDeprecated)
 
   private def contextualArgumentDiagnostics(
-    fieldPath: String,
+    at: SchemaCoordinate.Member,
     values: List[FieldEntry]
-  ): List[String] = {
+  ): List[CompositionDiagnostic] = {
     val contextual = values.flatMap(_.field.contextualArguments).toSet
     contextual.toList.sorted.flatMap { argumentName =>
       values.collect {
         case FieldEntry(entry, field)
             if !field.contextualArguments.contains(argumentName) && field.definition.allArgs
               .exists(argument => argument.name == argumentName && isRequiredInput(argument)) =>
-          s"[${entry.source}] Argument '$fieldPath($argumentName:)' must be nullable or define a default value because it is supplied by @fromContext in another subgraph."
+          val argument = SchemaCoordinate.Argument(at.typeName, at.memberName, argumentName)
+          error(Code.ContextualArgumentNotContextualInAllSubgraphs, List(entry.source), Some(argument))(
+            s"Argument '${argument.render}' must be nullable or define a default value because it is supplied by @fromContext in another subgraph."
+          )
       }
     }
   }
@@ -417,9 +490,6 @@ private[composition] object TypeComposition {
 
   private def visibleArguments(field: __Field, hidden: String => Boolean): __Field =
     field.copy(args = args => field.args(args).filterNot(argument => hidden(argument.name)))
-
-  private def sources(entries: List[SubgraphType]): String =
-    formatSources(entries.map(_.source))
 
   private def sanitizeField(field: __Field, rewrite: __Type => __Type, hiddenArgument: String => Boolean): __Field =
     field.copy(

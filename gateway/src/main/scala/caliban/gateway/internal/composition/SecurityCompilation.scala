@@ -2,6 +2,7 @@ package caliban.gateway.internal.composition
 
 import caliban.Value.StringValue
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition.{ FieldCoordinate, TypeCoordinate }
 import caliban.gateway.internal.composition.FederationCompilation._
@@ -23,7 +24,7 @@ private[composition] object SecurityCompilation {
       .flatMap(coercedList)
       .map(coercedList(_).collect { case StringValue(value) => value })
 
-  def diagnostics(graph: ComposedGraph): List[String] =
+  def diagnostics(graph: ComposedGraph): List[CompositionDiagnostic] =
     hiddenDiagnostics(graph.securityApplications.filterNot(_.member == FederationDirective.Policy), graph.rootType) :::
       missingTransitiveDiagnostics(dependencies(graph), graph)
 
@@ -54,18 +55,23 @@ private[composition] object SecurityCompilation {
   private def hiddenDiagnostics(
     applications: List[SecurityDirectiveApplication],
     rootType: RootType
-  ): List[String] = {
+  ): List[CompositionDiagnostic] = {
     def isVisible(application: SecurityDirectiveApplication): Boolean =
       rootType.types.get(application.typeName).exists { tpe =>
         application.fieldName.forall(fieldDefinition(tpe, _).nonEmpty)
       }
 
     applications.filterNot(isVisible).map { application =>
-      s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' cannot be enforced because the coordinate is not client-visible."
+      error(Code.UnenforceableSecurityDirective, List(application.source), Some(application.coordinate))(
+        s"Federation ${application.directiveName} at '${application.coordinate.render}' cannot be enforced because the coordinate is not client-visible."
+      )
     }
   }
 
-  private def missingTransitiveDiagnostics(dependencies: List[Dependency], graph: ComposedGraph): List[String] = {
+  private def missingTransitiveDiagnostics(
+    dependencies: List[Dependency],
+    graph: ComposedGraph
+  ): List[CompositionDiagnostic] = {
     def typeApplications(typeName: String): List[SecurityDirectiveApplication] =
       graph.securityAt(typeName, None, None)
 
@@ -100,7 +106,10 @@ private[composition] object SecurityCompilation {
         val available = SecurityProfile(typeApplications(parentType) ::: fieldApplications(parentType, fieldName))
         requiredProfiles(source, selections, dependencyType).collect {
           case (coordinate, required) if !available.implies(required) =>
-            s"[$source] Field '$parentType.$fieldName' does not specify sufficient Federation security requirements for @${member.name} dependency '$coordinate'."
+            val at = SchemaCoordinate.Member(parentType, fieldName)
+            error(Code.MissingTransitiveAuthRequirements, List(source.name), Some(at))(
+              s"Field '${at.render}' does not specify sufficient Federation security requirements for @${member.name} dependency '$coordinate'."
+            )
         }
     }
   }

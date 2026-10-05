@@ -3,6 +3,7 @@ package caliban.gateway
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.{ GraphQLRequest, InputValue }
 import zio.{ Duration, Scope, ZIO }
@@ -90,31 +91,21 @@ object FieldRoutingSpec extends ZIOSpecDefault {
             .replace("price(", "details { missing }") + "type Details { existing: Int }"
         )
 
+        val shippingEstimate = SchemaCoordinate.Member("Product", "shippingEstimate")
+
         for {
-          requires           <- Gateway
-                                  .compose(Subgraph.federation("inventory", unreachableEndpoint, malformedRequires))
-                                  .interpreter
-                                  .exit
-          provides           <- Gateway
-                                  .compose(Subgraph.federation("reviews", unreachableEndpoint, invalidProvides))
-                                  .interpreter
-                                  .exit
-          unknown            <- ZIO.foreach(unknownRequires)(schema =>
-                                  Gateway.compose(Subgraph.federation("inventory", unreachableEndpoint, schema)).interpreter.exit
-                                )
-          requiresDiagnostics = buildDiagnostics(requires)
-          providesDiagnostics = buildDiagnostics(provides)
+          requires <- compositionErrors(Subgraph.federation("inventory", unreachableEndpoint, malformedRequires))
+          provides <- compositionErrors(Subgraph.federation("reviews", unreachableEndpoint, invalidProvides))
+          unknown  <- ZIO.foreach(unknownRequires)(schema =>
+                        compositionErrors(Subgraph.federation("inventory", unreachableEndpoint, schema))
+                      )
         } yield assertTrue(
-          unknown.forall(exit =>
-            buildDiagnostics(exit).exists(message =>
-              message.contains("[inventory]") && message.contains("Product.shippingEstimate") &&
-                message.contains("Field 'missing' does not exist")
-            )
+          unknown.forall(errors =>
+            errors.reports(Code.RequiresInvalidFields, shippingEstimate, "inventory") &&
+              errors.exists(_.message.contains("Field 'missing' does not exist"))
           ),
-          requiresDiagnostics.exists(message =>
-            message.contains("[inventory]") && message.contains("Product.shippingEstimate")
-          ),
-          providesDiagnostics.exists(message => message.contains("[reviews]") && message.contains("Review.product"))
+          requires.reports(Code.RequiresInvalidFields, shippingEstimate, "inventory"),
+          provides.reports(Code.ProvidesInvalidFields, SchemaCoordinate.Member("Review", "product"), "reviews")
         )
       },
       test("injects argument-bearing requirements without projecting them") {

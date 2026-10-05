@@ -33,6 +33,33 @@ private[gateway] object GatewayTestSupport {
   def compositionDiagnostics[R](gateway: Gateway[R]): URIO[Scope, List[String]] =
     gateway.interpreter.exit.map(buildDiagnostics)
 
+  /** The errors of a failed composition; empty when the build succeeded or failed before composing. */
+  def compositionErrors[A](result: Either[GatewayBuildError, A]): List[CompositionDiagnostic] =
+    result match {
+      case Left(GatewayBuildError.SchemaCompositionFailed(diagnostics)) =>
+        diagnostics.filter(_.severity == CompositionDiagnostic.Severity.Error)
+      case _                                                            => Nil
+    }
+
+  def compositionErrors[R](gateway: Gateway[R]): URIO[Scope, List[CompositionDiagnostic]] =
+    gateway.interpreter.either.map(compositionErrors(_))
+
+  def compositionErrors[R](first: Subgraph[R], rest: Subgraph[R]*): URIO[Scope, List[CompositionDiagnostic]] =
+    compositionErrors(Gateway.compose(first, rest: _*))
+
+  implicit class CompositionDiagnosticsOps(diagnostics: List[CompositionDiagnostic]) {
+    def reports(code: CompositionDiagnostic.Code, coordinate: SchemaCoordinate, subgraphs: String*): Boolean =
+      diagnostics.exists(diagnostic =>
+        diagnostic.code == code && diagnostic.coordinate.contains(coordinate) && diagnostic.subgraphs == subgraphs
+      )
+
+    def reportsOnly(code: CompositionDiagnostic.Code, coordinate: SchemaCoordinate, subgraphs: String*): Boolean =
+      diagnostics.size == 1 && reports(code, coordinate, subgraphs: _*)
+  }
+
+  implicit final class CompositionResultOps(result: Either[GatewayBuildError, Any])
+      extends CompositionDiagnosticsOps(compositionErrors(result))
+
   def introspectionResponse(api: GraphQL[Any]): UIO[String] =
     ZIO.fromEither(api.interpreterEither).orDie.flatMap { interpreter =>
       interpreter
@@ -123,7 +150,7 @@ private[gateway] object GatewayTestSupport {
     subgraphs: List[(String, Document)],
     federation: Boolean = true,
     transformations: Map[String, List[SchemaTransformation]] = Map.empty
-  ): Either[List[String], ComposedGraph] =
+  ): Either[GatewayBuildError, ComposedGraph] =
     collectErrors(subgraphs.map { case (name, document) =>
       val subgraph =
         if (federation) Subgraph.federation(name, unreachableEndpoint, document)
@@ -131,8 +158,10 @@ private[gateway] object GatewayTestSupport {
       SchemaComposer
         .prepare(subgraph.transform(transformations.getOrElse(name, Nil): _*), document)
         .left
-        .map(SubgraphError(name, _).diagnostics)
-    }).flatMap(SchemaComposer.compose(_).left.map(_.diagnostics))
+        .map(error => List(SubgraphError(name, error)))
+    }).left
+      .map(GatewayBuildError.SubgraphLoadingFailed(_))
+      .flatMap(SchemaComposer.compose(_).map(_._1))
 
   def queryFields(document: Document): List[String] =
     document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))

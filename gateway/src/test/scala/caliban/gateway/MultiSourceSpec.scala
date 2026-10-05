@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
 import caliban.{ CalibanError, GraphQLRequest, PathValue }
 import zio._
@@ -572,17 +573,13 @@ object MultiSourceSpec extends ZIOSpecDefault {
         )
 
         for {
-          forward <- Gateway.compose(alpha, beta).interpreter.exit
-          reverse <- Gateway.compose(beta, alpha).interpreter.exit
-          first    = buildDiagnostics(forward)
-          second   = buildDiagnostics(reverse)
+          first  <- compositionErrors(alpha, beta)
+          second <- compositionErrors(beta, alpha)
         } yield assertTrue(
           first == second,
           first.size == 2,
-          first.exists(_.contains("query.duplicate")),
-          first.exists(message =>
-            message.contains("type Product") && message.contains("'alpha'") && message.contains("'beta'")
-          )
+          first.reports(Code.FieldTypeMismatch, SchemaCoordinate.Member("Query", "duplicate"), "alpha", "beta"),
+          first.reports(Code.FieldTypeMismatch, SchemaCoordinate.Member("Product", "value"), "alpha", "beta")
         )
       },
       test("rejects compatible duplicate roots from ordinary subgraphs") {
@@ -591,15 +588,11 @@ object MultiSourceSpec extends ZIOSpecDefault {
         val beta   = Subgraph.graphql("beta", unreachableEndpoint, schema)
 
         for {
-          forward <- Gateway.compose(alpha, beta).interpreter.exit
-          reverse <- Gateway.compose(beta, alpha).interpreter.exit
-          first    = buildDiagnostics(forward)
-          second   = buildDiagnostics(reverse)
+          first  <- compositionErrors(alpha, beta)
+          second <- compositionErrors(beta, alpha)
         } yield assertTrue(
           first == second,
-          first.exists(message =>
-            message.contains("query.duplicate") && message.contains("'alpha'") && message.contains("'beta'")
-          )
+          first.reports(Code.InvalidFieldSharing, SchemaCoordinate.Member("Query", "duplicate"), "alpha", "beta")
         )
       }
     )

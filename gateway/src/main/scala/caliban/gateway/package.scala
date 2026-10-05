@@ -97,21 +97,21 @@ package object gateway {
       )
       .map(_.reverse)
 
-  private[gateway] def check(valid: Boolean, message: String): List[String] =
-    if (valid) Nil else message :: Nil
+  private[gateway] def check[E](valid: Boolean, error: => E): List[E] =
+    if (valid) Nil else error :: Nil
 
   private[gateway] def checkAbsolute(url: URL, schemes: Scheme => Boolean, message: String): List[String] =
     check(url.scheme.exists(schemes) && url.host.exists(_.nonEmpty), message)
 
-  private[gateway] def validateAll[A](results: List[Either[String, A]]): Either[List[String], List[A]] =
+  private[gateway] def validateAll[E, A](results: List[Either[E, A]]): Either[List[E], List[A]] =
     collectErrors(results.map(_.left.map(List(_))))
 
-  private[gateway] def collectErrors[A](results: List[Either[List[String], A]]): Either[List[String], List[A]] = {
+  private[gateway] def collectErrors[E, A](results: List[Either[List[E], A]]): Either[List[E], List[A]] = {
     val errors = results.flatMap(_.left.getOrElse(Nil))
     if (errors.nonEmpty) Left(errors) else Right(results.collect { case Right(value) => value })
   }
 
-  private[gateway] def validated[A](errors: List[String], result: Either[List[String], A]): Either[List[String], A] =
+  private[gateway] def validated[E, A](errors: List[E], result: Either[List[E], A]): Either[List[E], A] =
     result match {
       case Right(value) if errors.isEmpty => Right(value)
       case _                              => Left(errors ::: result.left.getOrElse(Nil))
@@ -135,9 +135,6 @@ package object gateway {
 
   private[gateway] def duplicates(names: List[String]): List[String] =
     names.groupBy(identity).collect { case (name, occurrences) if occurrences.size > 1 => name }.toList
-
-  private[gateway] def formatSources(sources: Iterable[String]): String =
-    sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
 
   private[gateway] def parseFieldSet(value: String): Option[List[Selection]] =
     parseSelectionSet(s"{ $value }")

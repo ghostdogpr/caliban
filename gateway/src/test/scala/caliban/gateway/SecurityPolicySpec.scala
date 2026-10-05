@@ -1,7 +1,9 @@
 package caliban.gateway
 
 import caliban.Value.{ BooleanValue, StringValue }
+import caliban.gateway.CompositionDiagnostic.Code
 import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.SchemaCoordinate.{ Argument, Member }
 import caliban.gateway.PhaseHooks.{ Denial, SecurityRequirement }
 import caliban.GraphQLRequest
 import zio._
@@ -389,17 +391,14 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(Gateway.compose(Subgraph.federation("policy", unreachableEndpoint, schema))).map {
-        diagnostics =>
-          def missing(field: String, directive: String, dependency: String) =
-            s"[policy] Field '$field' does not specify sufficient Federation security requirements for $directive dependency '$dependency'."
-          assertTrue(
-            diagnostics == List(
-              missing("Product.bridge", "@requires", "Product.secret"),
-              missing("Product.weaker", "@requires", "Product.secret"),
-              missing("Transaction.amount", "@fromContext", "User.token")
-            )
+      compositionErrors(Subgraph.federation("policy", unreachableEndpoint, schema)).map { errors =>
+        assertTrue(
+          errors.map(error => (error.code, error.coordinate, error.subgraphs)) == List(
+            (Code.MissingTransitiveAuthRequirements, Some(Member("Product", "bridge")), List("policy")),
+            (Code.MissingTransitiveAuthRequirements, Some(Member("Product", "weaker")), List("policy")),
+            (Code.MissingTransitiveAuthRequirements, Some(Member("Transaction", "amount")), List("policy"))
           )
+        )
       }
     },
     test("rejects policy dependencies on a custom query root") {
@@ -417,13 +416,11 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(Gateway.compose(Subgraph.federation("secure", unreachableEndpoint, schema))).map(
-        diagnostics =>
-          assertTrue(
-            diagnostics == List(
-              "[secure] Field 'Query.visible' does not specify sufficient Federation security requirements for @requires dependency 'Query.secret'."
-            )
-          )
+      compositionErrors(Subgraph.federation("secure", unreachableEndpoint, schema)).map(errors =>
+        assertTrue(
+          errors.reportsOnly(Code.MissingTransitiveAuthRequirements, Member("Query", "visible"), "secure"),
+          errors.exists(_.message.contains("'Query.secret'"))
+        )
       )
     },
     test("blocks fields that declare the @policy requirements of their dependencies") {
@@ -676,15 +673,14 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(
+      compositionErrors(
         Gateway
           .compose(Subgraph.federation("hidden", unreachableEndpoint, schema))
           .withPhaseHooks(allowAll)
-      ).map(diagnostics =>
+      ).map(errors =>
         assertTrue(
-          diagnostics.exists(message =>
-            message.startsWith("[hidden]") && message.contains("@authenticated") && message.contains("Product.secret")
-          )
+          errors.reports(Code.UnenforceableSecurityDirective, Member("Product", "secret"), "hidden"),
+          errors.exists(_.message.contains("@authenticated"))
         )
       )
     },
@@ -705,16 +701,14 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(
+      compositionErrors(
         Gateway
           .compose(Subgraph.federation("transitive", unreachableEndpoint, schema))
           .withPhaseHooks(allowAll)
-      ).map(diagnostics =>
+      ).map(errors =>
         assertTrue(
-          diagnostics.exists(message =>
-            message.startsWith("[transitive]") && message.contains("Product.shipping") &&
-              message.contains("Product.secret")
-          )
+          errors.reports(Code.MissingTransitiveAuthRequirements, Member("Product", "shipping"), "transitive"),
+          errors.exists(_.message.contains("Product.secret"))
         )
       )
     },
@@ -741,16 +735,14 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(
+      compositionErrors(
         Gateway
           .compose(Subgraph.federation("context-security", unreachableEndpoint, schema))
           .withPhaseHooks(allowAll)
-      ).map(diagnostics =>
+      ).map(errors =>
         assertTrue(
-          diagnostics.exists(message =>
-            message.startsWith("[context-security]") && message.contains("Transaction.amount") &&
-              message.contains("@fromContext") && message.contains("User.secret")
-          )
+          errors.reports(Code.MissingTransitiveAuthRequirements, Member("Transaction", "amount"), "context-security"),
+          errors.exists(error => error.message.contains("@fromContext") && error.message.contains("User.secret"))
         )
       )
     },
@@ -848,20 +840,20 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         rejected <- ZIO.foreach(schemas) { case (name, schema) =>
-                      compositionDiagnostics(Gateway.compose(Subgraph.federation(name, unreachableEndpoint, schema)))
-                        .map(name -> _)
+                      compositionErrors(Subgraph.federation(name, unreachableEndpoint, schema)).map(name -> _)
                     }
         ordinary <-
-          compositionDiagnostics(Gateway.compose(Subgraph.graphql("ordinary", unreachableEndpoint, bareDirectives)))
+          Gateway.compose(Subgraph.graphql("ordinary", unreachableEndpoint, bareDirectives)).interpreter.either
       } yield assertTrue(
-        rejected.forall { case (name, diagnostics) =>
+        rejected.forall { case (name, errors) =>
           List("@authenticated", "@requiresScopes", "@policy").forall(directive =>
-            diagnostics.exists(message =>
-              message.startsWith(s"[$name]") && message.contains(directive) && message.contains("not imported")
+            errors.exists(error =>
+              error.code == Code.UnenforceableSecurityDirective && error.subgraphs == List(name) &&
+                error.message.contains(directive)
             )
           )
         },
-        !ordinary.exists(_.contains("not imported"))
+        !ordinary.left.exists(_.diagnostics.exists(_.contains("not imported")))
       )
     },
     test("rejects security directives unavailable in the linked feature version") {
@@ -873,13 +865,11 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |type Query { value: String @policy(policies: [["owner"]]) }
            |""".stripMargin
 
-      compositionDiagnostics(Gateway.compose(Subgraph.federation("old-federation", unreachableEndpoint, schema))).map {
-        diagnostics =>
-          assertTrue(
-            diagnostics.exists(message =>
-              message.startsWith("[old-federation]") && message.contains("@policy") && message.contains("version")
-            )
-          )
+      compositionErrors(Subgraph.federation("old-federation", unreachableEndpoint, schema)).map { errors =>
+        assertTrue(
+          errors.reports(Code.InvalidGraphQL, Member("Query", "value"), "old-federation"),
+          errors.exists(error => error.message.contains("@policy") && error.message.contains("version"))
+        )
       }
     },
     test("rejects recognized Federation directives at unsupported schema locations") {
@@ -904,18 +894,10 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      compositionDiagnostics(
-        Gateway.compose(Subgraph.federation("invalid-locations", unreachableEndpoint, schema))
-      ).map(diagnostics =>
+      compositionErrors(Subgraph.federation("invalid-locations", unreachableEndpoint, schema)).map(errors =>
         assertTrue(
-          diagnostics.exists(message =>
-            message.startsWith("[invalid-locations]") && message.contains("@authenticated") &&
-              message.contains("Query.value(input:)")
-          ),
-          diagnostics.exists(message =>
-            message.startsWith("[invalid-locations]") && message.contains("@fromContext") &&
-              message.contains("Filter.term")
-          )
+          errors.reports(Code.InvalidGraphQL, Argument("Query", "value", "input"), "invalid-locations"),
+          errors.reports(Code.InvalidGraphQL, Member("Filter", "term"), "invalid-locations")
         )
       )
     }

@@ -1,6 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.CompositionDiagnostic.{ error, Code }
 import caliban.gateway.internal.composition.ComposedGraph.KeyField
 import caliban.gateway.internal.composition.DirectiveComposition._
 import caliban.gateway.internal.composition.TypeComposition.SubgraphMode
@@ -15,7 +16,7 @@ private[gateway] object FederationCompilation {
     features: List[LinkedFeature],
     mode: SubgraphMode,
     resolved: Map[String, FederationDirective],
-    unsupported: Map[String, Coordinate => String],
+    unsupported: Map[String, UnsupportedDirective],
     hidden: Set[String],
     hiddenTypes: Set[String]
   ) {
@@ -23,6 +24,11 @@ private[gateway] object FederationCompilation {
       features.exists(feature => feature.identity == FederationIdentity && feature.version.atLeast(2, 7))
 
     def is(directive: Directive, member: FederationDirective): Boolean = resolved.get(directive.name).contains(member)
+  }
+
+  final case class UnsupportedDirective(code: Code, message: Coordinate => String) {
+    def apply(source: String, at: Coordinate): CompositionDiagnostic =
+      error(code, List(source), at.schemaCoordinate)(message(at))
   }
 
   /**
@@ -128,9 +134,15 @@ private[gateway] object FederationCompilation {
     coordinate: Coordinate,
     member: FederationDirective,
     directive: Directive
-  ): Either[List[String], FederationApplication] =
+  ): Either[List[CompositionDiagnostic], FederationApplication] =
     if (!member.allowedAt(coordinate))
-      Left(List(s"[$source] Federation @${member.name} is not supported at '${coordinate.display}'."))
+      Left(
+        List(
+          error(Code.InvalidGraphQL, List(source), coordinate.schemaCoordinate)(
+            s"Federation @${member.name} is not supported at '${coordinate.display}'."
+          )
+        )
+      )
     else
       validateArguments(source, s"Federation @${member.name}", coordinate, directive, member.definition)
         .map(FederationApplication(coordinate, member, _))
@@ -188,12 +200,15 @@ private[gateway] object FederationCompilation {
         else SubgraphMode.Federation1,
       resolved = enforced(resolved),
       unsupported = enforced(unresolved).map { case (name, member) =>
-        name -> ((coordinate: Coordinate) =>
-          s"Federation @${member.name} ${member.unavailableMessage} at '${coordinate.display}'."
+        name -> UnsupportedDirective(
+          Code.InvalidGraphQL,
+          coordinate => s"Federation @${member.name} ${member.unavailableMessage} at '${coordinate.display}'."
         )
       } ++ (if (federation) unimportedSecurity else Set.empty[String]).map { name =>
-        name -> ((coordinate: Coordinate) =>
-          s"Federation @$name at '${coordinate.display}' is not imported through a supported @link, so it would not be enforced."
+        name -> UnsupportedDirective(
+          Code.UnenforceableSecurityDirective,
+          coordinate =>
+            s"Federation @$name at '${coordinate.display}' is not imported through a supported @link, so it would not be enforced."
         )
       },
       hidden = Set("link") ++ resolved.keySet ++ unresolved.keySet ++
@@ -231,7 +246,7 @@ private[gateway] object FederationCompilation {
         } ::: tpe.allInputFields.map(field => application(InputFieldCoordinate(name, field.name), field.directives)) :::
         tpe.allEnumValues.map(value => application(EnumValueCoordinate(name, value.name), value.directives))
     }
-    TypeSystemDirectiveApplication(SchemaCoordinate, schemaDirectives) :: types :::
+    TypeSystemDirectiveApplication(SchemaDefinitionCoordinate, schemaDirectives) :: types :::
       rootType.additionalDirectives.flatMap(definition =>
         definition.allArgs.map(argument =>
           application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
