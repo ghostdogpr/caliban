@@ -25,7 +25,7 @@ private[composition] final class LookupCompilation private (subgraph: Source, lo
             validated(
               shapeDiagnostics(isTarget(resultType), s"'${lookup.typeName}'"),
               compileFields(lookup.field, "argument", field.allArgs, arguments)(compileKey)
-            ).map(LookupOperation.Single(lookup.field, _))
+            ).map(LookupOperation.Single(Nil, lookup.field, _, None))
           case Lookup.ByKey(_, _, arguments)  =>
             val isTargetList =
               resultType.kind == __TypeKind.LIST && resultType.ofType.map(nullableType).exists(isTarget)
@@ -94,7 +94,8 @@ private[composition] final class LookupCompilation private (subgraph: Source, lo
   ): Either[List[CompositionDiagnostic], KeyArgument] =
     if (keys.get(key.field).exists(field => !acceptsKey(field._type, valueType)))
       Left(List(invalid(s"Lookup argument '$path' is incompatible with key field '${key.field}'.")))
-    else Right(KeyArgument(subgraph.mapping.clientField(lookup.typeName, key.field), valueType))
+    else
+      Right(KeyArgument(FieldSelectionMap.field(subgraph.mapping.clientField(lookup.typeName, key.field)), valueType))
 
   /**
    * An ID argument also accepts a String key, as in `product(upc: ID!)` for `upc: String!`.

@@ -2,11 +2,15 @@ package caliban.gateway.internal.composition
 
 import caliban.InputValue
 import caliban.InputValue.{ ListValue, ObjectValue, VariableValue }
+import caliban.Value.NullValue
 import caliban.gateway._
+import caliban.gateway.internal.composition.ComposedGraph.KeyField
 import caliban.introspection.adt._
 import caliban.parsing.parsers.Parsers.{ name, value, whitespace }
 import caliban.rendering.DocumentRenderer
 import fastparse._
+
+import scala.annotation.tailrec
 
 // The FieldSelectionMap of GraphQL Federation Appendix A; the shorthand `{ f(args) }` reads as `{ f: f(args) }`.
 private[gateway] object FieldSelectionMap {
@@ -31,6 +35,11 @@ private[gateway] object FieldSelectionMap {
       case failure: Parsed.Failure     => Left(failure.msg)
     }
 
+  def field(name: String): Selection = Leaf(::(PathStep(None, name, Map.empty), Nil))
+
+  /**
+   * Field types resolve through `types`, so a view merged from several schemas can be validated against.
+   */
   def validate(
     value: SelectedValue,
     inputType: __Type,
@@ -38,6 +47,103 @@ private[gateway] object FieldSelectionMap {
     types: Map[String, __Type]
   ): List[String] =
     new Validation(types).selected(value, inputType, outputType)
+
+  /**
+   * Keeps the alternatives whose root type conditions admit a runtime type, and drops those conditions.
+   * `None` when no alternative applies to that type.
+   */
+  def narrow(selection: Selection, admits: String => Boolean): Option[Selection] = {
+    def path(steps: ::[PathStep]): Option[::[PathStep]] =
+      if (steps.head.typeCondition.forall(admits)) Some(::(steps.head.copy(typeCondition = None), steps.tail))
+      else None
+
+    def narrowed(field: ObjectField): Option[ObjectField] =
+      field.value.flatMap(narrow(_, admits)) match {
+        case head :: tail => Some(ObjectField(field.name, ::(head, tail)))
+        case Nil          => None
+      }
+
+    selection match {
+      case Leaf(steps)                    => path(steps).map(Leaf(_))
+      case ObjectOf(head :: tail, fields) => path(::(head, tail)).map(ObjectOf(_, fields))
+      case ObjectOf(Nil, fields)          =>
+        traverseOption(fields)(narrowed).collect { case head :: tail => ObjectOf(Nil, ::(head, tail)) }
+      case ListOf(head :: tail, element)  => path(::(head, tail)).map(ListOf(_, element))
+      case list @ ListOf(Nil, _)          => Some(list)
+    }
+  }
+
+  /**
+   * The fields a selection map reads, merged into one selection; type conditions below the root stay on their fields.
+   */
+  def keyFields(value: List[Selection]): List[KeyField] = {
+    def merged(paths: List[List[PathStep]]): List[KeyField] =
+      paths.collect { case step :: _ => (step.field, step.typeCondition) }.distinct.map { case (name, condition) =>
+        val rest = paths.collect { case step :: tail if step.field == name && step.typeCondition == condition => tail }
+        KeyField(name, merged(rest), condition)
+      }
+
+    merged(paths(value))
+  }
+
+  def paths(value: List[Selection]): List[List[PathStep]] = value.flatMap {
+    case Leaf(steps)             => List(steps)
+    case ObjectOf(steps, fields) => fields.flatMap(field => paths(field.value)).map(steps ::: _)
+    case ListOf(steps, element)  => paths(element).map(steps ::: _)
+  }
+
+  /**
+   * Reads a selection map from the values of its key fields. A choice takes its first alternative with a non-null
+   * value, or a null one when every alternative is null; a field outside a type condition that did not apply is
+   * absent, so its alternative does not resolve.
+   */
+  def evaluate(selection: Selection, keys: List[(String, InputValue)]): Option[InputValue] =
+    evaluate(selection, null, keys)
+
+  /**
+   * A null scope is the root, whose fields come from `keys` so no object is built per entity.
+   */
+  private def evaluate(value: SelectedValue, scope: InputValue, keys: List[(String, InputValue)]): Option[InputValue] =
+    if (value.tail.isEmpty) evaluate(value.head, scope, keys)
+    else {
+      val resolved = value.flatMap(evaluate(_, scope, keys))
+      resolved.find(_ != NullValue).orElse(resolved.headOption)
+    }
+
+  private def evaluate(selection: Selection, scope: InputValue, keys: List[(String, InputValue)]): Option[InputValue] =
+    selection match {
+      case Leaf(steps)             => walk(steps, scope, keys)
+      case ObjectOf(steps, fields) =>
+        walk(steps, scope, keys).flatMap {
+          case NullValue => Some(NullValue)
+          case target    =>
+            traverseOption(fields)(field => evaluate(field.value, target, keys).map(field.name -> _))
+              .map(values => ObjectValue(values.toMap))
+        }
+      case ListOf(steps, element)  =>
+        walk(steps, scope, keys).flatMap {
+          case NullValue         => Some(NullValue)
+          case ListValue(values) => traverseOption(values)(evaluate(element, _, keys)).map(ListValue(_))
+          case _                 => None
+        }
+    }
+
+  @tailrec
+  private def walk(steps: List[PathStep], scope: InputValue, keys: List[(String, InputValue)]): Option[InputValue] =
+    steps match {
+      case Nil          => Some(scope)
+      case step :: rest =>
+        val next = scope match {
+          case null                => keys.collectFirst { case (step.field, value) => value }
+          case ObjectValue(fields) => fields.get(step.field)
+          case NullValue           => Some(NullValue)
+          case _                   => None
+        }
+        next match {
+          case Some(value) if rest.nonEmpty => walk(rest, value, keys)
+          case _                            => next
+        }
+    }
 
   private def selectionMap(implicit ev: P[Any]): P[SelectedValue] = Start ~ selectedValue ~ End
 
@@ -103,7 +209,7 @@ private[gateway] object FieldSelectionMap {
                     List(s"Field '${step.field}' is not defined on type '${render(narrow)}'.")
                   )
         errors  = argumentErrors(s"field '${render(narrow)}.${field.name}'", field.allArgs, step.arguments, exempt)
-        tpe    <- validated(errors, Right(field._type))
+        tpe    <- validated(errors, Right(TypeComposition.rewriteType(field._type, types)))
       } yield tpe
 
     private def composite(scope: __Type, field: String): Either[List[String], __Type] = {

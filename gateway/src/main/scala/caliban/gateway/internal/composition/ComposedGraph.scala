@@ -246,6 +246,8 @@ private[gateway] object ComposedGraph {
           }
       )
 
+    lazy val lookupFields: LookupFieldCompilation.Compiled = LookupFieldCompilation.compile(this)
+
     private lazy val interfaceObjects: Set[String] =
       applications(InterfaceObject).collect { case FederationApplication(TypeCoordinate(typeName, _), _, _) =>
         typeName
@@ -260,7 +262,7 @@ private[gateway] object ComposedGraph {
           applications(Internal).collect { case FederationApplication(TypeCoordinate(typeName, _), _, _) => typeName }
 
     private lazy val entityLookupsByType: Map[String, List[EntityLookup]] =
-      (if (!federation) compiledLookups.collect { case Right(lookup) => lookup }
+      (if (!federation) compiledLookups.collect { case Right(lookup) => lookup } ::: lookupFields.lookups
        else
          keys.all.collect { case SchemaComposer.FederationKey(typeName, fields, true) =>
            typeName -> EntityLookup(fields, LookupOperation.FederationEntities)
@@ -296,8 +298,8 @@ private[gateway] object ComposedGraph {
     lazy val diagnostics: List[CompositionDiagnostic] =
       keys.diagnostics ::: overrides.values.toList.flatMap(_._2) ::: federationErrors.flatten :::
         repeatedDirectives ::: LookupCompilation.declarationDiagnostics(this) :::
-        compiledLookups.flatMap(_.left.getOrElse(Nil)) ::: fieldSetErrors ::: contextErrors :::
-        costs.left.getOrElse(Nil)
+        compiledLookups.flatMap(_.left.getOrElse(Nil)) ::: lookupFields.diagnostics :::
+        fieldSetErrors ::: contextErrors ::: costs.left.getOrElse(Nil)
 
     lazy val hidden: Set[Coordinate] =
       mapping.hidden ++ (applications(Inaccessible) ::: applications(FromContext)).map(_.coordinate)
@@ -309,7 +311,7 @@ private[gateway] object ComposedGraph {
       sourceField(typeName, field).flatMap(_._type.innerType.name)
 
     def definesKeyField(typeName: String, key: KeyField): Boolean =
-      sourceField(typeName, key.name).exists { definition =>
+      sourceField(key.condition.getOrElse(typeName), key.name).exists { definition =>
         key.children.isEmpty || definition._type.innerType.name.exists(name =>
           key.children.forall(definesKeyField(name, _))
         )
@@ -398,7 +400,7 @@ private[gateway] object ComposedGraph {
 
   final case class SlicingArgument(path: ::[String], defaultValue: Option[InputValue], listValued: Boolean)
 
-  final case class KeyField(name: String, children: List[KeyField])
+  final case class KeyField(name: String, children: List[KeyField], condition: Option[String] = None)
 
   final case class ContextName(value: String) extends AnyVal
 
@@ -455,12 +457,24 @@ private[gateway] object ComposedGraph {
       def field: String
     }
 
-    final case class Single(field: String, arguments: List[(String, Lookup.Argument[KeyArgument])]) extends GraphQLQuery
+    /**
+     * A lookup field reached from the query root through argument-less fields. Its result is read on
+     * `typeCondition` when the field returns an abstract type.
+     */
+    final case class Single(
+      path: List[String],
+      field: String,
+      arguments: List[(String, Lookup.Argument[KeyArgument])],
+      typeCondition: Option[String]
+    ) extends GraphQLQuery
 
     final case class ByKey(field: String, arguments: List[(String, Lookup.Argument[Lookup.Argument[KeyArgument]])])
         extends GraphQLQuery
   }
 
-  final case class KeyArgument(field: String, expectedType: __Type)
+  /**
+   * An argument value read from an entity's key fields, in client names.
+   */
+  final case class KeyArgument(value: FieldSelectionMap.Selection, expectedType: __Type)
 
 }

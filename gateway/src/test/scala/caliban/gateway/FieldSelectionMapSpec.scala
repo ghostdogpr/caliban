@@ -1,7 +1,8 @@
 package caliban.gateway
 
-import caliban.InputValue
+import caliban.{ InputValue, Value }
 import caliban.Value.{ EnumValue, StringValue }
+import caliban.gateway.internal.composition.ComposedGraph.KeyField
 import caliban.gateway.internal.composition.FieldSelectionMap
 import caliban.gateway.internal.composition.FieldSelectionMap._
 import caliban.gateway.internal.composition.FieldSelectionMap.Selection._
@@ -547,6 +548,63 @@ object FieldSelectionMapSpec extends ZIOSpecDefault {
           inContext(media, "{ bookId: <Book>.id } | { movieId: <Movie>.id }", "FindMediaInput", "Media") == Right(Nil),
           inContext(media, "{ bookId: <Book>.id, movieId: <Movie>.id }", "FindMediaInput", "Media") ==
             Right(List("Selection on oneOf input type 'FindMediaInput' must select one field."))
+        )
+      }
+    ),
+    suite("reading values")(
+      test("follows paths, builds objects and maps lists") {
+        val keys                = List(
+          "id"      -> StringValue("1"),
+          "address" -> InputValue.ObjectValue(Map("id" -> StringValue("a"))),
+          "parts"   -> InputValue.ListValue(
+            List(
+              InputValue.ObjectValue(Map("id" -> StringValue("p1"))),
+              InputValue.ObjectValue(Map("id" -> StringValue("p2")))
+            )
+          )
+        )
+        def read(value: String) = parse(value).toOption.flatMap(value => evaluate(value.head, keys))
+        assertTrue(
+          read("address.id").contains(StringValue("a")),
+          read("{ key: id addressId: address.id }").contains(
+            InputValue.ObjectValue(Map("key" -> StringValue("1"), "addressId" -> StringValue("a")))
+          ),
+          read("parts[id]").contains(InputValue.ListValue(List(StringValue("p1"), StringValue("p2")))),
+          read("missing").isEmpty
+        )
+      },
+      test("takes the first alternative with a value") {
+        val keys                       = List("isbn" -> Value.NullValue, "upc" -> StringValue("u"))
+        def read(value: String)        = parse(s"{ v: $value }").toOption.flatMap(value => evaluate(value.head, keys))
+        def wrapped(value: InputValue) = Some(InputValue.ObjectValue(Map("v" -> value)))
+        assertTrue(
+          read("<Book>.feedUrl | upc") == wrapped(StringValue("u")),
+          read("isbn | upc") == wrapped(StringValue("u")),
+          read("isbn | feedUrl") == wrapped(Value.NullValue)
+        )
+      }
+    ),
+    suite("keys")(
+      test("merges the fields a map reads, keeping nested type conditions") {
+        val keys = parse("{ a: address.id b: address.city } | media<Book>.isbn | parts[id]").map(keyFields)
+        assertTrue(
+          keys == Right(
+            List(
+              KeyField("address", List(KeyField("id", Nil), KeyField("city", Nil))),
+              KeyField("media", List(KeyField("isbn", Nil, Some("Book")))),
+              KeyField("parts", List(KeyField("id", Nil)))
+            )
+          )
+        )
+      },
+      test("narrows alternatives to the types their root conditions admit") {
+        val value                  = parse("{ isbn: <Book>.isbn | id upc: <Movie>.upc | id }")
+        def narrowed(name: String) = value.toOption.flatMap(value => narrow(value.head, Set(name))).map(List(_))
+        val excluded               = parse("<Movie>.upc").toOption.flatMap(value => narrow(value.head, Set("Book")))
+        assertTrue(
+          narrowed("Book").map(keyFields) == Some(List(KeyField("isbn", Nil), KeyField("id", Nil))),
+          narrowed("Podcast").map(keyFields) == Some(List(KeyField("id", Nil))),
+          excluded.isEmpty
         )
       }
     )

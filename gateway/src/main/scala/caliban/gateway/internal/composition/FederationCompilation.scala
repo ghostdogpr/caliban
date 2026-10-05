@@ -104,7 +104,10 @@ private[gateway] object FederationCompilation {
     case object Override
         extends FederationDirective("override", Set(FIELD_DEFINITION), List(required("from"), optional("label")))
     case object LookupField extends FederationDirective("lookup", Set(FIELD_DEFINITION))
-    case object Internal extends FederationDirective("internal", Set(OBJECT, FIELD_DEFINITION))
+    case object Internal      extends FederationDirective("internal", Set(OBJECT, FIELD_DEFINITION))
+    case object Is            extends FederationDirective("is", Set(ARGUMENT_DEFINITION), List(required("field"))) {
+      override def allowedAt(coordinate: Coordinate): Boolean = coordinate.isInstanceOf[ArgumentCoordinate]
+    }
     case object Context
         extends FederationDirective("context", Set(OBJECT, INTERFACE, UNION), List(required("name")), true, v28)
     case object FromContext
@@ -114,7 +117,7 @@ private[gateway] object FederationCompilation {
     case object Authenticated extends Security("authenticated", Nil, v25, AuthenticatedIdentity)
     case object RequiresScopes
         extends Security("requiresScopes", List(argument("scopes", Scopes)), v25, RequiresScopesIdentity)
-    case object Policy extends Security("policy", List(argument("policies", Scopes)), v26, PolicyIdentity)
+    case object Policy        extends Security("policy", List(argument("policies", Scopes)), v26, PolicyIdentity)
     case object Cost
         extends CostSpec(
           "cost",
@@ -142,7 +145,7 @@ private[gateway] object FederationCompilation {
 
     // Composite source schemas apply these by their bare names.
     val composite: List[FederationDirective] =
-      List(Key, External, Shareable, Inaccessible, Provides, Override, LookupField, Internal)
+      List(Key, External, Shareable, Inaccessible, Provides, Override, LookupField, Internal, Is)
     val linkedSpecIdentities: Set[String]    = all.flatMap(_.specIdentity).toSet
   }
 

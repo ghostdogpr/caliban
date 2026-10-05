@@ -49,7 +49,7 @@ val catalog = Subgraph.graphql(
 )
 ```
 
-The gateway reads each GraphQL service as a source schema of the [GraphQL Federation spec](https://github.com/graphql/graphql-federation-spec) and recognizes its directives by name: `@key`, `@lookup`, `@internal`, `@shareable`, `@provides`, `@external`, `@override` and `@inaccessible`. Introspection does not expose applied directives, so use pinned SDL, an SDL URL or a local API when the schema relies on them. GraphQL Federation support is experimental.
+The gateway reads each GraphQL service as a source schema of the [GraphQL Federation spec](https://github.com/graphql/graphql-federation-spec) and recognizes its directives by name: `@key`, `@lookup`, `@is`, `@internal`, `@shareable`, `@provides`, `@external`, `@override` and `@inaccessible`. Introspection does not expose applied directives, so use pinned SDL, an SDL URL or a local API when the schema relies on them. GraphQL Federation support is experimental.
 
 ## Federation subgraphs
 

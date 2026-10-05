@@ -206,7 +206,9 @@ object CompositeSchemaSpec extends ZIOSpecDefault {
     },
     test("follows an override chain and rejects cycles and competing overrides") {
       def product(from: Option[String])                                         =
-        s"type Product @key(fields: \"id\") { id: ID! price: Float ${from.fold("")(name => s"@override(from: \"$name\")")} }"
+        s"""type Product @key(fields: "id") { id: ID! price: Float ${from.fold("")(name =>
+            s"""@override(from: "$name")"""
+          )} }"""
       def subgraphs(catalog: Option[String], payments: String, pricing: String) =
         composeComposite(
           "catalog"  -> s"type Query { products: [Product] } ${product(catalog)}",

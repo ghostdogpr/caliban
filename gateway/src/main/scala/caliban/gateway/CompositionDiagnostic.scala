@@ -34,7 +34,7 @@ object CompositionDiagnostic {
 
   /**
    * Identifies the rule a diagnostic reports. Apollo Federation's composition error codes are used where one
-   * applies; the other codes are specific to Caliban.
+   * applies, and the GraphQL Federation spec's codes for its own rules; the other codes are specific to Caliban.
    */
   sealed abstract class Code(val name: String) {
     override def toString: String = name
@@ -54,11 +54,17 @@ object CompositionDiagnostic {
     case object InvalidGraphQL                          extends Code("INVALID_GRAPHQL")
     case object InvalidLinkDirectiveUsage               extends Code("INVALID_LINK_DIRECTIVE_USAGE")
     case object InvalidLookup                           extends Code("INVALID_LOOKUP")
+    case object IsFieldsHasArguments                    extends Code("IS_FIELDS_HAS_ARGUMENTS")
+    case object IsInvalidFields                         extends Code("IS_INVALID_FIELDS")
+    case object IsInvalidSyntax                         extends Code("IS_INVALID_SYNTAX")
+    case object IsInvalidUsage                          extends Code("IS_INVALID_USAGE")
     case object KeyInvalidFields                        extends Code("KEY_INVALID_FIELDS")
     case object ListSizeAppliedToNonList                extends Code("LIST_SIZE_APPLIED_TO_NON_LIST")
     case object ListSizeInvalidAssumedSize              extends Code("LIST_SIZE_INVALID_ASSUMED_SIZE")
     case object ListSizeInvalidSizedField               extends Code("LIST_SIZE_INVALID_SIZED_FIELD")
     case object ListSizeInvalidSlicingArgument          extends Code("LIST_SIZE_INVALID_SLICING_ARGUMENT")
+    case object LookupMustHaveArguments                 extends Code("LOOKUP_MUST_HAVE_ARGUMENTS")
+    case object LookupReturnsList                       extends Code("LOOKUP_RETURNS_LIST")
     case object MissingTransitiveAuthRequirements       extends Code("MISSING_TRANSITIVE_AUTH_REQUIREMENTS")
     case object NoContextInSelection                    extends Code("NO_CONTEXT_IN_SELECTION")
     case object NoQueries                               extends Code("NO_QUERIES")

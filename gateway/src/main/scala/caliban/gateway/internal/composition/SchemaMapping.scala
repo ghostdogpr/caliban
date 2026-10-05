@@ -117,7 +117,7 @@ private[gateway] final class SchemaMapping private (
   private def sourceField(typeName: String, field: String): String =
     sourceFields.getOrElse(FieldCoordinate(typeName, field), field)
 
-  private def clientArgument(typeName: String, field: String, argument: String): String =
+  private[composition] def clientArgument(typeName: String, field: String, argument: String): String =
     mappings.renames.getOrElse(ArgumentTarget(typeName, field, argument), argument)
 
   private def mapRepresentation(typeName: String, value: InputObjectValue): InputObjectValue =

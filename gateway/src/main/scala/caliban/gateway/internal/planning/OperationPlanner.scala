@@ -832,7 +832,8 @@ private[gateway] object OperationPlanner {
       parentType: __Type,
       key: ComposedGraph.KeyField
     ): Option[RequiredSelection] =
-      fields.find(_.name == key.name).flatMap { selected =>
+      // A key under a type condition needs a __typename the selection may lack, so it is injected instead.
+      fields.find(_.name == key.name).filter(_ => key.condition.isEmpty).flatMap { selected =>
         val nestedType = Option(parentType.getFieldOrNull(key.name)).map(_._type.innerType)
         nestedType.flatMap(value =>
           traverseOption(key.children)(selectedKeySelection(selected.collectFields(value.name.getOrElse("")), value, _))
@@ -1101,11 +1102,12 @@ private[gateway] object OperationPlanner {
 
     private def lookupSignature(lookup: ComposedGraph.EntityLookup): String = {
       def keys(values: List[ComposedGraph.KeyField]): String =
-        values.map(value => s"${value.name}{${keys(value.children)}}").mkString(",")
+        values.map(value => s"${value.condition.fold("")(_ + ".")}${value.name}{${keys(value.children)}}").mkString(",")
 
       val operation = lookup.operation match {
-        case ComposedGraph.LookupOperation.FederationEntities  => EntitiesField
-        case value: ComposedGraph.LookupOperation.GraphQLQuery => value.field
+        case ComposedGraph.LookupOperation.FederationEntities => EntitiesField
+        case value: ComposedGraph.LookupOperation.Single      => (value.path :+ value.field).mkString(".")
+        case value: ComposedGraph.LookupOperation.ByKey       => value.field
       }
       s"$operation:${keys(lookup.key)}"
     }
@@ -1126,13 +1128,14 @@ private[gateway] object OperationPlanner {
     ): Option[RequiredKeyField] =
       for {
         typeName <- parentType.name
-        field    <- currentSubgraph.sourceField(typeName, key.name)
-        carried   = carriedKeys.find(_.name == key.name)
-        owned     = graph.ownsField(currentSubgraph, typeName, key.name)
+        owner     = key.condition.getOrElse(typeName)
+        field    <- currentSubgraph.sourceField(owner, key.name)
+        carried   = carriedKeys.find(carried => carried.name == key.name && carried.condition == key.condition)
+        owned     = graph.ownsField(currentSubgraph, owner, key.name)
         if owned || carried.nonEmpty
         children <-
           requiredKeyFields(field._type.innerType, currentSubgraph, key.children, carried.toList.flatMap(_.children))
-      } yield RequiredKeyField(field, children, owned)
+      } yield RequiredKeyField(field, children, owned, key.condition)
 
     private def availableKeys(currentSubgraph: Source, tpe: __Type): List[ComposedGraph.KeyField] =
       tpe.name.toList
@@ -1150,7 +1153,9 @@ private[gateway] object OperationPlanner {
         field.field._type,
         Some(parentType),
         fields = field.children.map(requiredField(_, field.field._type.innerType)),
-        alias = Some(field.field.name)
+        alias = Some(field.field.name),
+        targets = field.condition.map(Set(_)),
+        _condition = field.condition.map(name => graph.possibleTypesByName.getOrElse(name, Set(name)))
       )
 
     private def intermediateSubgraphs(typeName: String, currentSubgraph: Source, targetSubgraph: Source): List[Source] =
@@ -1227,7 +1232,12 @@ private[gateway] object OperationPlanner {
     def entities: List[EntityFetch] = waves.flatten
   }
 
-  private final case class RequiredKeyField(field: __Field, children: List[RequiredKeyField], owned: Boolean) {
+  private final case class RequiredKeyField(
+    field: __Field,
+    children: List[RequiredKeyField],
+    owned: Boolean,
+    condition: Option[String]
+  ) {
     def fullyOwned: Boolean = owned && children.forall(_.fullyOwned)
   }
 

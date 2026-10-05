@@ -141,6 +141,21 @@ type Query {
 }
 ```
 
+`@is` maps an argument to other fields with a field selection map: a path such as `address.id`, an input object such as `{ id sku }`, a list such as `parts[id]`, or a type condition such as `<Book>.isbn`. Alternatives separated by `|` declare several keys on one field, usually with a `@oneOf` input:
+
+```graphql
+type Query {
+  person(by: PersonBy! @is(field: "{ id } | { addressId: address.id }")): Person @lookup
+}
+
+input PersonBy @oneOf {
+  id: ID
+  addressId: ID
+}
+```
+
+The gateway picks, for each fetch, a lookup whose key the source of the objects can supply. A key field may be one that only another subgraph defines; the gateway then fetches it from there first. A lookup that returns an interface or a union resolves each possible type that one of its alternatives applies to. Lookup fields can also sit under argument-less fields of the query root, such as `Query.lookups.productById`, and under `@internal` ones.
+
 Key fields resolved by several subgraphs must be declared as keys in each of them. Here, the catalog schema declares `type Product @key(fields: "id")` when it is pinned.
 
 ## Operation cache

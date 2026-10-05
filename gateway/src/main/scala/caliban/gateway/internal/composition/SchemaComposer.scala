@@ -67,25 +67,12 @@ private[gateway] object SchemaComposer {
       subgraph.name,
       transformed.rootType,
       DirectiveComposition.schemaDirectives(transformed.document),
-      // Lookups declared in Scala, then the root query fields a composite subgraph marks with @lookup.
-      subgraph.lookups ::: lookupFields(normalized.rootType, names),
+      subgraph.lookups,
       mapping,
       extensionTypes,
       names
     )
   }
-
-  private def lookupFields(rootType: RootType, names: FederationDirectiveNames): List[Lookup] =
-    rootType.queryType.allFields.flatMap { field =>
-      val marked = field.directives.getOrElse(Nil).exists(names.is(_, LookupField))
-      field._type.innerType.name.filter(_ => marked).map { typeName =>
-        Lookup.Single(
-          typeName,
-          field.name,
-          field.allArgs.map(argument => argument.name -> Lookup.Argument.key(argument.name))
-        )
-      }
-    }
 
   private def withFederationQueryRoot(document: Document): Document = {
     val names         = document.typeDefinitions.iterator.map(_.name).toSet ++ document.typeExtensions.collect {
@@ -200,6 +187,8 @@ private[gateway] object SchemaComposer {
     val lookupKeys     = subgraph.lookups.flatMap { lookup =>
       val typeName = subgraph.mapping.clientType(lookup.typeName)
       lookup.keyFields.map(field => FieldCoordinate(typeName, subgraph.mapping.clientField(lookup.typeName, field)))
+    } ::: subgraph.lookupFields.lookups.flatMap { case (typeName, lookup) =>
+      collectKeyFields(subgraph.rootType, typeName, lookup.key)
     }
     SubgraphKeys(keys, errors, keyFields.toSet ++ lookupKeys, federation1ExtensionKeyFields(subgraph, keys))
   }
@@ -219,9 +208,10 @@ private[gateway] object SchemaComposer {
 
   private def collectKeyFields(rootType: RootType, typeName: String, fields: List[KeyField]): List[FieldCoordinate] =
     fields.flatMap { field =>
+      val owner     = field.condition.getOrElse(typeName)
       val childType =
-        rootType.types.get(typeName).flatMap(fieldDefinition(_, field.name)).flatMap(_._type.innerType.name)
-      FieldCoordinate(typeName, field.name) :: childType.toList.flatMap(collectKeyFields(rootType, _, field.children))
+        rootType.types.get(owner).flatMap(fieldDefinition(_, field.name)).flatMap(_._type.innerType.name)
+      FieldCoordinate(owner, field.name) :: childType.toList.flatMap(collectKeyFields(rootType, _, field.children))
     }
 
   // `_Entity` is a union, so it lists an entity interface's implementations rather than the interface.
@@ -260,7 +250,8 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
     for {
       warnings <-
         checked(
-          sortedSubgraphs.flatMap(_.diagnostics) ::: composedDirectives.diagnostics ::: typeComposition.diagnostics
+          sortedSubgraphs.flatMap(_.diagnostics) ::: composedDirectives.diagnostics ::: typeComposition.diagnostics :::
+            selectionMapDiagnostics
         )
       rootType <- composedRootType(typeComposition.composed).left.map(failed(_, warnings))
       graph     = composedGraph(rootType)
@@ -289,14 +280,39 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
 
   private val sortedSubgraphs    = subgraphs.sortBy(_.name)
   private val composedDirectives = DirectiveComposition.compile(sortedSubgraphs)
-  private val typeComposition    = new TypeComposition(
+  private val subgraphTypes      = sortedSubgraphs.flatMap { subgraph =>
+    subgraph.rootType.types.collect {
+      case (name, tpe) if !subgraph.unmergedTypes(name) => subgraphType(subgraph, name, tpe)
+    }
+  }
+  private val typeComposition    = new TypeComposition(subgraphTypes, composedDirectives)
+
+  /**
+   * Every subgraph's types merged by name, inaccessible members included. Selection maps are validated against them,
+   * since their fields may come from any subgraph.
+   */
+  private lazy val selectionMapTypes: Map[String, __Type] =
+    groupNonEmpty(subgraphTypes)(_.name).map { case (name, entries) =>
+      name -> entries.head.tpe.copy(
+        fields = args => Some(entries.flatMap(_.tpe.fields(args).getOrElse(Nil)).distinctBy(_.name)),
+        possibleTypes = Some(entries.flatMap(_.tpe.possibleTypes.getOrElse(Nil)).distinctBy(_.name))
+      )
+    }
+
+  private def selectionMapDiagnostics: List[CompositionDiagnostic] =
     sortedSubgraphs.flatMap { subgraph =>
-      subgraph.rootType.types.collect {
-        case (name, tpe) if !subgraph.unmergedTypes(name) => subgraphType(subgraph, name, tpe)
+      subgraph.lookupFields.maps.flatMap { use =>
+        selectionMapTypes.get(use.outputType).toList.flatMap { outputType =>
+          val errors = FieldSelectionMap.validate(use.value, use.inputType, outputType, selectionMapTypes)
+          check(
+            errors.isEmpty,
+            error(Code.IsInvalidFields, List(subgraph.name), Some(use.at))(
+              s"Invalid @is field selection map on '${use.at.render}': ${errors.mkString(" ")}"
+            )
+          )
+        }
       }
-    },
-    composedDirectives
-  )
+    }
 
   private def subgraphType(subgraph: Source, name: String, tpe: __Type): SubgraphType = {
     val isRoot = RootOperations.contains(name)
