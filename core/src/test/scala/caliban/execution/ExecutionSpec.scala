@@ -1791,6 +1791,24 @@ object ExecutionSpec extends ZIOSpecDefault {
             )
         }
       },
+      test("recursive oneOf input") {
+        case class Queries(columns: Clause => List[String])
+
+        def columns(clause: Clause): List[String] = clause match {
+          case Clause.Simple(col) => List(col)
+          case Clause.And(and)    => and.flatMap(columns)
+          case Clause.Or(or)      => or.flatMap(columns)
+        }
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Queries(columns)))
+        val query             = gqldoc("""{
+          columns(value: { and: [{ col: "a" }, { or: [{ col: "b" }, { col: "c" }] }] })
+        }""")
+
+        api.interpreter
+          .flatMap(_.execute(query))
+          .map(response => assertTrue(response.data.toString == """{"columns":["a","b","c"]}"""))
+      },
       test("reject an unknown field in a oneOf input inside a list") {
         case class AddPets(pets: List[Pet.Wrapper])
         case class Queries(addPets: AddPets => List[Pet])
@@ -1908,4 +1926,15 @@ object Pet { parent =>
 
   implicit val argBuilder: ArgBuilder[Pet] = ArgBuilder.gen
   implicit val schema: Schema[Any, Pet]    = Schema.gen
+}
+
+@GQLOneOfInput
+sealed trait Clause
+object Clause {
+  case class Simple(col: String)    extends Clause
+  case class And(and: List[Clause]) extends Clause
+  case class Or(or: List[Clause])   extends Clause
+
+  implicit lazy val argBuilder: ArgBuilder[Clause] = ArgBuilder.gen
+  implicit lazy val schema: Schema[Any, Clause]    = Schema.gen
 }
