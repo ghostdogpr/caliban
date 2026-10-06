@@ -61,6 +61,7 @@ object TapirAdapterSpec {
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
     sseSupport: Boolean = true,
+    sseHeartbeats: Boolean = false,
     mutationOverGetStatus: Int = 400
   ): Spec[TestService, Throwable] = suite(label) {
     val httpClient   = new TapirClient(httpUri)
@@ -124,7 +125,7 @@ object TapirAdapterSpec {
           """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
       )
 
-    val tests: List[Option[Spec[Backend, Throwable]]] = List(
+    val tests: List[Option[Spec[Backend with TestService, Throwable]]] = List(
       Some(
         suite("http")(
           test("test POST http endpoint")(testHttpEndpoint("POST")),
@@ -293,51 +294,25 @@ object TapirAdapterSpec {
         suite("server-sent events")(
           test("TextEventStream") {
             for {
-              res   <- runSSERequest(
-                         acceptTextEventStream,
-                         "subscription { characterDeleted }"
-                       )
+              event <- runSSERequest(acceptTextEventStream, "subscription { characterDeleted }")
+                         .flatMap(_.filter(_.data.isDefined).runHead)
+                         .fork
+              _     <- TestService.awaitDeletedEventsSubscriber
               _     <- runHttpRequest(
                          method = Method.POST.method,
                          query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
                        )
-              event <-
-                res
-                  .filter(_.data.isDefined)
-                  .takeUntil(e =>
-                    e == ServerSentEvent(Some("""{"data":{"characterDeleted":"Amos Burton"}}"""), Some("next"))
-                  )
-                  .runHead
+              event <- event.join
             } yield assertTrue(
-              event.isDefined && event.contains(
-                ServerSentEvent(
-                  Some("""{"data":{"characterDeleted":"Amos Burton"}}"""),
-                  Some("next")
-                )
-              )
+              event.contains(ServerSentEvent(Some("""{"data":{"characterDeleted":"Amos Burton"}}"""), Some("next")))
             )
-          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore,
-          test("heartbeating") {
+          } @@ TestAspect.timeout(10.seconds),
+          (test("heartbeating") {
             for {
-              res   <- runSSERequest(
-                         acceptTextEventStream,
-                         "subscription { characterDeleted }"
-                       )
-              event <-
-                res
-                  .filterNot(_.data.isDefined)
-                  .runHead
-            } yield assertTrue(
-              event.isDefined && event.contains(
-                ServerSentEvent(
-                  None,
-                  None,
-                  None,
-                  None
-                )
-              )
-            )
-          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore
+              res   <- runSSERequest(acceptTextEventStream, "subscription { characterDeleted }")
+              event <- res.filterNot(_.data.isDefined).runHead
+            } yield assertTrue(event.contains(ServerSentEvent(comments = List("heartbeat"))))
+          } @@ TestAspect.timeout(10.seconds)).when(sseHeartbeats)
         ).when(sseSupport)
       ),
       runUpload.map(runUpload =>
@@ -507,7 +482,7 @@ object TapirAdapterSpec {
     )
 
     ZIO.succeed(tests.flatten)
-  }.provideLayerShared(
+  }.provideSomeLayerShared[TestService](
     ZLayer.scoped(
       HttpClientZioBackend
         .scoped()

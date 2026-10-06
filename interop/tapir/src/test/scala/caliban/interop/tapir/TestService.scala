@@ -3,7 +3,7 @@ package caliban.interop.tapir
 import caliban.interop.tapir.TestApi.{ File, SomeFieldOutput, UploadedDocument }
 import caliban.interop.tapir.TestData._
 import caliban.uploads.{ Upload, Uploads }
-import zio.stream.ZStream
+import zio.stream.{ SubscriptionRef, ZStream }
 import zio.{ Hub, Ref, UIO, URIO, ZIO, ZLayer }
 
 import java.math.BigInteger
@@ -17,6 +17,8 @@ trait TestService {
   def deleteCharacter(name: String): UIO[Boolean]
 
   def deletedEvents: ZStream[Any, Nothing, String]
+
+  def awaitDeletedEventsSubscriber: UIO[Unit]
 
   def reset: UIO[Unit]
 }
@@ -34,6 +36,9 @@ object TestService {
 
   def deletedEvents: ZStream[TestService, Nothing, String] =
     ZStream.serviceWithStream(_.deletedEvents)
+
+  def awaitDeletedEventsSubscriber: URIO[TestService, Unit] =
+    ZIO.serviceWithZIO(_.awaitDeletedEventsSubscriber)
 
   def reset: URIO[TestService, Unit] =
     ZIO.serviceWithZIO(_.reset)
@@ -75,6 +80,7 @@ object TestService {
     for {
       characters  <- Ref.make(initial)
       subscribers <- Hub.unbounded[String]
+      subscribed  <- SubscriptionRef.make(0)
     } yield new TestService {
 
       override def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
@@ -91,7 +97,14 @@ object TestService {
           .tap(deleted => ZIO.when(deleted)(subscribers.publish(name)))
 
       override def deletedEvents: ZStream[Any, Nothing, String] =
-        ZStream.fromHub(subscribers)
+        ZStream.unwrapScoped(
+          subscribers.subscribe
+            .tap(_ => ZIO.acquireRelease(subscribed.update(_ + 1))(_ => subscribed.update(_ - 1)))
+            .map(ZStream.fromQueue(_))
+        )
+
+      override def awaitDeletedEventsSubscriber: UIO[Unit] =
+        subscribed.changes.takeUntil(_ > 0).runDrain
 
       override def reset: UIO[Unit] =
         characters.set(initial)

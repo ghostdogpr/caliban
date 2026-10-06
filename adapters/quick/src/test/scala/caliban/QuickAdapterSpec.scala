@@ -65,6 +65,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8090/api/graphql",
       wsUri = Some(uri"ws://localhost:8090/ws/graphql"),
       uploadUri = Some(uri"http://localhost:8090/upload/graphql"),
+      sseHeartbeats = true,
       mutationOverGetStatus = 405
     )
     suite("Quick regressions")(adapterSuite, regressionSuite).provideShared(
