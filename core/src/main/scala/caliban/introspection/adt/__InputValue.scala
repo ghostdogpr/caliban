@@ -45,7 +45,6 @@ case class __InputValue(
         case _                                  => tpe
       }
 
-    val t = loop(_type)
-    copy(`type` = () => t)
+    copy(`type` = () => loop(_type))
   }
 }

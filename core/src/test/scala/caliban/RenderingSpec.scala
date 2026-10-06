@@ -321,6 +321,30 @@ object RenderingSpec extends ZIOSpecDefault {
             val resolver                              = RootResolver(Queries(_.toString))
 
             assertTrue(graphQL(resolver).render == expected("fooInput"))
+          },
+          test("recursive through a list") {
+            case class Queries(clause: Clause => String)
+
+            implicit val schema: Schema[Any, Queries] = Schema.gen
+            val resolver                              = RootResolver(Queries(_.toString))
+
+            assertTrue(
+              graphQL(resolver).render ==
+                """schema {
+                  |  query: Queries
+                  |}
+                  |
+                  |input ClauseInput @oneOf {
+                  |  and: [ClauseInput!]
+                  |  col: String
+                  |  or: [ClauseInput!]
+                  |}
+                  |
+                  |type Queries {
+                  |  clause(value: ClauseInput!): String!
+                  |}
+                  |""".stripMargin
+            )
           }
         )
       },
@@ -361,6 +385,18 @@ object RenderingSpec extends ZIOSpecDefault {
 
     case class Wrapped(fooInput: Foo)
   }
+
+  @GQLOneOfInput
+  sealed trait Clause
+
+  object Clause {
+    case class Simple(col: String)    extends Clause
+    case class And(and: List[Clause]) extends Clause
+    case class Or(or: List[Clause])   extends Clause
+  }
+
+  implicit lazy val clauseAb: ArgBuilder[Clause]      = ArgBuilder.gen
+  implicit lazy val clauseSchema: Schema[Any, Clause] = Schema.gen
 
   implicit val fooIntAb: ArgBuilder[Foo.FooInt]        = ArgBuilder.gen
   implicit val fooInt2Ab: ArgBuilder[Foo.FooInt2]      = ArgBuilder.gen
