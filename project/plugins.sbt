@@ -15,5 +15,5 @@ addSbtPlugin("com.eed3si9n"       % "sbt-assembly"                  % "2.5.0")
 
 addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.4")
 
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.21"
 addDependencyTreePlugin
