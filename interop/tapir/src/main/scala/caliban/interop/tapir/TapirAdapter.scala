@@ -180,11 +180,16 @@ object TapirAdapter {
   )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
     import HttpUtils.DeferMultipart._
 
+    // Write the delimiter that ends a part in the same chunk as the part, rather than
+    // interspersing the whole boundary as a separator (emitted only when the NEXT part is
+    // produced, so the initial `@defer` payload would stay unreadable until the first
+    // deferred payload resolves). For any non-empty stream the bytes on the wire are the
+    // same as with `intersperse`, and the body still closes on completion.
     Right(
       streamConstructor(
-        responses
-          .map(responseCodec.encode)
-          .intersperse(InnerBoundary, InnerBoundary, EndBoundary)
+        (ZStream.succeed(PartDelimiter) ++
+          responses.map(rv => PartHeader + responseCodec.encode(rv) + PartDelimiter) ++
+          ZStream.succeed(CloseDelimiter))
           .mapConcat(_.getBytes(StandardCharsets.UTF_8))
       )
     )

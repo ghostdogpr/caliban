@@ -7,6 +7,7 @@ import sttp.client4.httpclient.zio.HttpClientZioBackend
 import sttp.client4.{ asStringAlways, basicRequest, multipart, UriContext }
 import zio._
 import zio.http._
+import zio.stream.{ ZPipeline, ZStream }
 import zio.test.{ assertTrue, suite, test, Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
@@ -238,6 +239,78 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         response.is200,
         response.contentType.exists(_.startsWith("multipart/mixed")),
         response.body.contains("incremental")
+      )
+    },
+    test("flushes an @defer part with its closing boundary before the next part resolves") {
+      val slow                                = ResponseValue.ObjectValue(
+        List(
+          "incremental" -> ResponseValue.ListValue(
+            List(
+              ResponseValue.ObjectValue(
+                List(
+                  "data" -> ResponseValue.ObjectValue(List("slow" -> Value.StringValue("s"))),
+                  "path" -> ResponseValue.ListValue(Nil)
+                )
+              )
+            )
+          ),
+          "hasNext"     -> Value.BooleanValue(false)
+        )
+      )
+      // A part only reaches a multipart parser together with the boundary that follows it.
+      def initialPartClosed(received: String) = received.split("\r\n---", -1).length >= 3
+      for {
+        gate     <- Promise.make[Nothing, Unit]
+        parts     = ZStream.succeed(ResponseValue.ObjectValue(List("fast" -> Value.StringValue("f")))) ++
+                      ZStream.fromZIO(gate.await.as(slow))
+        response <- respond(
+                      ZIO.succeed(GraphQLResponse(ResponseValue.StreamValue(parts), Nil, hasNext = Some(true))),
+                      "multipart/mixed"
+                    )
+        early    <- Live.live(
+                      response.body.asStream
+                        .via(ZPipeline.utf8Decode)
+                        .scan("")(_ + _)
+                        .takeUntil(initialPartClosed)
+                        .runLast
+                        .timeout(1.second)
+                    )
+        _        <- gate.succeed(())
+      } yield assertTrue(
+        early.flatten.exists(initialPartClosed),
+        early.flatten.exists(_.contains(""""fast":"f"""")),
+        !early.flatten.exists(_.contains("slow"))
+      )
+    },
+    test("closes a single response sent as multipart with the end boundary") {
+      for {
+        response <-
+          respond(
+            ZIO.succeed(GraphQLResponse(ResponseValue.ObjectValue(List("name" -> Value.StringValue("Amos"))), Nil)),
+            "multipart/mixed"
+          )
+        body     <- response.body.asString
+      } yield assertTrue(
+        response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+        body.contains(""""name":"Amos""""),
+        body.endsWith("\r\n-----\r\n")
+      )
+    },
+    test("closes the multipart body on completion, whatever the last part announces") {
+      import HttpUtils.DeferMultipart._
+      def body(parts: ZStream[Any, Throwable, ResponseValue]) =
+        respond(
+          ZIO.succeed(GraphQLResponse(ResponseValue.StreamValue(parts), Nil, hasNext = Some(true))),
+          "multipart/mixed"
+        ).flatMap(_.body.asString)
+      val stillMore                                           = ResponseValue.ObjectValue(List("hasNext" -> Value.BooleanValue(true)))
+      for {
+        unterminated <- body(ZStream(ResponseValue.ObjectValue(List("fast" -> Value.StringValue("f"))), stillMore))
+      } yield assertTrue(
+        unterminated.startsWith(InnerBoundary),
+        unterminated.endsWith(stillMore.toString + EndBoundary),
+        unterminated.split(PartDelimiter, -1).length == 4,
+        !unterminated.contains(PartHeader + PartDelimiter)
       )
     },
     test("keeps GraphQL request errors on an SSE response at status 200") {

@@ -63,6 +63,17 @@ object HttpUtils {
 
     val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
 
+    /**
+     * `InnerBoundary` and `EndBoundary` split into the delimiter that ends a part and what
+     * follows it: `PartDelimiter + PartHeader == InnerBoundary`,
+     * `PartDelimiter + CloseDelimiter == EndBoundary`. Writing `PartDelimiter` right after each
+     * part lets a multipart parser surface that part immediately, while the stream's completion
+     * decides whether the next part opens or the body closes.
+     */
+    val PartDelimiter  = s"$Newline$Boundary"
+    val PartHeader     = SubHeader
+    val CloseDelimiter = s"--$Newline"
+
     def createPipeline[E](resp: GraphQLResponse[E]): ZPipeline[Any, Throwable, ResponseValue, ResponseValue] =
       ZPipeline.fromChannel {
         lazy val reader: ZChannel[Any, Throwable, Chunk[ResponseValue], Any, Throwable, Chunk[ResponseValue], Any] =
