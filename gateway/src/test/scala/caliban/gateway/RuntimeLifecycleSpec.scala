@@ -26,7 +26,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     )
 
   private def runRequest[A](control: GatewayExecutionControl)(effect: UIO[A])(onTimeout: UIO[A]): UIO[A] =
-    withLease(control)(ZIO.interrupt)(_.runWithin(effect).someOrElseZIO(onTimeout))
+    withLease(control)(ZIO.interrupt)(_.runWithin(effect)(onTimeout))
 
   private def awaitDrain(control: GatewayExecutionControl): UIO[Unit] =
     withLease(control)(ZIO.succeed(true))(_ => ZIO.succeed(false)).repeatUntil(identity).unit

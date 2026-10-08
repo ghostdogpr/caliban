@@ -1,29 +1,32 @@
 package caliban.gateway.internal
 
 import zio.stm.{ TRef, USTM }
-import zio.{ Cause, Clock, Duration, FiberId, Promise, Scope, Trace, UIO, ZIO }
+import zio.{ Clock, Duration, Fiber, IO, Scope, Trace, UIO, ZIO }
+
+import java.util.concurrent.ConcurrentHashMap
 
 private[gateway] final class GatewayExecutionControl private (
   requestTimeout: Duration,
   drainTimeout: Duration,
-  state: TRef[GatewayExecutionControl.State],
-  forceStop: Promise[Nothing, Unit]
+  state: TRef[GatewayExecutionControl.State]
 ) {
-  final class Lease private[GatewayExecutionControl] (startedAt: Long) {
-    def runWithin[R0, E, A](effect: ZIO[R0, E, A])(implicit trace: Trace): ZIO[R0, E, Option[A]] =
-      Clock.nanoTime.flatMap { now =>
-        val stop: UIO[UIO[Option[A]]] =
-          Clock
-            .sleep(Duration.fromNanos(requestTimeout.toNanos - (now - startedAt)))
-            .as(ZIO.none)
-            .raceFirst(forceStop.await.as(ZIO.interrupt))
+  private val running           = ConcurrentHashMap.newKeySet[Fiber.Runtime[_, _]]()
+  @volatile private var stopped = false
 
-        effect
-          .map(Some(_))
-          .raceWith[R0, Nothing, E, UIO[Option[A]], Option[A]](stop)(
-            (exit, stopFiber) => stopFiber.interrupt *> (exit: ZIO[R0, E, Option[A]]),
-            (exit, workFiber) => workFiber.interruptAs(GatewayExecutionControl.expiry).uninterruptible *> exit.flatten
-          )
+  final class Lease private[GatewayExecutionControl] (startedAt: Long) {
+    def runWithin[R0, E, A](effect: ZIO[R0, E, A])(onTimeout: => IO[E, A])(implicit trace: Trace): ZIO[R0, E, A] =
+      Clock.nanoTime.flatMap { now =>
+        val timedOut = ZIO.suspendSucceed(if (stopped) ZIO.interrupt else onTimeout)
+        ZIO.uninterruptibleMask { restore =>
+          restore(effect).fork.flatMap { work =>
+            ZIO.succeed {
+              running.add(work)
+              if (stopped) Deadline.expire(work)
+            } *> restore(
+              Deadline.await(work, Duration.fromNanos(requestTimeout.toNanos - (now - startedAt)), timedOut)
+            ).ensuring(ZIO.succeed(running.remove(work)))
+          }
+        }
       }
 
     def release(implicit trace: Trace): UIO[Unit] =
@@ -45,25 +48,25 @@ private[gateway] final class GatewayExecutionControl private (
     (for {
       startedAt <- Clock.nanoTime
       _         <- state.update(_.copy(drainStartedAt = Some(startedAt))).commit
-      _         <- drained.interruptible.timeout(drainTimeout).someOrElseZIO(forceStop.succeed(()) *> drained)
+      _         <- drained.interruptible.timeout(drainTimeout).someOrElseZIO(forceStop *> drained)
     } yield ()).uninterruptible
+
+  private def forceStop: UIO[Unit] =
+    ZIO.succeed {
+      stopped = true
+      running.forEach(Deadline.expire(_))
+    }
 
 }
 
 private[gateway] object GatewayExecutionControl {
-  // Interrupts work cut by a lease's deadline or by `forceStop`.
-  private val expiry: FiberId = FiberId(0, 0, Trace.empty)
-
-  def expired(cause: Cause[Any]): Boolean = cause.interruptors.contains(expiry)
-
   def make(requestTimeout: Duration, drainTimeout: Duration)(implicit
     trace: Trace
   ): ZIO[Scope, Nothing, GatewayExecutionControl] =
     for {
-      state     <- TRef.make(State(0, None)).commit
-      forceStop <- Promise.make[Nothing, Unit]
-      control    = new GatewayExecutionControl(requestTimeout, drainTimeout, state, forceStop)
-      _         <- ZIO.addFinalizer(control.closeRequests)
+      state  <- TRef.make(State(0, None)).commit
+      control = new GatewayExecutionControl(requestTimeout, drainTimeout, state)
+      _      <- ZIO.addFinalizer(control.closeRequests)
     } yield control
 
   private final case class State(leases: Int, drainStartedAt: Option[Long])

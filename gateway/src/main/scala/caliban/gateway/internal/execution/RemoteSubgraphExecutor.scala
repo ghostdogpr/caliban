@@ -4,7 +4,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.gateway.internal.OperationCache.Weighted
-import caliban.gateway.internal.{ GatewayHttpClient, OperationCache, RemoteTransport }
+import caliban.gateway.internal.{ Deadline, GatewayHttpClient, OperationCache, RemoteTransport }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
 import caliban.interop.jsoniter.GraphQLResponseJsoniter
 import caliban.parsing.adt.OperationType
@@ -42,24 +42,21 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
         response  <- if (replaySafe)
                        deduplicator.fold(rawCall)(
-                         _.getOrCompute(QueryDeduplicator.Key(body, headers))(
-                           rawCall.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout).map(Weighted(_, 0L))
-                         )
+                         _.getOrCompute(QueryDeduplicator.Key(body, headers))(rawCall.map(Weighted(_, 0L)))
                        )
                      else rawCall
       } yield response
 
-    if (!hooks.subgraphCall.enabled)
-      resolveHeaders.flatMap(call).timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+    if (!hooks.subgraphCall.enabled) Deadline.run(execution.timeout, TimedOut)(resolveHeaders.flatMap(call))
     else
       for {
         started  <- Clock.nanoTime
-        headers  <- resolveHeaders.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+        headers  <- Deadline.run(execution.timeout, TimedOut)(resolveHeaders)
         response <- hooks.subgraphCall.runWith(Event.SubgraphCall(name, operationType, headers)) { event =>
                       Clock.nanoTime.flatMap { now =>
                         val remaining = execution.timeout.minusNanos(now - started)
-                        if (remaining.isNegative || remaining.isZero) ZIO.fail(SubgraphExecutor.TimeoutFailure)
-                        else call(event.headers).timeoutFail(SubgraphExecutor.TimeoutFailure)(remaining)
+                        if (remaining.isNegative || remaining.isZero) TimedOut
+                        else Deadline.run(remaining, TimedOut)(call(event.headers))
                       }
                     }(SubgraphExecutor.resultFromExit)
       } yield response
@@ -286,7 +283,7 @@ private[gateway] object RemoteSubgraphExecutor {
     config: RemoteGraphQLConfig[R],
     hooks: PhaseHooks[R],
     remoteErrorMessages: Boolean = false
-  )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteSubgraphExecutor[R]] =
+  )(implicit trace: Trace): UIO[RemoteSubgraphExecutor[R]] =
     ZIO
       .when(config.execution.inFlightQueryDeduplication)(
         OperationCache.make[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError], Any](
@@ -299,6 +296,8 @@ private[gateway] object RemoteSubgraphExecutor {
       )
 
   final val DefaultMaxResponseDepth = 128
+
+  private val TimedOut: IO[SubgraphExecutor.Failure, Nothing] = ZIO.fail(SubgraphExecutor.TimeoutFailure)
 
   private final case class AttemptResponse(
     response: GraphQLResponse[CalibanError],

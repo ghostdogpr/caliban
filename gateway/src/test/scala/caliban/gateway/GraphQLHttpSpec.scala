@@ -723,7 +723,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         ownerResult.errors.isEmpty
       )
     },
-    test("retains each waiter's deadline while sharing remote work") {
+    test("hands the remote call to a waiter when its owner leaves") {
       val config = RemoteGraphQLConfig.default
 
       for {
@@ -734,38 +734,35 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         _            <- remote.started.await
         waiter       <- Live.live(source.execute(request, OperationType.Query).timeout(2.seconds)).fork
         ownerResult  <- owner.join
-        sharedCalls  <- remote.calls.get
         _            <- remote.release.succeed(())
         waiterResult <- waiter.join
+        calls        <- remote.calls.get
       } yield assertTrue(
         ownerResult.isEmpty,
-        sharedCalls == 1,
+        calls == 2,
         waiterResult.exists(_.errors.isEmpty)
       )
     },
-    test("interrupts shared work when its owning scope closes") {
+    test("starts a new remote call once every caller of the previous one left") {
       val config = RemoteGraphQLConfig.default
 
       for {
-        http       <- GatewayHttpClient.make
-        remote     <- blockedEndpoint(expectedCalls = 1)
-        scope      <- Scope.make
-        source     <- scope.extend(
-                        RemoteSubgraphExecutor.make("remote", remote.uri, http, config, PhaseHooks.empty)
-                      )
-        owner      <- source.execute(request, OperationType.Query).fork
-        _          <- remote.started.await
-        waiter     <- source.execute(request, OperationType.Query).fork
-        _          <- Live.live(ZIO.sleep(100.millis))
-        closing    <- scope.close(Exit.unit).fork
-        ownerExit  <- owner.await
-        waiterExit <- waiter.await
-        _          <- closing.join
-        calls      <- remote.calls.get
+        http   <- GatewayHttpClient.make
+        remote <- blockedEndpoint(expectedCalls = 1)
+        source <- RemoteSubgraphExecutor.make("remote", remote.uri, http, config, PhaseHooks.empty)
+        owner  <- source.execute(request, OperationType.Query).fork
+        _      <- remote.started.await
+        waiter <- source.execute(request, OperationType.Query).fork
+        _      <- Live.live(ZIO.sleep(100.millis))
+        _      <- waiter.interrupt
+        _      <- owner.interrupt
+        next   <- source.execute(request, OperationType.Query).fork
+        _      <- remote.release.succeed(())
+        result <- next.join
+        calls  <- remote.calls.get
       } yield assertTrue(
-        ownerExit.isInterrupted,
-        waiterExit.isInterrupted,
-        calls == 1
+        calls == 2,
+        result.errors.isEmpty
       )
     },
     test("does not deduplicate mutations or calls with distinct request identities") {

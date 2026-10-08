@@ -14,7 +14,7 @@ import caliban.schema.RootType
 import caliban.validation.Validator
 import caliban._
 import zio.query.Cache
-import zio.{ Cause, Exit, IO, Random, Scope, Trace, UIO, URIO, ZIO }
+import zio.{ Cause, Exit, IO, Random, Trace, UIO, ZIO }
 
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
@@ -263,7 +263,7 @@ private[gateway] object OperationPreparation {
     maxOperationCacheWeight: Long,
     costLimit: Option[(OperationCost, Long)],
     hooks: PhaseHooks[R]
-  )(implicit trace: Trace): URIO[Scope, OperationPreparation[R]] =
+  )(implicit trace: Trace): UIO[OperationPreparation[R]] =
     OperationCache
       .make[CacheKey, CalibanError, CachedOperation[R], R](maxOperationCacheWeight, hooks)
       .map(new OperationPreparation(rootType, planner, security, _, costLimit, hooks))
