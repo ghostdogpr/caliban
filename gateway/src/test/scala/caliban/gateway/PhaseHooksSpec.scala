@@ -179,9 +179,38 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         completed          <- results.get
       } yield assertTrue(
         response.errors.nonEmpty,
+        !response.errors.exists(_.msg == "Gateway request timed out."),
         completed.collect { case (_: Event.SubgraphCall, result) => result.outcome } == Vector(
           PhaseHooks.Outcome.Timeout
         )
+      )
+    } @@ TestAspect.timeout(Duration.fromSeconds(10)),
+    test("times out the request, not the subgraph call, when the request deadline cuts the call") {
+      for {
+        requestStarted     <- Promise.make[Nothing, Unit]
+        recorded           <- recordEventsAndResults
+        (_, results, hooks) = recorded
+        operations         <- Ref.make(Vector.empty[OperationEvent])
+        order              <- Ref.make(Vector.empty[String])
+        remote             <- stubWith(requestStarted.succeed(()).unit *> ZIO.never, okResponse)
+        config              = RemoteGraphQLConfig.default.withExecution(_.withTimeout(Duration.fromSeconds(2)))
+        runtime            <- Gateway
+                                .compose(Subgraph.graphql("products", remote.endpoint, schema, config))
+                                .withConfig(_.withRequestTimeout(Duration.fromSeconds(1)))
+                                .withPhaseHooks(hooks ++ observing(operations, order))
+                                .interpreter
+        fiber              <- runtime.execute("{ value }").forkScoped
+        _                  <- requestStarted.await
+        _                  <- TestClock.adjust(Duration.fromSeconds(1))
+        response           <- fiber.join
+        completed          <- results.get
+        observations       <- operations.get
+      } yield assertTrue(
+        response.errors.map(_.msg) == List("Gateway request timed out."),
+        completed.collect { case (_: Event.SubgraphCall, result) => result.outcome } == Vector(
+          PhaseHooks.Outcome.Cancelled
+        ),
+        observations.map(_.outcome) == Vector(PhaseHooks.Outcome.Timeout)
       )
     } @@ TestAspect.timeout(Duration.fromSeconds(10)),
     test("classifies intentional resolver rejections as request errors and observes them without a document") {

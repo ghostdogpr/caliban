@@ -3,8 +3,7 @@ package caliban.gateway.internal.execution
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.internal.OperationCache.Weighted
-import caliban.gateway.internal.{ GatewayHttpClient, OperationCache, RemoteTransport }
+import caliban.gateway.internal.{ Deadline, GatewayHttpClient, RemoteTransport, SingleFlight }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
 import caliban.interop.jsoniter.GraphQLResponseJsoniter
 import caliban.parsing.adt.OperationType
@@ -40,26 +39,20 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         body      <- encode(request.copy(extensions = None))
         replaySafe = operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
-        response  <- if (replaySafe)
-                       deduplicator.fold(rawCall)(
-                         _.getOrCompute(QueryDeduplicator.Key(body, headers))(
-                           rawCall.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout).map(Weighted(_, 0L))
-                         )
-                       )
+        response  <- if (replaySafe) deduplicator.fold(rawCall)(_(QueryDeduplicator.Key(body, headers))(rawCall))
                      else rawCall
       } yield response
 
-    if (!hooks.subgraphCall.enabled)
-      resolveHeaders.flatMap(call).timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+    if (!hooks.subgraphCall.enabled) Deadline.run(execution.timeout, TimedOut)(resolveHeaders.flatMap(call))
     else
       for {
         started  <- Clock.nanoTime
-        headers  <- resolveHeaders.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+        headers  <- Deadline.run(execution.timeout, TimedOut)(resolveHeaders)
         response <- hooks.subgraphCall.runWith(Event.SubgraphCall(name, operationType, headers)) { event =>
                       Clock.nanoTime.flatMap { now =>
                         val remaining = execution.timeout.minusNanos(now - started)
-                        if (remaining.isNegative || remaining.isZero) ZIO.fail(SubgraphExecutor.TimeoutFailure)
-                        else call(event.headers).timeoutFail(SubgraphExecutor.TimeoutFailure)(remaining)
+                        if (remaining.isNegative || remaining.isZero) TimedOut
+                        else Deadline.run(remaining, TimedOut)(call(event.headers))
                       }
                     }(SubgraphExecutor.resultFromExit)
       } yield response
@@ -286,19 +279,23 @@ private[gateway] object RemoteSubgraphExecutor {
     config: RemoteGraphQLConfig[R],
     hooks: PhaseHooks[R],
     remoteErrorMessages: Boolean = false
-  )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteSubgraphExecutor[R]] =
-    ZIO
-      .when(config.execution.inFlightQueryDeduplication)(
-        OperationCache.make[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError], Any](
-          0L,
-          PhaseHooks.empty
-        )
+  )(implicit trace: Trace): UIO[RemoteSubgraphExecutor[R]] =
+    ZIO.succeed(
+      new RemoteSubgraphExecutor(
+        name,
+        endpoint,
+        http,
+        config,
+        DefaultMaxResponseDepth,
+        if (config.execution.inFlightQueryDeduplication) Some(new QueryDeduplicator) else None,
+        hooks,
+        remoteErrorMessages
       )
-      .map(
-        new RemoteSubgraphExecutor(name, endpoint, http, config, DefaultMaxResponseDepth, _, hooks, remoteErrorMessages)
-      )
+    )
 
   final val DefaultMaxResponseDepth = 128
+
+  private val TimedOut: IO[SubgraphExecutor.Failure, Nothing] = ZIO.fail(SubgraphExecutor.TimeoutFailure)
 
   private final case class AttemptResponse(
     response: GraphQLResponse[CalibanError],
@@ -328,7 +325,7 @@ private[gateway] object RemoteSubgraphExecutor {
   }
 
   private[internal] type QueryDeduplicator =
-    OperationCache[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError], Any]
+    SingleFlight[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
 
   private[internal] object QueryDeduplicator {
     final case class Key(body: RequestBody, headers: Vector[(String, String)])

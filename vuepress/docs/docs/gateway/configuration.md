@@ -28,7 +28,7 @@ Retries are off by default. `withRetries(2, 100.millis)` permits two retries aft
 
 The execution timeout covers header loading, attempts, and retry delays together. The whole request is also bounded by the gateway's request timeout.
 
-Concurrent identical queries to a remote service share one in-flight call when their request bodies and headers match. Mutations never share calls. Disable sharing with `.withExecution(_.withInFlightQueryDeduplication(false))`.
+Concurrent identical queries to a remote service share one in-flight call when their request bodies and headers match. The call belongs to the request that started it: if that request ends first, through cancellation or a timeout, a waiting request sends the call again. Mutations never share calls. Disable sharing with `.withExecution(_.withInFlightQueryDeduplication(false))`.
 
 If loading the schema at startup requires authentication, give the service its own acquisition settings and headers:
 
