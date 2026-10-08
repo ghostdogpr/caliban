@@ -116,6 +116,25 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           second.contains(2)
         )
       },
+      test("lets a wait hook interrupt its own caller") {
+        for {
+          computing <- Promise.make[Nothing, Unit]
+          release   <- Promise.make[Nothing, Unit]
+          waits     <- Ref.make(0)
+          hooks      = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
+                         case PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Wait) =>
+                           waits.update(_ + 1) *> ZIO.interrupt
+                         case _                                                         => ZIO.unit
+                       })
+          cache     <- OperationCache.make[String, String, Int, Any](32, hooks)
+          leader    <- cache.getOrCompute("same")(computing.succeed(()) *> release.await.as(Weighted(1, 4))).fork
+          _         <- computing.await
+          waiter    <- Live.live(cache.getOrCompute("same")(ZIO.dieMessage("waiter computed")).exit.timeout(5.seconds))
+          _         <- release.succeed(())
+          value     <- leader.join
+          count     <- waits.get
+        } yield assertTrue(waiter.exists(_.isInterrupted), value == 1, count == 1)
+      },
       test("hands the computation to a waiter when the leader is interrupted") {
         for {
           recorded       <- recordEvents

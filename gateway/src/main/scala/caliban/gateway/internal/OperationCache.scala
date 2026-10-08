@@ -25,9 +25,12 @@ private[gateway] final class OperationCache[K, E, V, R] private (
         current.slots.get(key) match {
           case Some(Ready(value))     => restore(observe(CacheResult.Hit)(ZIO.succeed(value))) -> current
           case Some(Running(promise)) =>
-            restore(observe(CacheResult.Wait)(promise.await).catchSomeCause {
-              case cause if cause.isInterruptedOnly => getOrCompute(key)(compute)
-            }) -> current
+            // Only the leader's interruption hands over the computation, not one from this caller's hook.
+            restore(
+              observe(CacheResult.Wait)(promise.await.asSome.catchSomeCause {
+                case cause if cause.isInterruptedOnly => ZIO.none
+              }).someOrElseZIO(getOrCompute(key)(compute))
+            ) -> current
           case None                   =>
             val fresh = Unsafe.unsafe(implicit unsafe => Promise.unsafe.make[E, V](FiberId.None))
             restore(observe(CacheResult.Miss)(ZIO.suspendSucceed(compute)))
