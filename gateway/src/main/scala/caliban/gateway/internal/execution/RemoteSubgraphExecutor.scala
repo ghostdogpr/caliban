@@ -3,7 +3,8 @@ package caliban.gateway.internal.execution
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.internal.{ Deadline, GatewayHttpClient, RemoteTransport, SingleFlight }
+import caliban.gateway.internal.OperationCache.Weighted
+import caliban.gateway.internal.{ Deadline, GatewayHttpClient, OperationCache, RemoteTransport }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
 import caliban.interop.jsoniter.GraphQLResponseJsoniter
 import caliban.parsing.adt.OperationType
@@ -39,7 +40,10 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         body      <- encode(request.copy(extensions = None))
         replaySafe = operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
-        response  <- if (replaySafe) deduplicator.fold(rawCall)(_(QueryDeduplicator.Key(body, headers))(rawCall))
+        response  <- if (replaySafe)
+                       deduplicator.fold(rawCall)(
+                         _.getOrCompute(QueryDeduplicator.Key(body, headers))(rawCall.map(Weighted(_, 0L)))
+                       )
                      else rawCall
       } yield response
 
@@ -280,18 +284,16 @@ private[gateway] object RemoteSubgraphExecutor {
     hooks: PhaseHooks[R],
     remoteErrorMessages: Boolean = false
   )(implicit trace: Trace): UIO[RemoteSubgraphExecutor[R]] =
-    ZIO.succeed(
-      new RemoteSubgraphExecutor(
-        name,
-        endpoint,
-        http,
-        config,
-        DefaultMaxResponseDepth,
-        if (config.execution.inFlightQueryDeduplication) Some(new QueryDeduplicator) else None,
-        hooks,
-        remoteErrorMessages
+    ZIO
+      .when(config.execution.inFlightQueryDeduplication)(
+        OperationCache.make[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError], Any](
+          0L,
+          PhaseHooks.empty
+        )
       )
-    )
+      .map(
+        new RemoteSubgraphExecutor(name, endpoint, http, config, DefaultMaxResponseDepth, _, hooks, remoteErrorMessages)
+      )
 
   final val DefaultMaxResponseDepth = 128
 
@@ -325,7 +327,7 @@ private[gateway] object RemoteSubgraphExecutor {
   }
 
   private[internal] type QueryDeduplicator =
-    SingleFlight[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
+    OperationCache[QueryDeduplicator.Key, SubgraphExecutor.Failure, GraphQLResponse[CalibanError], Any]
 
   private[internal] object QueryDeduplicator {
     final case class Key(body: RequestBody, headers: Vector[(String, String)])

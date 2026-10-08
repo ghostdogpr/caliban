@@ -84,7 +84,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           runs           <- computations.get
         } yield assertTrue(waiterExit.isInterrupted, leaderValue == 1, cached == 1, runs == 1)
       },
-      test("keeps the shared computation when the miss hook interrupts") {
+      test("computes again after the miss hook interrupts") {
         for {
           interrupt <- Ref.make(true)
           hooks      = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
@@ -97,10 +97,10 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           second    <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4)))
         } yield assertTrue(
           first.isInterrupted,
-          second == 1
+          second == 2
         )
       },
-      test("keeps the shared computation when the miss hook dies") {
+      test("computes again after the miss hook dies") {
         for {
           die    <- Ref.make(true)
           hooks   = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
@@ -113,23 +113,23 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           second <- Live.live(cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4))).timeout(5.seconds))
         } yield assertTrue(
           first.isFailure,
-          second.contains(1)
+          second.contains(2)
         )
       },
-      test("shares the computation when the compute leader is interrupted") {
+      test("hands the computation to a waiter when the leader is interrupted") {
         for {
-          entered    <- Promise.make[Nothing, Unit]
-          hooks       = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
-                          case PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss) =>
-                            entered.succeed(()).unit *> ZIO.never
-                          case _                                                         => ZIO.unit
-                        })
-          cache      <- OperationCache.make[String, String, Int, Any](32, hooks)
-          leader     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).fork
-          _          <- entered.await
-          leaderExit <- leader.interrupt
-          value      <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4)))
-        } yield assertTrue(leaderExit.isInterrupted, value == 1)
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          cache          <- OperationCache.make[String, String, Int, Any](32, hooks)
+          computing      <- Promise.make[Nothing, Unit]
+          leader         <- cache.getOrCompute("same")(computing.succeed(()) *> ZIO.never).fork
+          _              <- computing.await
+          waiter         <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4))).fork
+          _              <- events.get.repeatUntil(_.contains(PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Wait)))
+          leaderExit     <- leader.interrupt
+          value          <- waiter.join
+          cached         <- cache.getOrCompute("same")(ZIO.dieMessage("cache missed"))
+        } yield assertTrue(leaderExit.isInterrupted, value == 2, cached == 2)
       }
     ),
     suite("operation preparation")(
