@@ -36,19 +36,14 @@ jobs:
     steps:
       - name: Checkout Caliban
         uses: actions/checkout@v4
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up sbt
+        uses: ./.github/actions/setup-sbt
         with:
-          java-version: 17
-          distribution: adopt
-          cache: sbt
+          cache: audit
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24.16.0
-      - uses: sbt/setup-sbt@v1
-      - name: Cache Scala dependencies
-        uses: coursier/cache-action@v6
       - name: Checkout the pinned audit
         shell: bash
         run: |
@@ -70,3 +65,7 @@ jobs:
         run: make -C "$RUNNER_TEMP/federation-gateway-audit" test-caliban
       - name: Verify 100% compatibility
         run: ./gateway-audit/verify-results.sh "$RUNNER_TEMP/federation-gateway-audit/gateways/caliban/results.txt"
+      - name: Save sbt cache
+        uses: ./.github/actions/save-sbt-cache
+        with:
+          cache: audit

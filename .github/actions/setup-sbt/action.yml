@@ -1,0 +1,25 @@
+name: Set up sbt
+description: Installs a JDK and sbt, and restores the dependency cache that series/3.x saved for this job.
+inputs:
+  java:
+    description: JDK version
+    default: '17'
+  cache:
+    description: Name of the dependency cache, unique per job
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java }}
+    - uses: sbt/setup-sbt@v1
+    - uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cache/coursier
+          ~/.ivy2/cache
+          ~/.sbt
+        key: sbt-${{ inputs.cache }}-${{ hashFiles('build.sbt', 'project/plugins.sbt', 'project/build.properties') }}
+        restore-keys: sbt-${{ inputs.cache }}-

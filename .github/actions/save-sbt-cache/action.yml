@@ -1,0 +1,17 @@
+name: Save sbt cache
+description: Saves the dependency cache on series/3.x pushes only, so that pull requests restore it without filling the cache quota with their own copies.
+inputs:
+  cache:
+    description: Name of the dependency cache, unique per job
+    required: true
+runs:
+  using: composite
+  steps:
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/series/3.x'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.cache/coursier
+          ~/.ivy2/cache
+          ~/.sbt
+        key: sbt-${{ inputs.cache }}-${{ hashFiles('build.sbt', 'project/plugins.sbt', 'project/build.properties') }}
