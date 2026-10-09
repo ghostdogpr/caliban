@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ['series/3.x']
+    tags: ['v*']
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Scala and Java
+        uses: coursier/setup-action@v3
+        with:
+          jvm: temurin:17
+          apps: sbt
+      - name: Cache scala dependencies
+        uses: coursier/cache-action@v8
+      - name: Lint code
+        run: sbt ++2.13 check ++3.3 check
+
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Scala 2.12 tests
+            command: sbt ++2.12 rootJVM212/test
+          - name: Scala 2.13 tests
+            command: sbt ++2.13 rootJVM213/test examples/compile benchmarks/test
+          - name: Scala 3 tests
+            command: sbt ++3.3 rootJVM3/test benchmarks/test
+          - name: Scala 3.8 codegen tests
+            command: sbt ++3.8.3 codegenSbt/test
+          - name: Scala 2.13 JS and Native tests
+            command: sbt ++2.13 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
+            native: true
+          - name: Scala 3 JS and Native tests
+            command: sbt ++3.3 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
+            native: true
+          - name: Scripted tests (sbt 1, Scala 2.12)
+            command: sbt ++2.12 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
+          - name: Scripted tests (sbt 1, Scala 3)
+            command: sbt ++2.12 codegenScriptedScala3
+          - name: Scripted tests (sbt 2)
+            command: sbt ++3.8.3 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
+          - name: Docs
+            command: sbt "++2.13 docs/mdoc" "++2.13 doc" "++2.12 doc"
+          - name: Binary compatibility
+            # Not checked: tools/mimaReportBinaryIssues
+            command: sbt ++2.13 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues ++3.3 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Scala and Java
+        uses: coursier/setup-action@v3
+        with:
+          jvm: temurin:17
+          apps: sbt
+      - name: Cache scala dependencies
+        uses: coursier/cache-action@v8
+      # Older clang versions miscompile the Scala Native runtime, so use clang 18
+      - name: Install Scala Native dependencies
+        if: matrix.native
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 libstdc++-12-dev libgc-dev libuv1-dev
+          echo "LLVM_BIN=/usr/lib/llvm-18/bin" >> "$GITHUB_ENV"
+      - name: Run
+        run: ${{ matrix.command }}
+
+  test-jdk21:
+    name: ${{ matrix.name }} (JDK 21)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Scala 2.13 tests
+            command: sbt ++2.13 rootJVM213/test examples/compile benchmarks/test
+          - name: Scala 3 tests
+            command: sbt ++3.3 rootJVM3/test benchmarks/test
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Scala and Java
+        uses: coursier/setup-action@v3
+        with:
+          jvm: temurin:21
+          apps: sbt
+      - name: Cache scala dependencies
+        uses: coursier/cache-action@v8
+      - name: Run
+        run: ${{ matrix.command }}
+
+  release:
+    needs: [lint, test, test-jdk21]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Scala and Java
+        uses: coursier/setup-action@v3
+        with:
+          jvm: temurin:17
+          apps: sbt
+      - name: Cache scala dependencies
+        uses: coursier/cache-action@v8
+      - name: Release artifacts
+        run: sbt +clean ci-release
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}

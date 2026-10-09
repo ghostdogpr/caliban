@@ -1,0 +1,57 @@
+name: Docs
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+
+  pull_request:
+    paths:
+      - vuepress/**
+      - .github/workflows/docs.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 16
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+      - name: Install dependencies
+        run: npm install
+        working-directory: vuepress
+      - name: Build with VuePress
+        run: npm run docs:build
+        working-directory: vuepress
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: vuepress/docs/.vuepress/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

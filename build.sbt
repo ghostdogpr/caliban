@@ -364,7 +364,7 @@ lazy val codegenSbt = project
     },
     scriptedBufferLog         := false,
     scriptedBatchExecution    := true,
-    scriptedParallelInstances := 2,
+    scriptedParallelInstances := 3,
     scriptedDependencies      := scriptedDependencies
       .dependsOn(
         macros / publishLocal,
