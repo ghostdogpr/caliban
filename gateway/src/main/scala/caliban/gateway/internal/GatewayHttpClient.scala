@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.gateway.RemoteGraphQLConfig
 import caliban.gateway.internal.RemoteTransport.{ GraphQLResponseJson, Json }
-import zio.{ durationInt, Scope, Task, Trace, ZIO, ZLayer }
+import zio.{ durationInt, Duration, Scope, Task, Trace, ZIO, ZLayer }
 import zio.http._
 import zio.http.netty.NettyConfig
 
@@ -82,9 +82,9 @@ private[gateway] object GatewayHttpClient {
       addUserAgentHeader = false,
       idleTimeout = None
     )
-    (ZLayer.succeed(config) ++ ZLayer.succeed(
-      NettyConfig.defaultWithFastShutdown
-    ) ++ DnsResolver.system) >>> ZClient.live
+    // Netty waits out a non-zero quiet period in 100ms sleeps, which every gateway close would pay
+    val netty  = NettyConfig.defaultWithFastShutdown.copy(shutdownQuietPeriodDuration = Duration.Zero)
+    (ZLayer.succeed(config) ++ ZLayer.succeed(netty) ++ DnsResolver.system) >>> ZClient.live
   }
 
 }
