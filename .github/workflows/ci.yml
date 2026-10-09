@@ -87,18 +87,10 @@ jobs:
           cache: '${{ matrix.name }}'
 
   test-jdk21:
-    name: ${{ matrix.name && format('{0} (JDK 21)', matrix.name) || 'JDK 21 tests' }}
+    name: JDK 21 tests
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Scala 2.13 tests
-            command: sbt ++2.13 rootJVM213/test examples/compile benchmarks/test
-          - name: Scala 3 tests
-            command: sbt ++3.3 rootJVM3/test benchmarks/test
     steps:
       - name: Checkout current branch
         uses: actions/checkout@v6
@@ -108,13 +100,13 @@ jobs:
         uses: ./.github/actions/setup-sbt
         with:
           java: '21'
-          cache: '${{ matrix.name }} JDK 21'
+          cache: jdk21
       - name: Run
-        run: ${{ matrix.command }}
+        run: sbt ++2.13 rootJVM213/test examples/compile benchmarks/test ++3.3 rootJVM3/test benchmarks/test
       - name: Save sbt cache
         uses: ./.github/actions/save-sbt-cache
         with:
-          cache: '${{ matrix.name }} JDK 21'
+          cache: jdk21
 
   release:
     needs: [lint, test, test-jdk21]
