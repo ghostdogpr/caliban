@@ -13,6 +13,7 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Checkout current branch
         uses: actions/checkout@v6
@@ -32,6 +33,7 @@ jobs:
   test:
     name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +90,7 @@ jobs:
     name: ${{ matrix.name && format('{0} (JDK 21)', matrix.name) || 'JDK 21 tests' }}
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +120,7 @@ jobs:
     needs: [lint, test, test-jdk21]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - name: Checkout current branch
         uses: actions/checkout@v6

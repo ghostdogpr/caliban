@@ -480,5 +480,5 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         )
       }
     )
-  ).provide(testServer, stubIds, httpClient)
+  ).provide(testServer, stubIds, httpClient) @@ TestAspect.timeout(30.seconds)
 }
