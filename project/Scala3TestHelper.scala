@@ -12,21 +12,20 @@ object Scala3TestPlugin extends AutoPlugin {
   )
 
   lazy val codegenScriptedScala3 = Command.command("codegenScriptedScala3") { state =>
-    val codegenProject      = Project.structure(state).allProjectRefs.find(p => p.project == "codegenSbt").get
-    val scala3VersionText   = state
-      .setting(ThisBuild / crossScalaVersions)
+    val crossVersions       = state.setting(ThisBuild / crossScalaVersions)
+    val scala212VersionText = crossVersions
+      .find(_.startsWith(scala212Text))
+      .getOrElse(throw new Exception("Cannot find Scala 2.12 version in ThisBuild / crossScalaVersions"))
+    val scala3VersionText   = crossVersions
       .find(_.startsWith("3."))
       .getOrElse(throw new Exception("Cannot find Scala 3 version in ThisBuild / crossScalaVersions"))
-    val scalaVersionsToTest = state
-      .setting(ThisBuild / crossScalaVersions)
-      .filter(s => s.startsWith(scala212Text) || s == scala3VersionText)
-      .map(s => s""""${s}"""")
-      .mkString(",")
+    // Publish the Scala 3 libraries explicitly: codegenSbt/scripted publishes the Scala 2.12 ones itself,
+    // and the scripted builds don't need Scaladoc.
     val newState            = Command.process(
       s"""set ThisBuild / version := "${scala3TestPluginVersion}";""" +
-        s"set ThisBuild / crossScalaVersions := Seq(${scalaVersionsToTest});" +
-        "+macros/publishLocal; +core/publishLocal; +clientJVM/publishLocal; +tools/publishLocal; +codegen/publishLocal; +codegenSbt/publishLocal;" +
-        "codegenSbt/scripted",
+        "set ThisBuild / Compile / packageDoc / publishArtifact := false;" +
+        s"++$scala3VersionText; all macros/publishLocal core/publishLocal clientJVM/publishLocal tools/publishLocal codegen/publishLocal;" +
+        s"++$scala212VersionText; codegenSbt/scripted",
       state,
       msg => throw new Exception("Error while parsing SBT command: " + msg)
     )

@@ -1,4 +1,20 @@
 version: 2.1
+commands:
+  restore_sbt_cache:
+    steps:
+      - restore_cache:
+          keys:
+            - sbt-v2-{{ .Environment.CIRCLE_JOB }}-{{ checksum "build.sbt" }}-{{ checksum "project/plugins.sbt" }}-{{ checksum "project/build.properties" }}
+            - sbt-v2-{{ .Environment.CIRCLE_JOB }}-
+  save_sbt_cache:
+    steps:
+      - save_cache:
+          key: sbt-v2-{{ .Environment.CIRCLE_JOB }}-{{ checksum "build.sbt" }}-{{ checksum "project/plugins.sbt" }}-{{ checksum "project/build.properties" }}
+          paths:
+            - "~/.cache/coursier"
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
 jobs:
   lint:
     docker:
@@ -6,15 +22,9 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++2.13 check ++3.3 check
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test212_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
@@ -24,45 +34,27 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++2.12 rootJVM212/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   scripted212_sbt1_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
-      - run: sbt ++2.12 codegenSbt/scripted
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - restore_sbt_cache
+      - run: sbt ++2.12 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
+      - save_sbt_cache
   scripted3_sbt1_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++2.12 codegenScriptedScala3
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test213_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
@@ -70,15 +62,9 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++2.13 rootJVM213/test examples/compile benchmarks/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test213_jdk21:
     docker:
       - image: cimg/openjdk:21.0-node
@@ -86,15 +72,9 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++2.13 rootJVM213/test examples/compile benchmarks/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test33_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
@@ -102,15 +82,9 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++3.3 rootJVM3/test benchmarks/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test33_jdk21:
     docker:
       - image: cimg/openjdk:21.0-node
@@ -118,111 +92,66 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++3.3 rootJVM3/test benchmarks/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test37_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: sbt ++3.8.3 codegenSbt/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   scripted3_sbt2_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
-      - run: sbt ++3.8.3 codegenSbt/scripted
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - restore_sbt_cache
+      - run: sbt ++3.8.3 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
+      - save_sbt_cache
   test213_js_native:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: ./.circleci/install-native-deps.sh
       - run: sbt ++2.13 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test33_js_native:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
+      - restore_sbt_cache
       - run: ./.circleci/install-native-deps.sh
       - run: sbt ++3.3 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - save_sbt_cache
   test213_docs:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
-      - run: |
-          sbt ++2.13 docs/mdoc
-          sbt "++2.13 doc"
-          sbt "++2.12 doc"
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - restore_sbt_cache
+      - run: sbt "++2.13 docs/mdoc" "++2.13 doc" "++2.12 doc"
+      - save_sbt_cache
   test_mima:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
-      - restore_cache:
-          key: sbtcache
-      - run: sbt ++2.13 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues # tools/mimaReportBinaryIssues
-      - run: sbt ++3.3 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues # tools/mimaReportBinaryIssues
-      - save_cache:
-          key: sbtcache
-          paths:
-            - "~/.ivy2/cache"
-            - "~/.sbt"
-            - "~/.m2"
+      - restore_sbt_cache
+      # Not checked: tools/mimaReportBinaryIssues
+      - run: sbt ++2.13 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues ++3.3 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues
+      - save_sbt_cache
   release:
     docker:
       - image: cimg/openjdk:17.0-node
@@ -231,7 +160,8 @@ jobs:
       - checkout
       - run: git fetch --tags
       - restore_cache:
-          key: sbtcache
+          keys:
+            - sbt-v2-test213_jdk-
       - run: |
           mkdir ~/.gnupg && chmod 700 ~/.gnupg
           echo use-agent >> ~/.gnupg/gpg.conf
@@ -270,44 +200,30 @@ workflows:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test212_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - scripted212_sbt1_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - scripted3_sbt1_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test213_js_native:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test33_js_native:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test213_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test213_jdk21:
-          requires:
-            - lint
           filters:
             branches:
               only:
@@ -315,20 +231,14 @@ workflows:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test213_docs:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test33_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test33_jdk21:
-          requires:
-            - lint
           filters:
             branches:
               only:
@@ -336,26 +246,21 @@ workflows:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test37_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - scripted3_sbt2_jdk:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - test_mima:
-          requires:
-            - lint
           filters:
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
       - release:
           context: Sonatype
           requires:
+            - lint
             - test212_jdk
             - scripted212_sbt1_jdk
             - scripted3_sbt1_jdk

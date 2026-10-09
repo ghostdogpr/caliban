@@ -14,33 +14,31 @@ object Formatter {
   def format(strs: List[(String, String)], fmtPath: Option[String]): Task[List[(String, String)]] =
     ZIO.attemptBlocking {
       val config: Path = {
-        @inline def defaultConfigPath = Paths.get(".scalafmt.conf")
-        @inline def defaultConfig     =
-          if (Files.exists(defaultConfigPath)) defaultConfigPath
-          else {
-            val defaultScalafmtCalibanToolsFile = "default.scalafmt.conf"
-            val uri                             = this.getClass.getClassLoader.getResource(defaultScalafmtCalibanToolsFile).toURI
-            uri.getScheme match {
-              case "file" => Paths.get(uri)
-              case "jar"  =>
-                // scalafmt can't access a file inside a JAR so we'll copy the content into a temp file
-                val jar            = new JarFile(this.getClass.getProtectionDomain.getCodeSource.getLocation.toURI.getPath)
-                val file           = Files.createTempFile(null, null)
-                val scalafmtConfig = jar.getInputStream(jar.getEntry(defaultScalafmtCalibanToolsFile))
-                Files.copy(scalafmtConfig, file, StandardCopyOption.REPLACE_EXISTING)
-                file
-              case _      => Paths.get("")
-            }
-          }
-
-        fmtPath.fold(defaultConfig)(Paths.get(_))
+        val defaultConfigPath = Paths.get(".scalafmt.conf")
+        fmtPath.fold(if (Files.exists(defaultConfigPath)) defaultConfigPath else bundledConfig)(Paths.get(_))
       }
 
-      val scalafmt = buildScalaFmt()
-      val result   = strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
-      scalafmt.clear()
-      result
+      strs.map { case (name, code) => name -> scalafmt.format(config, Paths.get(s"$name.scala"), code) }
     }.retryN(3) // We have to retry because of the bug detailed here: https://github.com/scalameta/scalafmt/issues/2793
+
+  // Shared: resolving and loading scalafmt takes seconds, and it reloads a config file when that file changes
+  private lazy val scalafmt: Scalafmt = buildScalaFmt()
+
+  private lazy val bundledConfig: Path = {
+    val defaultScalafmtCalibanToolsFile = "default.scalafmt.conf"
+    val uri                             = this.getClass.getClassLoader.getResource(defaultScalafmtCalibanToolsFile).toURI
+    uri.getScheme match {
+      case "file" => Paths.get(uri)
+      case "jar"  =>
+        // scalafmt can't access a file inside a JAR so we'll copy the content into a temp file
+        val jar            = new JarFile(this.getClass.getProtectionDomain.getCodeSource.getLocation.toURI.getPath)
+        val file           = Files.createTempFile(null, null)
+        val scalafmtConfig = jar.getInputStream(jar.getEntry(defaultScalafmtCalibanToolsFile))
+        Files.copy(scalafmtConfig, file, StandardCopyOption.REPLACE_EXISTING)
+        file
+      case _      => Paths.get("")
+    }
+  }
 
   def buildScalaFmt(): Scalafmt = {
     import coursierapi.{ Dependency, Fetch }

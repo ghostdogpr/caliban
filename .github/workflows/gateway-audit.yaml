@@ -1,6 +1,20 @@
 name: Federation Gateway Audit
 
 on:
+  # Runs on series/3.x too, so pull requests can restore its dependency caches
+  push:
+    branches:
+      - series/3.x
+    paths:
+      - gateway/**
+      - gateway-audit/**
+      - core/**
+      - federation/**
+      - adapters/quick/**
+      - tools/**
+      - build.sbt
+      - project/**
+      - .github/workflows/gateway-audit.yaml
   pull_request:
     branches:
       - series/3.x
@@ -41,7 +55,15 @@ jobs:
           source gateway-audit/upstream.env
           git clone "$FEDERATION_GATEWAY_AUDIT_REPOSITORY" "$RUNNER_TEMP/federation-gateway-audit"
           git -C "$RUNNER_TEMP/federation-gateway-audit" checkout "$FEDERATION_GATEWAY_AUDIT_REVISION"
-          npm --prefix "$RUNNER_TEMP/federation-gateway-audit" ci --ignore-scripts
+      - name: Cache the audit dependencies
+        id: audit-dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/federation-gateway-audit/node_modules
+          key: federation-gateway-audit-${{ runner.os }}-node-24.16.0-${{ hashFiles('gateway-audit/upstream.env') }}
+      - name: Install the audit dependencies
+        if: steps.audit-dependencies.outputs.cache-hit != 'true'
+        run: npm --prefix "$RUNNER_TEMP/federation-gateway-audit" ci --ignore-scripts
       - name: Install the Caliban adapter
         run: ./gateway-audit/install.sh "$RUNNER_TEMP/federation-gateway-audit"
       - name: Run the audit
