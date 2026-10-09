@@ -7,7 +7,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - if: (github.event_name == 'push' && github.ref == 'refs/heads/series/3.x') || github.head_ref == 'github-actions'
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/series/3.x'
       uses: actions/cache/save@v4
       with:
         path: |
