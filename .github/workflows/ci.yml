@@ -50,11 +50,11 @@ jobs:
           - name: Scala 3 JS and Native tests
             command: sbt ++3.3 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
             native: true
-          - name: Scripted tests (sbt 1, Scala 2.12)
+          - name: sbt 1 scripted tests (Scala 2.12)
             command: sbt ++2.12 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
-          - name: Scripted tests (sbt 1, Scala 3)
+          - name: sbt 1 scripted tests (Scala 3)
             command: sbt ++2.12 codegenScriptedScala3
-          - name: Scripted tests (sbt 2)
+          - name: sbt 2 scripted tests
             command: sbt ++3.8.3 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
           - name: mdoc and Scaladoc
             command: sbt "++2.13 docs/mdoc" "++2.13 doc" "++2.12 doc"
