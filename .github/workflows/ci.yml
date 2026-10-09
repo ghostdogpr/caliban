@@ -55,7 +55,7 @@ jobs:
             command: sbt ++2.12 codegenScriptedScala3
           - name: Scripted tests (sbt 2)
             command: sbt ++3.8.3 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
-          - name: Docs
+          - name: mdoc and Scaladoc
             command: sbt "++2.13 docs/mdoc" "++2.13 doc" "++2.12 doc"
           - name: Binary compatibility
             # Not checked: tools/mimaReportBinaryIssues
@@ -83,7 +83,7 @@ jobs:
         run: ${{ matrix.command }}
 
   test-jdk21:
-    name: ${{ matrix.name }} (JDK 21)
+    name: ${{ matrix.name && format('{0} (JDK 21)', matrix.name) || 'JDK 21 tests' }}
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     strategy:
