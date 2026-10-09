@@ -351,7 +351,7 @@ lazy val codegenSbt = project
   )
   .enablePlugins(SbtPlugin)
   .settings(
-    scriptedLaunchOpts   := {
+    scriptedLaunchOpts        := {
       scriptedLaunchOpts.value ++
         Seq(
           "-Xmx1024M",
@@ -362,8 +362,10 @@ lazy val codegenSbt = project
           s"-Dproject.dir=${baseDirectory.value.getAbsolutePath}"
         )
     },
-    scriptedBufferLog    := false,
-    scriptedDependencies := scriptedDependencies
+    scriptedBufferLog         := false,
+    scriptedBatchExecution    := true,
+    scriptedParallelInstances := 2,
+    scriptedDependencies      := scriptedDependencies
       .dependsOn(
         macros / publishLocal,
         core / publishLocal,
