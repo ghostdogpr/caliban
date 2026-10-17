@@ -179,3 +179,15 @@ object TestDatasourceDeferredSchema extends GenericSchema[Any] {
 
   val interpreter = (graphQL(resolver) @@ IncrementalDelivery.defer).interpreter
 }
+
+object TestMutationDeferredSchema extends GenericSchema[Any] {
+  import auto._
+
+  case class Result(value: UIO[String])
+  case class Query(value: String)
+  case class Mutation(update: UIO[Result])
+
+  private val resolver = RootResolver(Query("value"), Mutation(ZIO.succeed(Result(ZIO.succeed("updated")))))
+
+  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.defer).interpreter
+}

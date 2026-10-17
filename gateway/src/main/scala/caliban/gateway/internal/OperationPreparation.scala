@@ -7,11 +7,12 @@ import caliban.gateway.PhaseHooks.{ Event, Outcome }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
-import caliban.gateway.internal.planning.{ OperationCost, OperationPlan, OperationPlanner, OperationSecurity }
+import caliban.gateway.internal.planning._
 import caliban.gateway.{ errorCode, isInclusionDirective, PhaseHooks }
-import caliban.parsing.adt.{ Directive, Document }
+import caliban.parsing.adt.{ Directive, Directives, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
+import caliban.wrappers.IncrementalDelivery
 import caliban._
 import zio.query.Cache
 import zio.{ Cause, Exit, IO, Random, Trace, UIO, ZIO }
@@ -26,15 +27,15 @@ private[gateway] final class OperationPreparation[-R] private (
 ) {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    for {
+    withDeferValidations(for {
       document <- RequestPreparation.parse(query)
       _        <- Validator.validate(document, rootType)
-    } yield ()
+    } yield ())
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, Failure, ExecutableOperation] =
     for {
       resolved  <- resolveRequest(request)
-      operation <- prepareResolved(resolved.request, resolved.cacheable)
+      operation <- withDeferValidations(prepareResolved(resolved.request, resolved.cacheable))
       _         <- enforceCost(operation).mapError(Rejected(_))
       _         <- authorize(operation)
     } yield operation
@@ -69,16 +70,18 @@ private[gateway] final class OperationPreparation[-R] private (
     } else
       parse.tap(RequestPreparation.checkIntrospection(_, request.operationName)).mapError(Rejected(_)).flatMap {
         document =>
-          buildOperation(request, document, documentValidated = false)((_, execution) =>
-            selectAndPlan(request, document, execution)
-          )
+          def build(validated: Option[Executable]): ZIO[R, Failure, ExecutableOperation] =
+            buildOperation(request, document, validated)((_, execution) => selectAndPlan(request, document, execution))
+          pushedDown(document, request.operationName)
+            .fold(build(None))(pushed => validateDocument(document).mapError(Rejected(_)) *> build(Some(pushed)))
       }
   }
 
   private def buildCacheEntry(key: CacheKey, document: Document)(implicit
     trace: Trace
   ): IO[CalibanError, Weighted[CachedOperation[R]]] = {
-    val request = key.request
+    val request    = key.request
+    val executable = pushedDown(document, request.operationName).getOrElse((_: Map[String, InputValue]) => document)
     for {
       _      <- RequestPreparation.checkIntrospection(document, request.operationName)
       _      <- validateDocument(document)
@@ -87,7 +90,7 @@ private[gateway] final class OperationPreparation[-R] private (
           ZIO.succeed(
             Weighted[CachedOperation[R]](
               incoming =>
-                buildOperation(incoming, document, documentValidated = true)((_, execution) =>
+                buildOperation(incoming, document, Some(executable))((_, execution) =>
                   selectAndPlan(incoming, document, execution)
                 ),
               cacheWeight(key)
@@ -95,6 +98,8 @@ private[gateway] final class OperationPreparation[-R] private (
           )
         else {
           val variables = symbolicVariables(document, request.operationName)
+          val executed  = executable(variables)
+          val validated = Some((_: Map[String, InputValue]) => executed)
 
           def planned(execution: ExecutionRequest, activeOverrides: Set[OverrideLabel]) =
             buildPlan(document, execution, activeOverrides).map { plan =>
@@ -103,14 +108,12 @@ private[gateway] final class OperationPreparation[-R] private (
                   incoming => Exit.succeed(ExecutableOperation(incoming, document, execution, plan))
                 else
                   incoming =>
-                    buildOperation(incoming, document, documentValidated = true)((values, _) =>
-                      Exit.succeed(plan.bind(values))
-                    )
+                    buildOperation(incoming, document, validated)((values, _) => Exit.succeed(plan.bind(values)))
               Weighted(cached, cacheWeight(key) + planWeight(plan))
             }
 
           RequestPreparation
-            .prepareParsed(request, document, variables, rootType, validations = Some(Nil))
+            .prepareParsed(request, executed, variables, rootType, validations = Some(Nil))
             .flatMap { execution =>
               val reached = planner.progressiveOverrides(execution.field.fields)
               if (reached.isEmpty) planned(execution, Set.empty)
@@ -135,23 +138,24 @@ private[gateway] final class OperationPreparation[-R] private (
   /**
    * Cached operations validated their document without variables, so binding checks only the variables. Otherwise the
    * configured validations run once with the coerced variables, and document errors still take precedence over
-   * variable errors.
+   * variable errors. With `@defer`, the caller validates the client's document as a cached one is, and the execution
+   * request comes from the document that `validated` pushes down with the coerced variables.
    */
-  private def buildOperation[R1 <: R](request: GraphQLRequest, document: Document, documentValidated: Boolean)(
+  private def buildOperation[R1 <: R](request: GraphQLRequest, document: Document, validated: Option[Executable])(
     getPlan: (Map[String, InputValue], ExecutionRequest) => ZIO[R1, Failure, OperationPlan]
   )(implicit trace: Trace): ZIO[R1, Failure, ExecutableOperation] =
     for {
       variables <- RequestPreparation
                      .coerceVariables(document, request, rootType)
-                     .tapError(_ => validateDocument(document).unless(documentValidated))
+                     .tapError(_ => validateDocument(document).when(validated.isEmpty))
                      .mapError(Rejected(_))
       execution <- RequestPreparation
                      .prepareParsed(
                        request,
-                       document,
+                       validated.fold(document)(_(variables)),
                        variables,
                        rootType,
-                       validations = if (documentValidated) VariableValidation else None
+                       validations = if (validated.isEmpty) None else VariableValidation
                      )
                      .mapError(Rejected(_))
       plan      <- getPlan(variables, execution)
@@ -159,6 +163,12 @@ private[gateway] final class OperationPreparation[-R] private (
 
   private def validateDocument(document: Document)(implicit trace: Trace): IO[CalibanError, Unit] =
     Configurator.ref.getWith(config => if (config.skipValidation) Exit.unit else Validator.validate(document, rootType))
+
+  private def withDeferValidations[R1, E, A](effect: ZIO[R1, E, A])(implicit trace: Trace): ZIO[R1, E, A] =
+    Configurator.ref.locallyWith(config => config.copy(validations = config.validations ::: DeferValidations))(effect)
+
+  private def pushedDown(document: Document, operationName: Option[String]): Option[Executable] =
+    if (Deferral.hasDefer(document, operationName)) Some(Deferral.pushDown(document, _)) else None
 
   private def buildPlan(document: Document, execution: ExecutionRequest, activeOverrides: Set[OverrideLabel])(implicit
     trace: Trace
@@ -221,8 +231,8 @@ private[gateway] final class OperationPreparation[-R] private (
       )
 
     fieldWeight(plan.fields) +
-      plan.roots.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.downstream)) +
-      plan.entities.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.fields)) +
+      plan.payload.allRoots.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.downstream)) +
+      plan.payload.allEntities.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.fields)) +
       plan.typenameSelections.size.toLong
   }
 
@@ -236,7 +246,7 @@ private[gateway] final class OperationPreparation[-R] private (
 
   private def hasVariableInclusionDirective(document: Document, operationName: Option[String]): Boolean = {
     def isVariableInclusionDirective(directive: Directive): Boolean =
-      isInclusionDirective(directive) && directive.arguments.values.exists {
+      (isInclusionDirective(directive) || directive.name == Directives.Defer) && directive.arguments.values.exists {
         case _: VariableValue => true
         case _                => false
       }
@@ -255,6 +265,8 @@ private[gateway] object OperationPreparation {
   )
 
   private val VariableValidation: Option[List[Validator.QueryValidation]] = Some(List(Validator.validateVariables))
+
+  private val DeferValidations: List[Validator.QueryValidation] = IncrementalDelivery.deferValidations
 
   def make[R](
     rootType: RootType,
@@ -297,6 +309,9 @@ private[gateway] object OperationPreparation {
         }
 
   private type CachedOperation[-R] = GraphQLRequest => ZIO[R, Failure, ExecutableOperation]
+
+  // The document an operation executes, given its coerced variables.
+  private type Executable = Map[String, InputValue] => Document
 
   private final case class CacheKey(
     request: GraphQLRequest,

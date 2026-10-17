@@ -111,7 +111,8 @@ case class Field(
 
   def combine(other: Field): Field =
     self.copy(
-      fields = self.fields ::: other.fields,
+      // Spreads of a fragment share its fields, so keeping each one once stops nested spreads from multiplying them.
+      fields = self.fields ::: other.fields.filterNot(field => self.fields.exists(_ eq field)),
       targets = (self.targets, other.targets) match {
         case (Some(t1), Some(t2)) => if (t1 == t2) self.targets else Some(t1 ++ t2)
         case (Some(_), None)      => self.targets
@@ -123,6 +124,13 @@ case class Field(
         case (Some(_), None)      => self._condition
         case (None, Some(_))      => other._condition
         case (None, None)         => None
+      },
+      // A field belongs to the earliest payload selecting it: outside deferred fragments, or in the outer one.
+      fragment = (self.fragment, other.fragment) match {
+        case (Some(mine @ Fragment.IsDeferred(_)), Some(theirs @ Fragment.IsDeferred(_))) =>
+          if (mine.directives.startsWith(theirs.directives)) other.fragment else self.fragment
+        case (Some(Fragment.IsDeferred(_)), _)                                            => other.fragment
+        case _                                                                            => self.fragment
       }
     )
 

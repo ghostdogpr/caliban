@@ -24,13 +24,13 @@ private[gateway] final class OperationCost(
   import OperationCost._
 
   def estimate(plan: OperationPlan): Either[String, Long] = {
-    val walk       = new Walk(sized && plan.entities.nonEmpty)
-    val rootCost   = plan.roots.foldLeft(BigInt(0)) { (total, fetch) =>
+    val walk       = new Walk(sized && plan.payload.allEntities.nonEmpty)
+    val rootCost   = plan.payload.allRoots.foldLeft(BigInt(0)) { (total, fetch) =>
       total + operationBase(plan.operationType) +
         walk.fieldsCost(fetch.downstream.mapConserve(collected), fetch.source, Vector.empty, BigInt(1), Nil)
     }
     // A fetch sizes only paths below its merge path, so shorter merge paths go first.
-    val entityCost = plan.entities
+    val entityCost = plan.payload.allEntities
       .groupBy(fetch => fetch.root -> fetch.mergePath)
       .toList
       .sortBy(_._1._2.length)

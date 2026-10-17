@@ -6,7 +6,7 @@ import caliban.gateway.internal._
 import caliban.gateway.internal.acquisition.SupergraphAcquisition
 import caliban.gateway.internal.composition._
 import caliban.gateway.internal.execution._
-import caliban.gateway.internal.planning.{ CandidateSearch, OperationCost, OperationPlanner, OperationSecurity }
+import caliban.gateway.internal.planning._
 import caliban.introspection.Introspector
 import caliban.parsing.adt.Document
 import caliban.rendering.DocumentRenderer
@@ -109,7 +109,7 @@ final class Gateway[-R] private[gateway] (
       security     = new OperationSecurity(graph)
       _           <- validate(if (hooks.authorization.nonEmpty) Nil else security.diagnostics)
       executors    = executables.map(value => value.prepared.name -> value.executor).toMap
-      requestRoot  = Introspector.withIntrospection(graph.rootType)
+      requestRoot  = Introspector.withIntrospection(Deferral.clientRootType(graph.rootType))
       operations  <- OperationPreparation.make(
                        requestRoot,
                        new OperationPlanner(

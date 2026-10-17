@@ -43,20 +43,26 @@ object IncrementalDelivery {
         (Feature.isStreamEnabled(flags) && name == Directives.Stream) ||
           (Feature.isDeferEnabled(flags) && name == Directives.Defer)
 
+      /**
+       * Checks each fragment once, however often it is spread.
+       */
       @tailrec
-      def hasStreamOrDirective(selection: List[Selection]): Boolean =
+      def hasStreamOrDirective(selection: List[Selection], visited: Set[String]): Boolean =
         selection match {
-          case Selection.Field(_, _, _, directives, _, _) :: rest   =>
-            directives.exists(d => matches(d.name)) || hasStreamOrDirective(rest)
-          case Selection.InlineFragment(_, _, selectionSet) :: rest =>
-            hasStreamOrDirective(rest ++ selectionSet)
-          case Selection.FragmentSpread(name, _) :: rest            =>
-            hasStreamOrDirective(rest ++ context.fragments(name).selectionSet)
-          case Nil                                                  => false
+          case Selection.Field(_, _, _, directives, _, _) :: rest            =>
+            directives.exists(d => matches(d.name)) || hasStreamOrDirective(rest, visited)
+          case Selection.InlineFragment(_, directives, selectionSet) :: rest =>
+            directives.exists(d => matches(d.name)) || hasStreamOrDirective(selectionSet ::: rest, visited)
+          case Selection.FragmentSpread(name, directives) :: rest            =>
+            directives.exists(d => matches(d.name)) || hasStreamOrDirective(
+              context.fragments.get(name).filterNot(_ => visited(name)).fold(rest)(_.selectionSet ::: rest),
+              visited + name
+            )
+          case Nil                                                           => false
         }
 
       validateAllDiscard(context.operations) { op =>
-        if (op.operationType != OperationType.Query && hasStreamOrDirective(op.selectionSet)) {
+        if (op.operationType != OperationType.Query && hasStreamOrDirective(op.selectionSet, Set.empty)) {
           Left(
             CalibanError.ValidationError(
               "Stream or defer directive was used on a root field in a mutation or subscription",
@@ -152,19 +158,22 @@ object IncrementalDelivery {
         case Selection.Field(_, _, _, directives, children, _) :: rest     =>
           val label = if (Feature.isStreamEnabled(flags)) extractLabel(directives, Directives.Stream) else None
 
-          isLabelUnique(label) && allLabelsUnique(rest ++ children)
+          isLabelUnique(label) && allLabelsUnique(children ::: rest)
         case Selection.InlineFragment(_, directives, selectionSet) :: rest =>
           val label = if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
 
-          isLabelUnique(label) && allLabelsUnique(rest ++ selectionSet)
-        case Selection.FragmentSpread(name, directives) :: rest            =>
+          isLabelUnique(label) && allLabelsUnique(selectionSet ::: rest)
+        case Selection.FragmentSpread(_, directives) :: rest               =>
           val label = if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
 
-          isLabelUnique(label) && allLabelsUnique(rest ++ context.fragments(name).selectionSet)
+          isLabelUnique(label) && allLabelsUnique(rest)
         case _                                                             => true
       }
 
-      if (!allLabelsUnique(context.operations.flatMap(_.selectionSet))) {
+      // Labels are unique in the document, so each fragment is read once rather than at each spread.
+      val selections =
+        context.operations.flatMap(_.selectionSet) ::: context.fragments.values.toList.flatMap(_.selectionSet)
+      if (!allLabelsUnique(selections)) {
         Left(CalibanError.ValidationError("Stream and defer directive labels must be unique", ""))
       } else {
         Right(())
@@ -177,6 +186,8 @@ object IncrementalDelivery {
 
     List(onlyTopLevelQuery(features), uniqueLabels(features)) ++ streamValidations
   }
+
+  private[caliban] lazy val deferValidations: List[QueryValidation] = additionalValidations(Feature.Defer.mask)
 
   private def withValidations(features: Feature.Flags): Wrapper[Any] = new ValidationWrapper[Any] {
     private val validations = additionalValidations(features)

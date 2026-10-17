@@ -6,6 +6,7 @@ import caliban.gateway.{ responseNames, TypenameField }
 import caliban.gateway.internal.composition.{ ComposedGraph, DirectiveComposition }
 import caliban.gateway.internal.execution.{ EntityLookup, PlanExecutor, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
+import caliban.introspection.adt.__Type
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.parsing.adt.Type.NamedType
 import caliban.rendering.DocumentRenderer
@@ -17,13 +18,13 @@ import scala.collection.immutable.ListMap
 /**
  * The shared contract between planning and execution.
  * Fetch dependencies identify prerequisites; merge paths use response names and omit list indices.
+ * `payload` resolves the initial payload; each deferred fragment carries its own.
  */
 private[gateway] final case class OperationPlan(
   operationType: OperationType,
   operationName: Option[String],
   fields: List[Field],
-  roots: List[RootFetch],
-  entityWaves: List[List[EntityFetch]],
+  payload: Payload,
   typenameSelections: List[TypenameSelection],
   passthroughSubgraph: Option[ComposedGraph.Source]
 ) {
@@ -32,8 +33,6 @@ private[gateway] final case class OperationPlan(
 
   def rootName: String = ComposedGraph.rootName(operationType)
 
-  lazy val entities: List[EntityFetch] = entityWaves.flatten
-
   lazy val introspectionFields: List[Field] = fields.filter(isIntrospectionField)
 
   lazy val hasLocalFields: Boolean = fields.exists(isMetaField)
@@ -41,8 +40,9 @@ private[gateway] final case class OperationPlan(
   lazy val hasVariableReferences: Boolean = PlanVariables.hasReferences(this)
 
   // Cached plans share these artifacts; replacing variable references creates a plan with fresh caches.
-  lazy val preparedRoots: List[PlanExecutor.PreparedRoot] = roots.map(PlanExecutor.prepareRoot(this, _))
-  lazy val completion: ResponseCompletion                 = ResponseCompletion.forPlan(this)
+  lazy val preparedRoots: List[PlanExecutor.PreparedRoot]         = payload.roots.map(PlanExecutor.prepareRoot(this, _))
+  lazy val completion: ResponseCompletion                         = ResponseCompletion.forPlan(this)
+  lazy val preparedFragments: List[PlanExecutor.PreparedFragment] = PlanExecutor.prepareFragments(this)
 
   def bind(variables: Map[String, InputValue]): OperationPlan =
     if (hasVariableReferences) PlanVariables.bind(this, variables) else this
@@ -59,7 +59,31 @@ private[gateway] object OperationPlan {
     typenameAlias: Option[String] = None
   )
 
-  final case class RootFetch(id: FetchId, source: ComposedGraph.Source, downstream: List[Field])
+  final case class RootFetch(
+    id: FetchId,
+    source: ComposedGraph.Source,
+    downstream: List[Field],
+    delivery: Deferral.Delivery
+  )
+
+  /**
+   * A deferred fragment on the objects of type `parentType` at its defer point. Its payload holds the fields of the
+   * fragment, the fetches that resolve them once the payload containing those objects is complete, and the fragments
+   * deferred inside it. Fields an earlier payload already fetched, such as keys, have no fetch here.
+   */
+  final case class DeferredFragment(point: Deferral.DeferPoint, parentType: __Type, payload: Payload)
+
+  // The client fields a payload delivers, without meta fields at the root, and the fetches that resolve them.
+  final case class Payload(
+    fields: List[Field],
+    roots: List[RootFetch],
+    entityWaves: List[List[EntityFetch]],
+    deferred: List[DeferredFragment]
+  ) {
+    lazy val entities: List[EntityFetch]    = entityWaves.flatten
+    lazy val allRoots: List[RootFetch]      = roots ::: deferred.flatMap(_.payload.allRoots)
+    lazy val allEntities: List[EntityFetch] = entities ::: deferred.flatMap(_.payload.allEntities)
+  }
 
   final case class ContextualArgument(
     at: DirectiveComposition.ArgumentCoordinate,
@@ -93,7 +117,8 @@ private[gateway] object OperationPlan {
     mergePath: Vector[String],
     target: EntityTarget,
     typenameAlias: Option[String],
-    fields: List[Field]
+    fields: List[Field],
+    delivery: Deferral.Delivery
   ) {
 
     private[internal] lazy val lookupVariant = EntityLookup.variant(this, Map.empty)
@@ -161,8 +186,8 @@ private[gateway] object OperationPlan {
 
     def hasReferences(plan: OperationPlan): Boolean =
       plan.fields.exists(fieldReferences) ||
-        plan.roots.exists(_.downstream.exists(fieldReferences)) ||
-        plan.entities.exists(fetch => fetch.fields.exists(fieldReferences))
+        plan.payload.allRoots.exists(_.downstream.exists(fieldReferences)) ||
+        plan.payload.allEntities.exists(fetch => fetch.fields.exists(fieldReferences))
 
     def bind(plan: OperationPlan, variables: Map[String, InputValue]): OperationPlan = {
       def bindValue(value: InputValue): Option[InputValue] =
@@ -182,15 +207,12 @@ private[gateway] object OperationPlan {
       def bindDirective(directive: Directive): Directive =
         directive.copy(arguments = bindArguments(directive.arguments))
 
-      def bindFragment(fragment: Fragment): Fragment =
-        fragment.copy(directives = fragment.directives.map(bindDirective))
-
       def bindField(field: Field): Field =
         field.copy(
           fields = field.fields.map(bindField),
           arguments = bindArguments(field.arguments),
           directives = field.directives.map(bindDirective),
-          fragment = field.fragment.map(bindFragment)
+          fragment = field.fragment.map(fragment => fragment.copy(directives = fragment.directives.map(bindDirective)))
         )
 
       def bindRoot(fetch: RootFetch): RootFetch =
@@ -201,11 +223,14 @@ private[gateway] object OperationPlan {
         if (fetch.fields.exists(fieldReferences)) fetch.copy(fields = fetch.fields.map(bindField))
         else fetch
 
-      plan.copy(
-        fields = plan.fields.map(bindField),
-        roots = plan.roots.map(bindRoot),
-        entityWaves = plan.entityWaves.map(_.map(bindEntity))
-      )
+      def bindPayload(payload: Payload): Payload =
+        payload.copy(
+          roots = payload.roots.map(bindRoot),
+          entityWaves = payload.entityWaves.map(_.map(bindEntity)),
+          deferred = payload.deferred.map(fragment => fragment.copy(payload = bindPayload(fragment.payload)))
+        )
+
+      plan.copy(fields = plan.fields.map(bindField), payload = bindPayload(plan.payload))
     }
 
     private def fieldReferences(field: Field): Boolean =
@@ -232,29 +257,41 @@ private[gateway] object OperationPlan {
   private def render(plan: OperationPlan): String = {
     val header      = plan.operationType.toString.toLowerCase
     val clientNames = responseNames(plan.fields)
-    val rootLines   = plan.roots.flatMap { fetch =>
-      fetch.downstream.filter(field => clientNames(field.aliasedName)).map { downstream =>
-        val keySelections = plan.entities
-          .find(_.mergePath.headOption.contains(downstream.aliasedName))
-          .toList
-          .flatMap(entity =>
-            entity.target.keys ::: entity.typenameAlias.map(RequiredSelection(TypenameField, _)).toList
-          )
-        val fields        = fieldPaths(downstream.fields).map { path =>
-          keySelections.find(_.responseName == path).map(selection => s"${selection.field} (key)").getOrElse(path)
-        }
-        s"fetch ${fetch.source} at $$.${downstream.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
-      }
-    }
-    val sources     = (plan.roots.iterator.map(fetch => fetch.id -> fetch.source) ++
-      plan.entities.iterator.map(fetch => fetch.id -> fetch.target.source)).toMap
-    val entityLines = plan.entities.map { fetch =>
-      val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
-      s"fetch ${fetch.target.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
-        s"via ${fetch.target.entityType}(${fetch.target.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields)
-            .mkString("[", ", ", "]")}"
-    }
-    (header :: rootLines ::: entityLines).mkString("\n")
-  }
+    val sources     = (plan.payload.allRoots.iterator.map(fetch => fetch.id -> fetch.source) ++
+      plan.payload.allEntities.iterator.map(fetch => fetch.id -> fetch.target.source)).toMap
 
+    def rootLines(roots: List[RootFetch]): List[String] =
+      roots.flatMap { fetch =>
+        fetch.downstream.filter(field => clientNames(field.aliasedName)).map { downstream =>
+          val keySelections = plan.payload.allEntities
+            .find(_.mergePath.headOption.contains(downstream.aliasedName))
+            .toList
+            .flatMap(entity =>
+              entity.target.keys ::: entity.typenameAlias.map(RequiredSelection(TypenameField, _)).toList
+            )
+          val fields        = fieldPaths(downstream.fields).map { path =>
+            keySelections.find(_.responseName == path).map(selection => s"${selection.field} (key)").getOrElse(path)
+          }
+          s"fetch ${fetch.source} at $$.${downstream.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
+        }
+      }
+
+    def entityLines(entities: List[EntityFetch]): List[String] =
+      entities.map { fetch =>
+        val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
+        s"fetch ${fetch.target.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
+          s"via ${fetch.target.entityType}(${fetch.target.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields)
+              .mkString("[", ", ", "]")}"
+      }
+
+    def payloadLines(payload: Payload): List[String] =
+      rootLines(payload.roots) ::: entityLines(payload.entities) ::: payload.deferred.flatMap { fragment =>
+        val path = fragment.point.path.map("." + _).mkString
+        s"defer ${fragment.point.label
+            .getOrElse("-")} at $$$path fields ${fieldPaths(fragment.payload.fields).mkString("[", ", ", "]")}" ::
+          payloadLines(fragment.payload).map("  " + _)
+      }
+
+    (header :: payloadLines(plan.payload)).mkString("\n")
+  }
 }

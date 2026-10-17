@@ -16,12 +16,15 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
 
   /**
    * Executes a request as a stream of responses: one per event for a subscription, a single response otherwise.
+   * A response with deferred fragments is a single response whose data streams its payloads.
    * Setup and resources belong to each consumption, not stream construction.
    */
   def executeStream(request: GraphQLRequest)(implicit
     trace: Trace
   ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
-    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.subscriptionResponses))
+    ZStream.unwrap(executeRequest(request).map { response =>
+      if (response.hasNext.isEmpty) SubgraphExecutor.subscriptionResponses(response) else ZStream.succeed(response)
+    })
 
   /**
    * Executes a request as a stream, with incoming headers available to configured subgraph forwarding policies.

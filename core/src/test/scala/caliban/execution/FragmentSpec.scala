@@ -10,6 +10,7 @@ import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema
 import zio.test.Assertion._
+import zio._
 import zio.test._
 
 object FragmentSpec extends ZIOSpecDefault {
@@ -33,6 +34,20 @@ object FragmentSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
       },
+      test("fragments spread twice at each level of nesting") {
+        def query(spreads: Int => String) =
+          "{ ...F0 } " + (0 until 40).map(k => s"fragment F$k on Query { ${spreads(k)} }").mkString(" ") +
+            """ fragment F40 on Query { amos: character(name: "Amos Burton") { name } }"""
+
+        for {
+          int        <- graphQL(resolver).interpreter
+          repeated   <- int.execute(query(k => s"...F${k + 1} ...F${k + 1}"))
+          directives <- int.execute(query(k => s"...F${k + 1} @include(if: true) ...F${k + 1} @skip(if: false)"))
+        } yield assertTrue(
+          repeated.data.toString == """{"amos":{"name":"Amos Burton"}}""",
+          directives.data.toString == repeated.data.toString
+        )
+      } @@ TestAspect.timeout(30.seconds),
       test("fragment on root query") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""

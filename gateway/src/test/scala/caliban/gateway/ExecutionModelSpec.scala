@@ -20,7 +20,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
   private object completion {
     def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): ResponseCompletion.Completion =
       ResponseCompletion
-        .forPlan(OperationPlan(OperationType.Query, None, fields, Nil, Nil, Nil, None))
+        .forPlan(OperationPlan(OperationType.Query, None, fields, Payload(fields, Nil, Nil, Nil), Nil, None))
         .complete(value, errors)
   }
   private val name = Field("name", Types.string, Some(objectType))
@@ -260,17 +260,13 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), document, Map.empty, graph.rootType)
         fields       = execution.field.fields
         executor     = new PlanExecutor[Any](graph, Map.empty, PhaseHooks.empty)
-        roots        = graph.sources.map(RootFetch(FetchId(0), _, fields))
-        fetched     <- executor.execute(
-                         OperationPlan(OperationType.Query, None, fields, roots, Nil, Nil, None),
-                         execution,
-                         GraphQLRequest()
-                       )
-        passthrough <- executor.execute(
-                         OperationPlan(OperationType.Query, None, fields, Nil, Nil, Nil, graph.sources.headOption),
-                         execution,
-                         GraphQLRequest()
-                       )
+        roots        = graph.sources.map(RootFetch(FetchId(0), _, fields, Nil))
+        plan         = OperationPlan(OperationType.Query, None, fields, Payload(fields, roots, Nil, Nil), Nil, None)
+        fetched     <- executor.execute(plan, execution, GraphQLRequest()).map(_.response)
+        passthrough <-
+          executor
+            .execute(plan.copy(passthroughSubgraph = graph.sources.headOption), execution, GraphQLRequest())
+            .map(_.response)
       } yield assertTrue(
         fetched.data == ObjectValue(List("name" -> NullValue)),
         List(fetched, passthrough).forall(
@@ -282,8 +278,8 @@ object ExecutionModelSpec extends ZIOSpecDefault {
     test("execution artifacts are reused but variable binding prepares fresh ones") {
       val field = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
       composeSingle("products", "type Query { product(id: ID): String }").map { graph =>
-        val fetches    = graph.sources.map(RootFetch(FetchId(0), _, List(field)))
-        val plan       = OperationPlan(OperationType.Query, None, List(field), fetches, Nil, Nil, None)
+        val fetches    = graph.sources.map(RootFetch(FetchId(0), _, List(field), Nil))
+        val plan       = OperationPlan(OperationType.Query, None, List(field), Payload(Nil, fetches, Nil, Nil), Nil, None)
         val roots      = plan.preparedRoots
         val completion = plan.completion
         val bound      = plan.bind(Map("id" -> StringValue("p1")))
@@ -294,8 +290,8 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           plan.completion ne bound.completion,
           bound.bind(Map("id" -> StringValue("p2"))) eq bound,
           bound.preparedRoots.flatMap(_.request.query).forall(_.contains("\"p1\"")),
-          bound.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
-          plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
+          bound.payload.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
+          plan.payload.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
         )
       }
     }
