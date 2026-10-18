@@ -14,7 +14,7 @@ import zio.test._
 
 import java.nio.charset.StandardCharsets.UTF_8
 
-object SubscriptionSpec extends GatewaySpecDefault {
+object SubscriptionSpec extends ZIOSpecDefault {
   final case class Query(value: String)
   private val request = GraphQLRequest(query = Some("subscription { event }"))
 

@@ -13,7 +13,7 @@ import zio._
 import zio.query.ZQuery
 import zio.test._
 
-object EntityExecutionSpec extends GatewaySpecDefault {
+object EntityExecutionSpec extends ZIOSpecDefault {
 
   private val listProductsFederationSchema =
     productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")

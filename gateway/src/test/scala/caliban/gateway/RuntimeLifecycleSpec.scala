@@ -9,7 +9,7 @@ import zio._
 import zio.http.{ Response, Status }
 import zio.test._
 
-object RuntimeLifecycleSpec extends GatewaySpecDefault {
+object RuntimeLifecycleSpec extends ZIOSpecDefault {
 
   private def makeControl(
     scope: Scope.Closeable,

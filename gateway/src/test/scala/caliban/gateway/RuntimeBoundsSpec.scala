@@ -11,7 +11,7 @@ import zio._
 import zio.http._
 import zio.test._
 
-object RuntimeBoundsSpec extends GatewaySpecDefault {
+object RuntimeBoundsSpec extends ZIOSpecDefault {
 
   private val request = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
 

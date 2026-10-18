@@ -23,7 +23,7 @@ import zio.test._
  *
  * The subgraph SDL is regenerated with rover; see `README.md` next to the fixtures.
  */
-object SupergraphRoundTripSpec extends GatewaySpecDefault {
+object SupergraphRoundTripSpec extends ZIOSpecDefault {
 
   /** The checked-in subgraphs, composed exactly as a hand-listed gateway would compose them. */
   private def fromOriginals(names: (String, String)*): UIO[ComposedGraph] =

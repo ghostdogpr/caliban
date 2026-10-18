@@ -8,7 +8,7 @@ import caliban.validation.Validator
 import zio._
 import zio.test._
 
-object OperationResolutionSpec extends GatewaySpecDefault {
+object OperationResolutionSpec extends ZIOSpecDefault {
 
   private val query   = "query Value($input: String) { value(input: $input) }"
   private val request = GraphQLRequest(

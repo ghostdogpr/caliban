@@ -8,7 +8,7 @@ import caliban.{ graphQL, PathValue, ResponseValue, RootResolver }
 import zio._
 import zio.test._
 
-object LookupSpec extends GatewaySpecDefault {
+object LookupSpec extends ZIOSpecDefault {
 
   private object LocalReviews extends GenericSchema[Any] {
     import auto._

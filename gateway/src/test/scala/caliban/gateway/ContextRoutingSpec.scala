@@ -6,7 +6,7 @@ import caliban.gateway.GatewayTestSupport._
 import zio.{ Scope, ZIO }
 import zio.test._
 
-object ContextRoutingSpec extends GatewaySpecDefault {
+object ContextRoutingSpec extends ZIOSpecDefault {
 
   private val userContextSchema =
     s"""

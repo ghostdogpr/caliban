@@ -8,7 +8,7 @@ import caliban.gateway.GatewayTestSupport._
 import zio._
 import zio.test._
 
-object EntityRoutingSpec extends GatewaySpecDefault {
+object EntityRoutingSpec extends ZIOSpecDefault {
 
   private val authoredProductsFederationSchema =
     s"""

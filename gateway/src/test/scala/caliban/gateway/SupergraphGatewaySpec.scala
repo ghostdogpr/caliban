@@ -19,7 +19,7 @@ import java.nio.file.Files
  * re-read on each cycle, and the subgraphs it decomposes into are pinned, so a poll costs exactly
  * one request no matter how many graphs the supergraph declares.
  */
-object SupergraphGatewaySpec extends GatewaySpecDefault {
+object SupergraphGatewaySpec extends ZIOSpecDefault {
 
   private val supergraphSchema: UIO[String] = supergraphResource("supergraph.graphql")
 

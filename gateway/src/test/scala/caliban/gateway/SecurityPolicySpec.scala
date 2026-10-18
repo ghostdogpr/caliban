@@ -7,7 +7,7 @@ import caliban.GraphQLRequest
 import zio._
 import zio.test._
 
-object SecurityPolicySpec extends GatewaySpecDefault {
+object SecurityPolicySpec extends ZIOSpecDefault {
 
   private val linkDefinitions =
     """

@@ -7,7 +7,7 @@ import caliban.{ CalibanError, GraphQLRequest, PathValue }
 import zio._
 import zio.test._
 
-object MultiSourceSpec extends GatewaySpecDefault {
+object MultiSourceSpec extends ZIOSpecDefault {
 
   private val reviewMutationSchema = "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
 

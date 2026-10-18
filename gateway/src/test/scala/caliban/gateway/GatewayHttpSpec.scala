@@ -10,7 +10,7 @@ import zio._
 import zio.http._
 import zio.test._
 
-object GatewayHttpSpec extends GatewaySpecDefault {
+object GatewayHttpSpec extends ZIOSpecDefault {
 
   private final case class HttpResult(response: Response, body: String)
 

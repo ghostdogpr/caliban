@@ -15,7 +15,7 @@ import zio.http.URL
 import zio._
 import zio.test._
 
-object SupergraphDecompositionSpec extends GatewaySpecDefault {
+object SupergraphDecompositionSpec extends ZIOSpecDefault {
 
   private val JoinV05 = "https://specs.apollo.dev/join/v0.5"
 

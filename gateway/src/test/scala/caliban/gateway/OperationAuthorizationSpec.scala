@@ -8,7 +8,7 @@ import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
 import zio.test._
 
-object OperationAuthorizationSpec extends GatewaySpecDefault {
+object OperationAuthorizationSpec extends ZIOSpecDefault {
 
   private trait Documents {
     def resolve(id: String): UIO[String]

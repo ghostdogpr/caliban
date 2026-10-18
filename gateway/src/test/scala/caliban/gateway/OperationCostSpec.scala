@@ -12,7 +12,7 @@ import caliban.tools.RemoteSchema
 import zio._
 import zio.test._
 
-object OperationCostSpec extends GatewaySpecDefault {
+object OperationCostSpec extends ZIOSpecDefault {
 
   private final class CountingCosts(values: Map[Coordinate, BigInt])
       extends Map.WithDefault[Coordinate, BigInt](values, values.default) {
