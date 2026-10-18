@@ -8,13 +8,15 @@ import zio.test._
  * on a loaded machine would wait forever. A test still running after a minute of real time runs once more.
  */
 abstract class GatewaySpecDefault extends ZIOSpecDefault {
+  private val rerunTimedOut: TestAspectPoly = new TestAspect.PerTest.Poly {
+    def perTest[R, E](test: ZIO[R, TestFailure[E], TestSuccess])(implicit
+      trace: Trace
+    ): ZIO[R, TestFailure[E], TestSuccess] =
+      test.catchSome {
+        case TestFailure.Runtime(cause, _) if cause.dieOption.exists(_.isInstanceOf[TestTimeoutException]) => test
+      }
+  }
+
   override def aspects: Chunk[TestAspectAtLeastR[TestEnvironment]] =
-    super.aspects :+ (TestAspect.timeout(1.minute) >>> new TestAspect.PerTest.Poly {
-      def perTest[R, E](test: ZIO[R, TestFailure[E], TestSuccess])(implicit
-        trace: Trace
-      ): ZIO[R, TestFailure[E], TestSuccess] =
-        test.catchSome {
-          case TestFailure.Runtime(cause, _) if cause.dieOption.exists(_.isInstanceOf[TestTimeoutException]) => test
-        }
-    })
+    super.aspects :+ TestAspect.timeout(1.minute) :+ rerunTimedOut
 }
