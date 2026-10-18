@@ -97,6 +97,35 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           )
         )
       },
+      test("deliver fields selected outside the deferred fragment in the initial payload") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             ... @defer {
+               nicknames
+             }
+             nicknames
+           }
+        }
+          """)
+        val typed = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             ... on Character @defer {
+               nicknames
+             }
+             nicknames
+           }
+        }
+          """)
+
+        for {
+          responses <- ZIO.foreach(List(query, typed))(document => interpreter.flatMap(_.execute(document)))
+          rest      <- ZIO.foreach(responses)(runIncrementalResponses)
+        } yield assertTrue(
+          rest.forall(_.map(_.toString) == Chunk("""{"data":{"character":{"nicknames":["Bobbie","Gunny"]}}}"""))
+        )
+      },
       test("named fragments") {
         val query = gqldoc("""
         {
@@ -496,6 +525,53 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           errors.size == 1,
           errors.head.is(_.subtype[ValidationError]).msg == "Stream and defer directive labels must be unique"
         )
+      },
+      test("a labelled defer in a fragment spread twice keeps a unique label") {
+        val query = gqldoc("""
+        {
+           a: character(name: "Roberta Draper") { ...Nicknames }
+           b: character(name: "Roberta Draper") { ...Nicknames }
+        }
+        fragment Nicknames on Character { ... @defer(label: "nicknames") { nicknames } }
+          """)
+
+        deferOnlyInterpreter.flatMap(_.execute(query)).map(response => assertTrue(response.errors.isEmpty))
+      },
+      test("reject @defer on mutation root fields") {
+        val inline = gqldoc("""
+          mutation {
+            ... @defer { update { value } }
+          }
+          """)
+        val spread = gqldoc("""
+          mutation {
+            ...Update @defer
+          }
+          fragment Update on Mutation { update { value } }
+          """)
+
+        for {
+          interpreter <- TestMutationDeferredSchema.interpreter
+          responses   <- ZIO.foreach(List(inline, spread))(interpreter.execute(_))
+        } yield assertTrue(
+          responses.forall(
+            _.errors.map(_.msg) == List(
+              "Stream or defer directive was used on a root field in a mutation or subscription"
+            )
+          )
+        )
+      },
+      test("allow @defer below mutation root fields") {
+        val query = gqldoc("""
+          mutation {
+            update { ... @defer { value } }
+          }
+          """)
+
+        for {
+          interpreter <- TestMutationDeferredSchema.interpreter
+          response    <- interpreter.execute(query)
+        } yield assertTrue(response.errors.isEmpty, response.hasNext.contains(true))
       }
     )
   ).provide(CharacterService.test, QuoteService.test)

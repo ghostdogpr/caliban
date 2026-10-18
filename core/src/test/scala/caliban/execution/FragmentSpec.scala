@@ -10,6 +10,7 @@ import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema
 import zio.test.Assertion._
+import zio._
 import zio.test._
 
 object FragmentSpec extends ZIOSpecDefault {
@@ -32,6 +33,39 @@ object FragmentSpec extends ZIOSpecDefault {
           int <- interpreter
           res <- int.execute(query)
         } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
+      },
+      test("fragments spread twice at each level of nesting") {
+        def query(spreads: Int => String) =
+          "{ ...F0 } " + (0 until 40).map(k => s"fragment F$k on Query { ${spreads(k)} }").mkString(" ") +
+            """ fragment F40 on Query { amos: character(name: "Amos Burton") { name } }"""
+
+        for {
+          int        <- graphQL(resolver).interpreter
+          repeated   <- int.execute(query(k => s"...F${k + 1} ...F${k + 1}"))
+          directives <- int.execute(query(k => s"...F${k + 1} @include(if: true) ...F${k + 1} @skip(if: false)"))
+        } yield assertTrue(
+          repeated.data.toString == """{"amos":{"name":"Amos Burton"}}""",
+          directives.data.toString == repeated.data.toString
+        )
+      } @@ TestAspect.timeout(30.seconds),
+      test("fragments spread several times around a nested field at each level") {
+        for {
+          int <- nestedApi.interpreter
+          res <- int.execute(nestedSpreads(30))
+        } yield assertTrue(res.data.toString == nestedResult(30))
+      } @@ TestAspect.timeout(30.seconds),
+      test("merges large selections of a field selected twice") {
+        def aliases(prefix: String) = (1 to 20).map(i => s"$prefix$i: name").mkString(" ")
+        val amos                    = """amos: character(name: "Amos Burton")"""
+        val query                   =
+          s"{ ... { $amos { ${aliases("a")} } } ... { $amos { ...Names ${aliases("b")} } } } fragment Names on Character { ${aliases("a")} }"
+        val expected                =
+          (1 to 20).map(i => s""""a$i":"Amos Burton"""") ++ (1 to 20).map(i => s""""b$i":"Amos Burton"""")
+
+        for {
+          int <- graphQL(resolver).interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.data.toString == expected.mkString("""{"amos":{""", ",", "}}"))
       },
       test("fragment on root query") {
         val interpreter = graphQL(resolver).interpreter

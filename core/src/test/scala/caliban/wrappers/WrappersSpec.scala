@@ -169,6 +169,15 @@ object WrappersSpec extends ZIOSpecDefault {
           assertTrue(response.errors == List(ValidationError("Query is too deep: 3. Max depth: 2.", "")))
         }
       },
+      test("Max fields and depth with fragments spread inside fragments") {
+        for {
+          fields <- (nestedApi @@ maxFields(100)).interpreter.flatMap(_.execute(nestedSpreads(30)))
+          depth  <- (nestedApi @@ maxDepth(10)).interpreter.flatMap(_.execute(nestedSpreads(30)))
+        } yield assertTrue(
+          fields.errors == List(ValidationError("Query has too many fields: 205891132094650. Max fields: 100.", "")),
+          depth.errors == List(ValidationError("Query is too deep: 32. Max depth: 10.", ""))
+        )
+      } @@ TestAspect.timeout(30.seconds),
       test("Timeout") {
         case class Test(a: UIO[Int])
 

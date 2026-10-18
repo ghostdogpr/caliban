@@ -116,27 +116,18 @@ object Wrappers {
     }
 
   private def calculateDepth(field: Field): Int = {
-    // Faster because it doesn't allocate a new list on each iteration but not stack-safe
-    def loopUnsafe(field: Field, currentDepth: Int): Int = {
-      var children = field.fields
-      var max      = currentDepth
-      while (children ne Nil) {
-        val d = loopUnsafe(children.head, currentDepth + 1)
-        if (d > max) max = d
-        children = children.tail
-      }
-      max
+    var visits = 0
+
+    def loop(children: List[Field], depth: Int, max: Int): Int = children match {
+      case child :: rest if visits < Field.MaxDirectVisits =>
+        visits += 1
+        loop(rest, depth, loop(child.fields, depth + 1, math.max(max, depth)))
+      case _                                               => max
     }
 
-    @tailrec
-    def loopSafe(fields: List[Field], currentDepth: Int): Int =
-      if (fields.isEmpty) currentDepth
-      else loopSafe(fields.flatMap(_.fields), currentDepth + 1)
-
-    try loopUnsafe(field, 0)
-    catch {
-      case _: StackOverflowError => loopSafe(field.fields, 0)
-    }
+    val depth = loop(field.fields, 1, 0)
+    if (visits < Field.MaxDirectVisits) depth
+    else Field.foldShared(field.fields, 0)((max, _, depth, _) => math.max(max, depth))
   }
 
   /**
@@ -151,7 +142,7 @@ object Wrappers {
         (doc: Document) =>
           process(doc).tap { req =>
             ZIO.unlessZIODiscard(Configurator.skipValidation) {
-              val fields = countFields(req.field)
+              val fields = Field.expandedCount(req.field)
               if (fields > maxFields)
                 ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
               else Exit.unit
@@ -174,29 +165,6 @@ object Wrappers {
     extraLabels: Set[MetricLabel] = Set.empty
   ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
-
-  private def countFields(rootField: Field): Int = {
-    // Faster because it doesn't allocate a new list on each iteration but not stack-safe
-    def loopUnsafe(field: Field): Int = {
-      val iter  = field.fields.iterator
-      var count = 0
-      while (iter.hasNext) {
-        val f = iter.next()
-        count += loopUnsafe(f) + 1
-      }
-      count
-    }
-
-    @tailrec
-    def loopSafe(fields: List[Field], acc: Int): Int =
-      if (fields.isEmpty) acc
-      else loopSafe(fields.flatMap(_.fields), acc + fields.length)
-
-    try loopUnsafe(rootField)
-    catch {
-      case _: StackOverflowError => loopSafe(rootField.fields, 0)
-    }
-  }
 
   /**
    * Returns a wrapper that check directives on fields and can potentially fail the query

@@ -344,6 +344,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                     .withConfig(
                       _.withMaxPlanningCandidates(0)
                         .withMaxPlanningExpansions(0)
+                        .withMaxOperationFields(0)
                         .withPlanningTimeout(Duration.Infinity)
                     )
                     .interpreter
@@ -352,6 +353,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           buildDiagnostics(exit) == List(
             "Gateway maxPlanningCandidates must be positive.",
             "Gateway maxPlanningExpansions must be positive.",
+            "Gateway maxOperationFields must be positive.",
             "Gateway planning timeout must be finite and positive."
           )
         )

@@ -129,6 +129,7 @@ The defaults are:
 | `withMaxOperationCacheWeight` | 8 MiB | Total estimated weight of cached operations and plans |
 | `withMaxPlanningCandidates` | 8,192 | Alternative routes considered per operation |
 | `withMaxPlanningExpansions` | 100,000 | Candidate plans expanded per operation |
+| `withMaxOperationFields` | 100,000 | Fields an operation selects once every fragment spread is expanded |
 | `withPlanningTimeout` | 2 seconds | Time allowed to plan an operation |
 | `withMaxOperationCost` | Disabled | Reject operations above a positive cost limit |
 | `withReloadPollInterval` | 30 seconds | Delay after each reload cycle |

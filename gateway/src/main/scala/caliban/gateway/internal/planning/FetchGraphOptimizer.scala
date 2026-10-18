@@ -17,10 +17,10 @@ private[planning] object FetchGraphOptimizer {
     mergeEquivalentFetches(addFetchDependencies(fetches, roots, needPrerequisites))
 
   /**
-   * Orders entity fetches into dependency waves, starting with the root fetches completed.
+   * Orders entity fetches into dependency waves, starting with the `completed` fetches.
    * Returns the waves, or the cycle that prevents ordering the fetches.
    */
-  def waves(roots: List[RootFetch], fetches: List[EntityFetch]): Either[PlanningFailure, List[List[EntityFetch]]] = {
+  def waves(completed: Set[FetchId], fetches: List[EntityFetch]): Either[PlanningFailure, List[List[EntityFetch]]] = {
     @tailrec
     def order(
       pending: List[EntityFetch],
@@ -42,7 +42,7 @@ private[planning] object FetchGraphOptimizer {
         }
       }
 
-    order(fetches, roots.iterator.map(_.id).toSet, Nil)
+    order(fetches, completed, Nil)
   }
 
   def mergeFields(fields: List[Field]): List[Field] = {
@@ -100,8 +100,10 @@ private[planning] object FetchGraphOptimizer {
               fetch.target.contextArguments.flatMap(argument =>
                 argument.selections.flatMap(selectionPaths(argument.sourcePath))
               )
-          val siblings                                         =
-            providers.filter { case (other, _) => other.id != fetch.id && other.root == fetch.root }
+          // Fetches of a later payload cannot supply an earlier one.
+          val siblings                                         = providers.filter { case (other, _) =>
+            other.id != fetch.id && other.root == fetch.root && fetch.delivery.endsWith(other.delivery)
+          }
           def providedElsewhere(path: Vector[String]): Boolean =
             provides(rootPaths.getOrElse(fetch.root, Nil), path, fetch.target.entityType) ||
               siblings.exists { case (_, paths) => provides(paths, path, fetch.target.entityType) }

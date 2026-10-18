@@ -1,12 +1,12 @@
 package caliban.gateway.internal.execution
 
-import caliban.ResponseValue.ObjectValue
+import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.{ isMetaField, ExecutionRequest, Executor, Field }
 import caliban.gateway.{ responseNames, PhaseHooks, TypenameField }
 import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.composition.ComposedGraph
-import caliban.gateway.internal.execution.EntityExecutor.EntityLocation
+import caliban.gateway.internal.execution.EntityExecutor.{ collectEntities, EntityLocation }
 import caliban.gateway.internal.execution.PlanExecutor._
 import caliban.gateway.internal.execution.ResponseCompletion.Completion
 import caliban.gateway.internal.execution.ResponseMerge._
@@ -23,6 +23,7 @@ import zio.stream.ZStream
 import zio.{ Scope, Trace, UIO, URIO, ZIO }
 
 import scala.collection.compat._
+import scala.collection.mutable.ListBuffer
 
 /**
  * Runs a fetch graph; request lifetimes and preparation stay in the interpreter.
@@ -32,9 +33,14 @@ private[gateway] final class PlanExecutor[-R](
   subgraphExecutors: Map[String, SubgraphExecutor[R]],
   hooks: PhaseHooks[R]
 ) {
+
+  /**
+   * Executes the initial payload. Deferred fragments run when the returned stream runs, each one within the given
+   * guard.
+   */
   def execute(plan: OperationPlan, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
     trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] =
+  ): URIO[R, Executed[R]] =
     plan.passthroughSubgraph match {
       case Some(source) =>
         val executor = executorFor(source)
@@ -44,6 +50,7 @@ private[gateway] final class PlanExecutor[-R](
             ZIO.succeed(GraphQLResponse(RemoteError.nullObject(plan.fields), RemoteError.forFields(plan.fields)))
           )
           .flatMap(response => observeCompletion(completePassthrough(plan, executor.errorPolicy, response)))
+          .map(Executed[R](_, None))
       case None         =>
         val batches             =
           if (plan.operationType == OperationType.Mutation) executeMutations(plan, plan.preparedRoots)
@@ -53,13 +60,115 @@ private[gateway] final class PlanExecutor[-R](
               .flatMap(completeRoots(plan, plan.completion, _))
               .map(_ :: Nil)
         val introspectionFields = plan.introspectionFields
-        if (introspectionFields.isEmpty)
-          batches.flatMap(done => observeCompletion(assemble(plan, done, NoLocalResponse)))
+
+        def finish(done: List[Batch], local: GraphQLResponse[CalibanError]): URIO[R, Executed[R]] =
+          observeCompletion(assemble(plan, done, local)).map { response =>
+            val deferred =
+              if (plan.payload.deferred.isEmpty) None
+              else
+                Some { (guard: Guard) =>
+                  val data    = done.iterator.flatMap(_.roots).map(root => root.id -> root.data).toMap
+                  val fetched = Fetched(data, Nil, done.flatMap(_.blocked))
+                  runFragments(plan, plan.preparedFragments, fetched, View(Nil, response.data) :: Nil, guard)
+                }
+            Executed(response, deferred)
+          }
+
+        if (introspectionFields.isEmpty) batches.flatMap(finish(_, NoLocalResponse))
         else
           batches.zipPar(executeIntrospection(execution, introspectionFields)).flatMap { case (done, local) =>
-            observeCompletion(assemble(plan, done, local))
+            finish(done, local)
           }
     }
+
+  private def runFragments(
+    plan: OperationPlan,
+    fragments: List[PreparedFragment],
+    fetched: Fetched,
+    views: List[View],
+    guard: Guard
+  )(implicit trace: Trace): ZStream[R, Nothing, List[Incremental[CalibanError]]] =
+    ZStream.mergeAllUnbounded()(fragments.map(runFragment(plan, _, fetched, views, guard)): _*)
+
+  /**
+   * Runs a deferred fragment once the payload containing its parent objects is complete, then the fragments nested in
+   * it. Objects nulled in an earlier payload get no deferred payload.
+   */
+  private def runFragment(
+    plan: OperationPlan,
+    prepared: PreparedFragment,
+    fetched: Fetched,
+    views: List[View],
+    guard: Guard
+  )(implicit trace: Trace): ZStream[R, Nothing, List[Incremental[CalibanError]]] = {
+    val instances = views.flatMap(_.at(prepared.below))
+    if (instances.isEmpty) ZStream.empty
+    else
+      ZStream.unwrap(
+        guard(resolveFragment(plan, prepared, fetched, instances, guard))(timedOut(prepared, instances, _))
+      )
+  }
+
+  private def resolveFragment(
+    plan: OperationPlan,
+    prepared: PreparedFragment,
+    fetched: Fetched,
+    instances: List[View],
+    guard: Guard
+  )(implicit trace: Trace): URIO[R, ZStream[R, Nothing, List[Incremental[CalibanError]]]] =
+    for {
+      roots <- ZIO.foreachPar(prepared.roots)(executeRoot(plan, _))
+      kept   = instances.map(_.path).toSet
+      data   = fetched.data.map { case (id, value) =>
+                 val found = ListBuffer.empty[(List[PathValue], ResponseValue)]
+                 collectEntities(value, prepared.fragment.point.path.toList, Nil, found)
+                 // Objects an earlier payload nulled get no deferred fetch.
+                 id -> applyPatches(
+                   value,
+                   found.toList.collect { case (path, _) if !kept(path) => path -> Overwrite(NullValue) }
+                 )
+               }
+      done  <- executeEntityFetches(
+                 prepared.fragment.payload.entityWaves,
+                 fetched.copy(data = data ++ roots.map(root => root.id -> root.data), entityErrors = Nil)
+               )
+    } yield {
+      val fragment          = prepared.fragment
+      val values            = done.data.values.toList
+      // At the root, only the fragment's own root fields are merged.
+      val names             =
+        fragment.point.path.headOption.fold(fragment.payload.fields.map(_.aliasedName).distinct)(_ :: Nil)
+      val root              = ObjectValue(names.flatMap(name => rootValue(values, name).map(name -> _)))
+      val errors            = roots.flatMap(_.errors) ::: done.entityErrors
+      // An error under no instance goes to the first one.
+      val owned             =
+        errors.groupBy(error => instances.indexWhere(instance => errorPath(error).startsWith(instance.path)).max(0))
+      val (payloads, views) = instances.zipWithIndex.map { case (instance, index) =>
+        val path       = instance.path
+        val own        = owned.getOrElse(index, Nil)
+        val raw        = rawValue(root, path).getOrElse(NullValue)
+        val completion = prepared.completion.complete(raw, path, own)
+        completion.toResponseValue match {
+          // No field of the fragment applies to this object: nested fragments still read the parent payload.
+          case ObjectValue(Nil) => (None, instance)
+          case value            =>
+            val merged = if (value eq NullValue) NullValue else mergeRootValue(instance.value, value)
+            (Some(prepared.payload(path, value, own ::: completion.errors)), instance.copy(value = merged))
+        }
+      }.unzip
+      val ready             = payloads.flatten
+      val payload           = if (ready.isEmpty) ZStream.empty else ZStream.succeed(ready)
+      payload ++ runFragments(plan, prepared.deferred, done, views, guard)
+    }
+
+  private def timedOut(
+    prepared: PreparedFragment,
+    instances: List[View],
+    error: CalibanError.ExecutionError
+  ): ZStream[Any, Nothing, List[Incremental[CalibanError]]] =
+    ZStream.succeed(instances.map { instance =>
+      prepared.payload(instance.path, NullValue, error.copy(path = instance.path) :: Nil)
+    })
 
   def subscription(plan: OperationPlan, resolvedRequest: GraphQLRequest)(implicit
     trace: Trace
@@ -67,7 +176,7 @@ private[gateway] final class PlanExecutor[-R](
     plan.preparedRoots match {
       case Nil       => ZIO.fail(SubgraphExecutor.InvalidRequest)
       case root :: _ =>
-        val used = plan.roots.map(_.source.name).toSet ++ plan.entities.map(_.target.source.name)
+        val used = plan.payload.roots.map(_.source.name).toSet ++ plan.payload.entities.map(_.target.source.name)
         ZIO
           .foreach(subgraphExecutors) { case (name, executor) =>
             (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
@@ -139,26 +248,28 @@ private[gateway] final class PlanExecutor[-R](
   private def completeRoots(plan: OperationPlan, completion: ResponseCompletion, roots: List[RootResult])(implicit
     trace: Trace
   ): URIO[R, Batch] =
-    executeEntityFetches(plan, roots).map { fetched =>
+    executeEntityFetches(
+      plan.payload.entityWaves,
+      Fetched(roots.iterator.map(root => root.id -> root.data).toMap, Nil, Nil)
+    ).map { fetched =>
       val patched = roots.map(fetched.patched)
-      new Batch(completion, patched, patched.flatMap(_.errors) ::: fetched.entityErrors)
+      new Batch(completion, patched, patched.flatMap(_.errors) ::: fetched.entityErrors, fetched.blocked)
     }
 
-  private def executeEntityFetches(plan: OperationPlan, roots: List[RootResult])(implicit
+  private def executeEntityFetches(waves: List[List[EntityFetch]], initial: Fetched)(implicit
     trace: Trace
   ): URIO[R, Fetched] =
-    ZIO.foldLeft(plan.entityWaves)(Fetched(roots.iterator.map(root => root.id -> root.data).toMap, Nil, Nil)) {
-      (fetched, wave) =>
-        entityExecutor
-          .execute(wave.filter(fetch => fetched.data.contains(fetch.root)), fetched.data, fetched.blocked)
-          .map { result =>
-            val patches = (result.patches ::: result.blocked.map(_.nullPatch)).groupMap(_._1)(_._2)
-            Fetched(
-              fetched.data.map { case (id, value) => id -> patches.get(id).fold(value)(applyPatches(value, _)) },
-              fetched.entityErrors ::: result.errors,
-              result.blocked ::: fetched.blocked
-            )
-          }
+    ZIO.foldLeft(waves)(initial) { (fetched, wave) =>
+      entityExecutor
+        .execute(wave.filter(fetch => fetched.data.contains(fetch.root)), fetched.data, fetched.blocked)
+        .map { result =>
+          val patches = (result.patches ::: result.blocked.map(_.nullPatch)).groupMap(_._1)(_._2)
+          Fetched(
+            fetched.data.map { case (id, value) => id -> patches.get(id).fold(value)(applyPatches(value, _)) },
+            fetched.entityErrors ::: result.errors,
+            result.blocked ::: fetched.blocked
+          )
+        }
     }
 
   private def executeRoot(plan: OperationPlan, prepared: PreparedRoot)(implicit trace: Trace): URIO[R, RootResult] = {
@@ -223,7 +334,12 @@ private[gateway] object PlanExecutor {
     def id: FetchId = prepared.fetch.id
   }
 
-  private final class Batch(completion: ResponseCompletion, roots: List[RootResult], val errors: List[CalibanError]) {
+  private final class Batch(
+    completion: ResponseCompletion,
+    val roots: List[RootResult],
+    val errors: List[CalibanError],
+    val blocked: List[EntityLocation]
+  ) {
     lazy val completed: Completion = roots match {
       case RootResult(_, data: ObjectValue, _) :: Nil => completion.complete(data, errors)
       case _                                          =>
@@ -245,6 +361,76 @@ private[gateway] object PlanExecutor {
     }
 
   private val NoLocalResponse = GraphQLResponse(ObjectValue.empty, Nil)
+
+  /**
+   * Bounds the work of a deferred fragment, returning `onTimeout` applied to the timeout error when the request deadline
+   * expires first.
+   */
+  trait Guard {
+    def apply[R, A](effect: URIO[R, A])(onTimeout: CalibanError.ExecutionError => A): URIO[R, A]
+  }
+
+  /**
+   * The initial response, and the payloads of its deferred fragments when the operation defers any.
+   */
+  final case class Executed[-R](
+    response: GraphQLResponse[CalibanError],
+    deferred: Option[Guard => ZStream[R, Nothing, List[Incremental[CalibanError]]]]
+  )
+
+  final case class PreparedFragment(
+    fragment: DeferredFragment,
+    completion: ResponseCompletion.FragmentCompletion,
+    roots: List[PreparedRoot],
+    deferred: List[PreparedFragment],
+    below: List[String]
+  ) {
+    def payload(path: List[PathValue], data: ResponseValue, errors: List[CalibanError]): Incremental[CalibanError] =
+      Incremental.Defer(data, ListValue(path), errors, fragment.point.label)
+  }
+
+  private[internal] def prepareFragments(plan: OperationPlan): List[PreparedFragment] = {
+    def prepare(fragment: DeferredFragment, parent: Vector[String]): PreparedFragment =
+      PreparedFragment(
+        fragment,
+        ResponseCompletion.forFragment(plan, fragment),
+        fragment.payload.roots.map(prepareRoot(plan, _)),
+        fragment.payload.deferred.map(prepare(_, fragment.point.path)),
+        fragment.point.path.drop(parent.size).toList
+      )
+    plan.payload.deferred.map(prepare(_, Vector.empty))
+  }
+
+  /**
+   * Completed objects of a payload: `path` locates `value` in the response.
+   */
+  private final case class View(path: List[PathValue], value: ResponseValue) {
+
+    /**
+     * The non-null objects at `below`, a path without indices relative to this view, with their concrete paths.
+     */
+    def at(below: List[String]): List[View] = {
+      val found = ListBuffer.empty[(List[PathValue], ResponseValue)]
+      collectEntities(value, below, path.reverse, found)
+      found.toList.collect { case (path, obj: ObjectValue) => View(path, obj) }
+    }
+  }
+
+  /**
+   * The fetched object at a concrete response path below `root`.
+   */
+  private def rawValue(root: ResponseValue, path: List[PathValue]): Option[ResponseValue] =
+    path.foldLeft(Option(root)) {
+      case (Some(obj: ObjectValue), PathValue.Key(key))      => Option(obj.getOrNull(key))
+      case (Some(ListValue(values)), PathValue.Index(index)) => values.lift(index)
+      case _                                                 => None
+    }
+
+  private def errorPath(error: CalibanError): List[PathValue] =
+    error match {
+      case error: CalibanError.ExecutionError => error.path
+      case _                                  => Nil
+    }
 
   final case class Subscription[-R](
     open: ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]],

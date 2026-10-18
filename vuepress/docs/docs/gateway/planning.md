@@ -154,4 +154,30 @@ If you use `Configurator.setValidations`, reuse the same validation functions ac
 
 ## Supported operations
 
-The gateway supports queries, mutations, and [subscriptions](subscriptions.md). It does not support `@defer` or `@stream` incremental responses from subgraphs.
+The gateway supports queries, mutations, [subscriptions](subscriptions.md), and [deferred fragments](#deferred-fragments). It does not support `@stream`. It never forwards `@defer` or `@stream` to subgraphs.
+
+## Deferred fragments
+
+`@defer` is always enabled. The gateway first sends the fields outside deferred fragments, then one payload per deferred fragment. Payloads use the same format as [Caliban's own `@defer` support](../optimization.md#defer-support-experimental): `multipart/mixed` with `deferSpec=20220824`.
+
+Each deferred fragment is fetched in one of these ways:
+
+- Fields from another subgraph are fetched after the initial payload.
+- Fields of an entity from the same subgraph get a second call that looks the entity up by its key, so a slow field does not hold up the initial payload.
+- A fragment with fields of an object the gateway cannot look up by key is not deferred: those fields are fetched with their parent, so the whole fragment arrives in the parent's payload. `@defer` is only a hint, and this keeps the errors and nulls of those fields in the payload that carries them.
+- A deferred fragment on root query fields gets its own root call.
+
+`explain` lists each deferred fragment with the calls it makes:
+
+```
+query
+fetch products at $.product fields [name, id (key)]
+defer reviews at $.product fields [reviews.body]
+  fetch reviews after products at $.product via Product(id) fields [reviews.body]
+```
+
+A field selected both inside and outside a deferred fragment arrives in the earlier payload. Under a list, each item gets its own entry with its index in `path`. A non-null violation inside a deferred fragment stops at the fragment: its entry has `data: null` and the error.
+
+Mutation and subscription root fields cannot use `@defer`, and subscriptions reject it anywhere. Deferred fields below a mutation field are fetched after the mutation completes, so the mutation runs once.
+
+The [request timeout](configuration.md#gateway-limits-and-shutdown) covers deferred fragments, and shutdown waits for them like any other request. A fragment that does not finish in time gets `data: null` and a timeout error. The `operation`, `execution`, and `completion` [hooks](hooks.md) end with the initial payload. Calls made for deferred fragments still run the `subgraphCall` and `attempt` hooks.

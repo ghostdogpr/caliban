@@ -2,10 +2,11 @@ package caliban.tracing
 
 import caliban.InputValue.ObjectValue
 import caliban.RemoteQuery
+import caliban.rendering.DocumentRenderer
 import caliban.Value.FloatValue.FloatNumber
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
-import caliban.execution.{ ExecutionRequest, Field }
+import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.OperationType
 import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
@@ -29,9 +30,7 @@ object SchemaTracer {
               spanName(request),
               SpanKind.INTERNAL
             ) {
-              ZIO.foreachDiscard(attributes(request.field)) { case (k, v) =>
-                tracer.setAttribute(k, v)
-              } *> f(request)
+              tracer.setAttribute("document", graphQLQuery(request)) *> f(request)
             }
           )
       }
@@ -51,12 +50,8 @@ object SchemaTracer {
     Seq(Some(operationTypeString), request.operationName).flatten.mkString(" ")
   }
 
-  private def attributes[T, R](
-    field: Field
-  ) = List("document" -> graphQLQuery(field))
-
-  private def graphQLQuery(field: Field): String =
-    RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
+  private def graphQLQuery(request: ExecutionRequest): String =
+    DocumentRenderer.renderCompact(RemoteQuery.operationDocument(request.operationType, request.field, maskArguments))
 
   private[tracing] def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
     args.map { case (k, v) => (k, maskValue(v)) }.toMap
@@ -72,10 +67,4 @@ object SchemaTracer {
       case _: Value.EnumValue           => Value.EnumValue("__REDACTED")
       case x                            => x
     }
-
-  private def maskField(f: Field): Field =
-    f.copy(
-      arguments = maskArguments(f.arguments),
-      fields = f.fields.map(maskField)
-    )
 }

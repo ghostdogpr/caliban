@@ -321,7 +321,7 @@ lazy val tracing = project
       "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.67.0"   % Test
     )
   )
-  .dependsOn(core)
+  .dependsOn(core % "compile->compile;test->test")
 
 lazy val codegenSbt = project
   .in(file("codegen-sbt"))

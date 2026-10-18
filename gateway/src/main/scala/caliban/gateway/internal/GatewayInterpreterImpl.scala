@@ -12,8 +12,8 @@ import caliban.gateway.{ GatewayInterpreter, OperationEvent, PhaseHooks }
 import caliban.parsing.adt.OperationType
 import caliban._
 import zio.stm.USTM
-import zio.stream.ZStream
-import zio.{ Clock, Exit, IO, Trace, UIO, URIO, ZIO }
+import zio.stream.{ Take, ZStream }
+import zio.{ Clock, Exit, IO, Queue, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class GatewayInterpreterImpl[-R](
   operations: OperationPreparation[R],
@@ -72,7 +72,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
       val shutdown = failed(requestShutdownError, markServerError(ServerFailure.Unavailable), Outcome.RequestError)
 
-      lease.fold(observe(shutdown)) { _ =>
+      lease.fold(observe(shutdown)) { current =>
         // Classify the resolved operation before opening finite-request metrics/spans, while one
         // deadline and drain lease cover preparation and execution together.
         preparation.foldZIO(
@@ -81,12 +81,44 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             operation.plan.operationType match {
               case OperationType.Subscription => executed(operation, markSubscribed)(subscribe(operation))
               case _                          =>
-                val execute = executor.execute(operation.plan, operation.executionRequest, operation.request)
+                val execute = executor
+                  .execute(operation.plan, operation.executionRequest, operation.request)
+                  .flatMap(deliver(current, _))
                 observe(executed(operation, markExecuted)(execute))
             }
         )
       }
     }
+
+    private def guard(current: control.Lease)(implicit trace: Trace): PlanExecutor.Guard =
+      new PlanExecutor.Guard {
+        def apply[R1, A](effect: URIO[R1, A])(onTimeout: CalibanError.ExecutionError => A): URIO[R1, A] =
+          current.runWithin(effect)(ZIO.succeed(onTimeout(requestTimeoutError)))
+      }
+
+    /**
+     * Deferred payloads run in their own fiber as soon as the initial payload is ready, keeping the request admitted,
+     * so the request deadline and drain cover them whether or not the client reads them.
+     */
+    private def deliver[R1 <: R](current: control.Lease, executed: PlanExecutor.Executed[R1])(implicit
+      trace: Trace
+    ): URIO[R1, GraphQLResponse[CalibanError]] =
+      executed.deferred match {
+        case None           => ZIO.succeed(executed.response)
+        case Some(payloads) =>
+          for {
+            queue <- Queue.unbounded[Take[Nothing, List[Incremental[CalibanError]]]]
+            pump  <- current.detach(payloads(guard(current)).runIntoQueue(queue))
+          } yield {
+            val rest =
+              ZStream.fromQueue(queue).flattenTake.map(GraphQLIncrementalResponse(_, hasNext = true).toResponseValue) ++
+                ZStream.succeed(GraphQLIncrementalResponse.empty.toResponseValue)
+            executed.response.copy(
+              data = StreamValue((ZStream.succeed(executed.response.data) ++ rest).ensuring(pump.interrupt)),
+              hasNext = Some(true)
+            )
+          }
+      }
   }
 
   /**

@@ -88,7 +88,7 @@ case class Field(
             field.aliasedName,
             (_, existing) =>
               if (existing eq null) field
-              else existing.copy(fields = existing.fields ::: field.fields)
+              else existing.copy(fields = existing.mergeFields(field), fragment = Field.earliest(existing, field))
           )
         remaining = remaining.tail
       }
@@ -109,9 +109,21 @@ case class Field(
   private def calculateMapCapacity(nMappings: Int): Int =
     Math.ceil(nMappings / 0.75d).toInt
 
+  /**
+   * The sub-fields of this field and of another selection of it, keeping fields shared by both once.
+   */
+  private def mergeFields(other: Field): List[Field] =
+    if (self.fields.lengthCompare(Field.MaxScannedFields) <= 0)
+      self.fields ::: other.fields.filterNot(field => self.fields.exists(_ eq field))
+    else {
+      val shared = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Field, java.lang.Boolean]())
+      self.fields.foreach(shared.add)
+      self.fields ::: other.fields.filterNot(shared.contains)
+    }
+
   def combine(other: Field): Field =
     self.copy(
-      fields = self.fields ::: other.fields,
+      fields = mergeFields(other),
       targets = (self.targets, other.targets) match {
         case (Some(t1), Some(t2)) => if (t1 == t2) self.targets else Some(t1 ++ t2)
         case (Some(_), None)      => self.targets
@@ -123,56 +135,59 @@ case class Field(
         case (Some(_), None)      => self._condition
         case (None, Some(_))      => other._condition
         case (None, None)         => None
-      }
+      },
+      fragment = Field.earliest(self, other)
     )
 
-  lazy val toSelection: Selection = {
-    def loop(f: Field): Selection = {
-      // Not pretty, but it avoids computing the hashmap if it isn't needed
-      var map: mutable.Map[String, List[Selection]] =
-        null.asInstanceOf[mutable.Map[String, List[Selection]]]
+  lazy val toSelection: Selection = selecting(arguments, selectionSet(_.toSelection))
 
-      val children = f.fields.flatMap { child =>
-        val childSelection = loop(child)
-        child.targets match {
-          case Some(targets) =>
-            targets.foreach { target =>
-              if (map eq null) map = mutable.LinkedHashMap.empty
-              map.update(target, childSelection :: map.getOrElse(target, Nil))
-            }
-            None
-          case None          =>
-            Some(childSelection)
-        }
-      }
+  /**
+   * This field with `arguments` selecting `selectionSet`.
+   */
+  private[caliban] def selecting(arguments: Map[String, InputValue], selectionSet: List[Selection]): Selection = {
+    val schemaDirectives =
+      parentType.flatMap(pt => Option(pt.innerType.getFieldOrNull(name))).flatMap(_.directives).getOrElse(Nil)
+    val directives       =
+      if (schemaDirectives.isEmpty) self.directives else self.directives.filterNot(schemaDirectives.contains)
 
-      val inlineFragments =
-        if (map eq null) Nil
-        else
-          map.map { case (name, selections) =>
-            Selection.InlineFragment(
-              Some(NamedType(name, nonNull = false)),
-              Nil,
-              selections
-            )
+    Selection.Field(alias, name, arguments, directives, selectionSet, 0)
+  }
+
+  /**
+   * The selections of this field's sub-fields, rendering each one with `child` and grouping those with type conditions
+   * into inline fragments.
+   */
+  private[caliban] def selectionSet(child: Field => Selection): List[Selection] = {
+    // Not pretty, but it avoids computing the hashmap if it isn't needed
+    var map: mutable.Map[String, List[Selection]] =
+      null.asInstanceOf[mutable.Map[String, List[Selection]]]
+
+    val children = fields.flatMap { field =>
+      val childSelection = child(field)
+      field.targets match {
+        case Some(targets) =>
+          targets.foreach { target =>
+            if (map eq null) map = mutable.LinkedHashMap.empty
+            map.update(target, childSelection :: map.getOrElse(target, Nil))
           }
-
-      val schemaDirectives =
-        f.parentType.flatMap(pt => Option(pt.innerType.getFieldOrNull(f.name))).flatMap(_.directives).getOrElse(Nil)
-      val directives       =
-        if (schemaDirectives.isEmpty) f.directives else f.directives.filterNot(schemaDirectives.contains)
-
-      Selection.Field(
-        f.alias,
-        f.name,
-        f.arguments,
-        directives,
-        children ++ inlineFragments,
-        0
-      )
+          None
+        case None          =>
+          Some(childSelection)
+      }
     }
 
-    loop(this)
+    val inlineFragments =
+      if (map eq null) Nil
+      else
+        map.map { case (name, selections) =>
+          Selection.InlineFragment(
+            Some(NamedType(name, nonNull = false)),
+            Nil,
+            selections
+          )
+        }
+
+    children ++ inlineFragments
   }
 }
 
@@ -290,8 +305,8 @@ object Field {
               case Left(l)  => l.foreach(builder.addField(_, typeName))
               case Right(l) =>
                 l.foreach {
-                  case (f, c) if c.exists(isSubsetCondition) => builder.addField(f, c)
-                  case (f, _)                                => builder.addField(f, typeName)
+                  case (f, c) if typeName.isEmpty || c.exists(isSubsetCondition) => builder.addField(f, c)
+                  case (f, _)                                                    => builder.addField(f, typeName)
                 }
             }
           }
@@ -304,6 +319,81 @@ object Field {
   }
 
   private val identityFnList: List[Field] => List[Field] = l => l
+
+  private val MaxScannedFields = 16
+
+  /**
+   * Folds `f` over `fields` and every field below them, passing each one's depth, starting at one, and the number of
+   * selection paths reaching it. A field reached by several paths is visited once per depth, in the order it is first
+   * reached.
+   */
+  private[caliban] def foldShared[A](fields: List[Field], zero: A)(f: (A, Field, Int, Long) => A): A = {
+    final class Reached(val field: Field, var paths: Long)
+    final class Level {
+      val entries = ListBuffer.empty[Reached]
+      val reached = new java.util.IdentityHashMap[Field, Reached]()
+
+      def add(field: Field, paths: Long): Unit = {
+        val existing = reached.get(field)
+        if (existing eq null) {
+          val created = new Reached(field, paths)
+          reached.put(field, created)
+          entries += created
+        } else existing.paths = addPaths(existing.paths, paths)
+      }
+    }
+
+    var level = new Level
+    var depth = 1
+    var acc   = zero
+    fields.foreach(level.add(_, 1L))
+    while (level.entries.nonEmpty) {
+      val next = new Level
+      level.entries.foreach { entry =>
+        acc = f(acc, entry.field, depth, entry.paths)
+        entry.field.fields.foreach(next.add(_, entry.paths))
+      }
+      level = next
+      depth += 1
+    }
+    acc
+  }
+
+  /**
+   * The number of fields below `field` once every fragment spread is expanded, capped at `Long.MaxValue`.
+   */
+  private[caliban] def expandedCount(field: Field): Long = {
+    def loop(children: List[Field], count: Long): Long = children match {
+      case child :: rest if count < MaxDirectVisits => loop(rest, loop(child.fields, count + 1))
+      case _                                        => count
+    }
+
+    val count = loop(field.fields, 0L)
+    if (count < MaxDirectVisits) count
+    else foldShared(field.fields, 0L)((count, _, _, paths) => addPaths(count, paths))
+  }
+
+  /**
+   * Fields the direct walks visit, following every path, before switching to `foldShared`.
+   */
+  private[caliban] val MaxDirectVisits = 1024
+
+  private def addPaths(a: Long, b: Long): Long = {
+    val sum = a + b
+    if (sum < 0) Long.MaxValue else sum
+  }
+
+  /**
+   * The fragment of a field selected twice.
+   * A field belongs to the earliest payload selecting it: outside deferred fragments, or in the outer one.
+   */
+  private def earliest(first: Field, second: Field): Option[Fragment] =
+    (first.fragment, second.fragment) match {
+      case (Some(mine @ Fragment.IsDeferred(_)), Some(theirs @ Fragment.IsDeferred(_))) =>
+        if (mine.directives.startsWith(theirs.directives)) second.fragment else first.fragment
+      case (Some(Fragment.IsDeferred(_)), _)                                            => second.fragment
+      case _                                                                            => first.fragment
+    }
 
   private def resolveDirectiveVariables(
     variableValues: Map[String, InputValue],
@@ -400,7 +490,7 @@ object Field {
     tpe.map(_ => loop(Set.newBuilder[String] += typeName, tpe).result())
   }
 
-  private def checkDirectives(directives: List[Directive]): Boolean =
+  private[caliban] def checkDirectives(directives: List[Directive]): Boolean =
     directives.isEmpty ||
       (!checkDirective("skip", default = false, directives) &&
         checkDirective("include", default = true, directives))

@@ -1,10 +1,11 @@
 package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, PathValue, ResponseValue }
-import caliban.execution.{ isMetaField, Field }
+import caliban.execution.Field
 import caliban.gateway.TypenameField
 import caliban.gateway.internal.execution.ResponseCompletion._
 import caliban.gateway.internal.planning.OperationPlan
+import caliban.gateway.internal.planning.OperationPlan.DeferredFragment
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
@@ -29,6 +30,9 @@ private[gateway] final class ResponseCompletion private (fields: Array[CompiledF
         if (result eq null) BubbleNull(completionErrors) else Completed(result, completionErrors)
       case _                => Completed(NullValue, if (errors.isEmpty) List(RemoteError.at(Nil)) else Nil)
     }
+}
+
+private[gateway] object ResponseCompletion {
 
   /**
    * Paths are accumulated in reverse order. A Scala null signals a non-null violation that must bubble;
@@ -101,6 +105,17 @@ private[gateway] final class ResponseCompletion private (fields: Array[CompiledF
         case PassThroughType         => value
       }
 
+    def completeComposite(tpe: CompiledType, value: ResponseValue, path: List[PathValue]): ResponseValue =
+      tpe match {
+        case t: AbstractType => completeAbstract(t, value, path)
+        case t: ObjectType   =>
+          value match {
+            case obj: ObjectValue => completeNested(t.fields, IndexedFields(obj), path)
+            case _                => invalid(path)
+          }
+        case _               => invalid(path)
+      }
+
     private def completeNested(
       fields: Array[CompiledField],
       values: IndexedFields,
@@ -163,9 +178,7 @@ private[gateway] final class ResponseCompletion private (fields: Array[CompiledF
       null
     }
   }
-}
 
-private[gateway] object ResponseCompletion {
   private def compileFields(fields: List[Field], fetched: FetchedFields, runtimeType: String): Array[CompiledField] =
     fields.map(compileField(_, fetched, runtimeType)).toArray
 
@@ -220,7 +233,20 @@ private[gateway] object ResponseCompletion {
   private def wasFetched(node: FetchedFields, field: Field, typeName: String): Boolean =
     node.fields.exists(selected => selected.name == field.name && selected._condition.forall(_.contains(typeName)))
 
-  def forPlan(plan: OperationPlan): ResponseCompletion = {
+  def forPlan(plan: OperationPlan): ResponseCompletion =
+    new ResponseCompletion(compileFields(plan.payload.fields, fetchedFields(plan), null))
+
+  /**
+   * Compiles a deferred fragment against the objects at its defer point.
+   */
+  def forFragment(plan: OperationPlan, fragment: DeferredFragment): FragmentCompletion = {
+    var node   = fetchedFields(plan)
+    fragment.point.path.foreach(name => node = node.child(name))
+    val parent = Field("", fragment.parentType, None, fields = fragment.payload.fields)
+    new FragmentCompletion(compileType(fragment.parentType, parent, node))
+  }
+
+  private def fetchedFields(plan: OperationPlan): FetchedFields = {
     // A valid plan can omit conditional fields outside the common runtime types of a shareable path.
     // Retain fetched selections so those omissions do not look like malformed upstream responses.
     val root                                                    = new FetchedFields
@@ -230,8 +256,8 @@ private[gateway] object ResponseCompletion {
         child.fields = field :: child.fields
         collect(field.fields, child)
       }
-    collect(plan.roots.flatMap(_.downstream), root)
-    plan.entities.foreach { fetch =>
+    collect(plan.payload.allRoots.flatMap(_.downstream), root)
+    plan.payload.allEntities.foreach { fetch =>
       var node = root
       fetch.mergePath.foreach(name => node = node.childOrCreate(name))
       collect(fetch.fields, node)
@@ -241,7 +267,18 @@ private[gateway] object ResponseCompletion {
       selection.path.foreach(name => node = node.childOrCreate(name))
       node.typenames = node.typenames :+ selection.responseName
     }
-    new ResponseCompletion(compileFields(plan.fields.filterNot(isMetaField), root, null))
+    root
+  }
+
+  final class FragmentCompletion private[ResponseCompletion] (tpe: CompiledType) {
+
+    /**
+     * Completes the fragment on the object at `path`, given in response order. A non-null violation nulls the object.
+     */
+    def complete(value: ResponseValue, path: List[PathValue], errors: List[CalibanError]): Completion = {
+      val completer = new Completer(errorPaths(errors))
+      Completed(completer.completeComposite(tpe, value, path.reverse), completer.errors.toList)
+    }
   }
 
   sealed trait Completion {

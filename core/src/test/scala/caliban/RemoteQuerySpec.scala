@@ -26,6 +26,8 @@ object RemoteQuerySpec extends ZIOSpecDefault {
     interface: Interface
   )
 
+  case class NestedQueries(root: Field => UIO[TestUtils.Nested])
+
   def api(ref: Ref[String]): IO[ValidationError, GraphQLInterpreter[Any, CalibanError]] = {
     val api = graphQL(
       RootResolver(
@@ -44,6 +46,18 @@ object RemoteQuerySpec extends ZIOSpecDefault {
   }
 
   override def spec = suite("RemoteQuerySpec")(
+    test("renders fields shared by fragments spread inside fragments once") {
+      import TestUtils.nestedSchema
+
+      for {
+        ref      <- Ref.make[String]("")
+        render    = (field: Field) => ref.set(RemoteQuery.QueryRenderer.render(RemoteQuery(field))).as(TestUtils.nested)
+        remote   <- graphQL(RootResolver(NestedQueries(render))).interpreter
+        _        <- remote.execute(TestUtils.nestedSpreads(30))
+        rendered <- ref.get
+        replayed <- TestUtils.nestedApi.interpreter.flatMap(_.execute(rendered))
+      } yield assertTrue(rendered.length < 20000, replayed.data.toString == TestUtils.nestedResult(30))
+    } @@ TestAspect.timeout(30.seconds),
     test("correctly renders a query for a field") {
       val query = gqldoc("""{
               union(value: "foo\"") { ...on Interface { id }  }

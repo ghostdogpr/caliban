@@ -12,8 +12,6 @@ import caliban.schema.Types
 import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import zio.{ Ref, UIO, URIO, ZIO }
 
-import scala.annotation.tailrec
-
 object CostEstimation {
 
   final val COST_DIRECTIVE_NAME = "cost"
@@ -274,25 +272,12 @@ object CostEstimation {
         (req: GraphQLRequest) => process(req).flatMap(f)
     }
 
-  private def computeCost(field: Field)(f: Field => Double): Double = {
-    @tailrec
-    def go(fields: List[Field], total: Double): Double = fields match {
-      case Nil          => total
-      case head :: tail => go(head.fields ++ tail, f(head) + total)
-    }
+  private def computeCost(field: Field)(f: Field => Double): Double =
+    Field.foldShared(field.fields, f(field))((total, field, _, paths) => total + f(field) * paths)
 
-    go(List(field), 0.0)
-  }
-
-  private def computeCostZIO[R](field: Field)(f: Field => URIO[R, Double]): URIO[R, Double] = {
-    @tailrec
-    def go(fields: List[Field], result: List[URIO[R, Double]]): List[URIO[R, Double]] = fields match {
-      case Nil          => result
-      case head :: tail =>
-        go(head.fields ++ tail, f(head) :: result)
-    }
-
-    ZIO.mergeAllPar(go(List(field), Nil))(0.0)(_ + _)
-  }
+  private def computeCostZIO[R](field: Field)(f: Field => URIO[R, Double]): URIO[R, Double] =
+    ZIO.mergeAllPar(
+      Field.foldShared(field.fields, f(field) :: Nil)((costs, field, _, paths) => f(field).map(_ * paths) :: costs)
+    )(0.0)(_ + _)
 
 }

@@ -59,6 +59,24 @@ object GatewaySpec extends ZIOSpecDefault {
       implicit val querySchema: Schema[Any, Query]   = gen
       val api                                        = graphQL(RootResolver(Query(args => args.value)))
     }
+
+    object NestedApi extends GenericSchema[Any] {
+      import auto._
+      import caliban.schema.ArgBuilder
+      import caliban.schema.Annotations.GQLInterface
+      @GQLInterface
+      sealed trait Node
+      final case class Leaf(value: Int, next: NextArgs => Node)   extends Node
+      final case class Branch(value: Int, next: NextArgs => Node) extends Node
+      final case class NextArgs(step: Int)
+      final case class Query(root: Node)
+      lazy val leaf: Node                             = Leaf(1, _ => leaf)
+      implicit val argsBuilder: ArgBuilder[NextArgs]  = ArgBuilder.gen
+      implicit val argsSchema: Schema[Any, NextArgs]  = gen
+      implicit lazy val nodeSchema: Schema[Any, Node] = gen
+      implicit val querySchema: Schema[Any, Query]    = gen
+      val api                                         = graphQL(RootResolver(Query(leaf)))
+    }
   }
 
   private val productsSchema =
@@ -279,7 +297,37 @@ object GatewaySpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           field(response.data, "value").contains(StringValue("ok"))
         )
-      }
+      },
+      test("rejects operations whose fragments expand past the field limit before planning them") {
+        def spreads(k: Int)       = s"...A$k @include(if: true) ...A$k @skip(if: false) ...B$k"
+        def query(levels: Int)    = {
+          val fragments = (0 until levels).flatMap(k =>
+            List("A", "B").map(name =>
+              s"fragment $name$k on Node { next(step: $$step) { ${spreads(k + 1)} } ... on Leaf { next(step: $$step) { ${spreads(k + 1)} } } }"
+            )
+          )
+          GraphQLRequest(
+            query = Some(
+              "query($step: Int!) { root { ...A0 ...B0 } } " + fragments.mkString(" ") +
+                s" fragment A$levels on Node { value } fragment B$levels on Node { value }"
+            ),
+            variables = Some(Map("step" -> Value.IntValue(1)))
+          )
+        }
+        def expected(levels: Int) = """{"root":""" + """{"next":""" * levels + """{"value":1}""" + "}" * (levels + 1)
+
+        for {
+          runtime <- Gateway.compose(Subgraph.graphql("nested", LocalSchemas.NestedApi.api)).interpreter
+          small   <- runtime.executeRequest(query(5))
+          large   <- runtime.executeRequest(query(30))
+        } yield assertTrue(
+          small.errors.isEmpty,
+          small.data.toString == expected(5),
+          large.errors.map(_.getMessage) == List(
+            "Operation selects more than 100000 fields once fragments are expanded."
+          )
+        )
+      } @@ TestAspect.timeout(30.seconds)
     ),
     suite("single-source execution")(
       test("executes one pinned remote graph end to end through GatewayInterpreter") {

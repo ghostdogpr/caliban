@@ -3,8 +3,8 @@ package caliban.wrappers
 import caliban.Value.{ IntValue, StringValue }
 import caliban.schema.Schema
 import caliban.wrappers.Caching.{ CacheHint, CacheScope, GQLCacheControl }
-import caliban.{ graphQL, ResponseValue, RootResolver }
-import zio.test.{ assertTrue, ZIOSpecDefault }
+import caliban.{ graphQL, ResponseValue, RootResolver, TestUtils }
+import zio.test.{ assertTrue, TestAspect, ZIOSpecDefault }
 import zio.{ durationInt, UIO, ZIO }
 
 object CachingSpec extends ZIOSpecDefault {
@@ -154,7 +154,12 @@ object CachingSpec extends ZIOSpecDefault {
           )
         )
       }
-    }
+    },
+    test("fragments spread inside fragments") {
+      for {
+        res <- (TestUtils.nestedApi @@ Caching.extension()).interpreter.flatMap(_.execute(TestUtils.nestedSpreads(30)))
+      } yield assertTrue(res.data.toString == TestUtils.nestedResult(30))
+    } @@ TestAspect.timeout(30.seconds)
   )
 
   object Fixture {

@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import zio.stm.{ TRef, USTM }
-import zio.{ Clock, Duration, Fiber, IO, Scope, Trace, UIO, ZIO }
+import zio.{ Clock, Duration, Fiber, IO, Scope, Trace, UIO, URIO, ZIO }
 
 import java.util.concurrent.ConcurrentHashMap
 
@@ -31,6 +31,16 @@ private[gateway] final class GatewayExecutionControl private (
 
     def release(implicit trace: Trace): UIO[Unit] =
       state.update(current => current.copy(leases = current.leases - 1)).commit
+
+    /**
+     * Runs `effect` in a daemon fiber that keeps the request admitted until it ends.
+     * Drain waits for it even once this lease is released.
+     */
+    def detach[R, A](effect: URIO[R, A])(implicit trace: Trace): URIO[R, Fiber.Runtime[Nothing, A]] =
+      ZIO.uninterruptibleMask(restore =>
+        state.update(current => current.copy(leases = current.leases + 1)).commit *>
+          restore(effect).ensuring(release).forkDaemon
+      )
   }
 
   // Reservation is coordinated with generation selection by the reload supervisor.

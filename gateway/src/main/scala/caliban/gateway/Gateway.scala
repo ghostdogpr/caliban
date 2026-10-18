@@ -6,7 +6,7 @@ import caliban.gateway.internal._
 import caliban.gateway.internal.acquisition.SupergraphAcquisition
 import caliban.gateway.internal.composition._
 import caliban.gateway.internal.execution._
-import caliban.gateway.internal.planning.{ CandidateSearch, OperationCost, OperationPlanner, OperationSecurity }
+import caliban.gateway.internal.planning._
 import caliban.introspection.Introspector
 import caliban.parsing.adt.Document
 import caliban.rendering.DocumentRenderer
@@ -115,9 +115,10 @@ final class Gateway[-R] private[gateway] (
                        new OperationPlanner(
                          graph,
                          CandidateSearch.Limits(
-                           config.maxPlanningCandidates,
-                           config.maxPlanningExpansions,
-                           config.planningTimeout
+                           maxCandidates = config.maxPlanningCandidates,
+                           maxExpansions = config.maxPlanningExpansions,
+                           maxFields = config.maxOperationFields,
+                           timeout = config.planningTimeout
                          )
                        ),
                        security,

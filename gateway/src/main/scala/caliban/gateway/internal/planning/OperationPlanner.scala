@@ -11,12 +11,13 @@ import caliban.gateway.internal.planning.OperationPlan._
 import caliban.gateway.internal.planning.OperationPlanner._
 import caliban.gateway._
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
-import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
+import caliban.parsing.adt.{ Directive, Directives, Document, OperationType, Selection }
 import caliban.parsing.SourceMapper
 import caliban.schema.Types
 
 import scala.collection.compat._
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 
 private[gateway] final class OperationPlanner(
   graph: ComposedGraph,
@@ -26,11 +27,9 @@ private[gateway] final class OperationPlanner(
   def progressiveOverrides(fields: List[Field]): Set[OverrideLabel] =
     if (!graph.hasProgressiveOverrides) Set.empty
     else
-      fields
-        .flatMap(field =>
-          graph.progressiveOverrides(innerParentTypeName(field), field.name) ++ progressiveOverrides(field.fields)
-        )
-        .toSet
+      Field.foldShared(fields, Set.empty[OverrideLabel])((labels, field, _, _) =>
+        labels ++ graph.progressiveOverrides(innerParentTypeName(field), field.name)
+      )
 
   /**
    * All recursive planning for an operation shares one mutable budget through its planning session.
@@ -66,8 +65,16 @@ private[gateway] object OperationPlanner {
       val fields                        = execution.field.collectFields(ComposedGraph.rootName(operationType))
       val (localFields, subgraphFields) = fields.partition(isMetaField)
       val isSubscription                = operationType == OperationType.Subscription
+      val defers                        = Deferral.hasDefer(document, execution.operationName)
 
       for {
+        _                  <- Either.cond(
+                                Field.expandedCount(execution.field) <= limits.maxFields,
+                                (),
+                                PlanningFailure.Exhausted(
+                                  s"Operation selects more than ${limits.maxFields} fields once fragments are expanded."
+                                )
+                              )
         _                  <- search.checkTimeout
         _                  <- Either.cond(
                                 !isSubscription || (subgraphFields.size == 1 && localFields.isEmpty),
@@ -82,7 +89,8 @@ private[gateway] object OperationPlanner {
                               )
         best               <- planRoots(subgraphFields)
         typenameSelections  = collectTypenameSelections(best.roots, best.entities)
-        passthroughSubgraph = findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
+        passthroughSubgraph =
+          if (defers) None else findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
         _                  <- Either.cond(
                                 passthroughSubgraph.nonEmpty ||
                                   !document.hasDirective(execution.operationName)(isCustomDirective),
@@ -91,15 +99,92 @@ private[gateway] object OperationPlanner {
                               )
         _                  <- search.checkTimeout
         _                  <- validateContextBindings(best.roots, best.entities)
+        payload            <-
+          if (defers) deliveries(execution.field.fieldType, subgraphFields, best)
+          else Right(Payload(subgraphFields, best.roots, best.waves, Nil))
       } yield OperationPlan(
         operationType,
         execution.operationName,
         fields,
-        best.roots,
-        best.waves,
+        payload,
         typenameSelections,
         passthroughSubgraph
       )
+    }
+
+    /**
+     * Splits the selected fetches between the initial payload and the deferred fragments of the client selection.
+     * Each fragment's fetches start once the payload containing its parent is complete. A fragment with fields fetched
+     * by a fetch of an earlier payload is delivered with that payload, which also receives their errors and nulls.
+     */
+    private def deliveries(
+      rootType: __Type,
+      fields: List[Field],
+      best: PlanCandidate
+    ): Either[PlanningFailure, Payload] = {
+      // The parent type and fields of each deferred fragment, by the delivery of its parent and its defer point.
+      val points = mutable.LinkedHashMap.empty[(Deferral.Delivery, Deferral.DeferPoint), (__Type, ListBuffer[Field])]
+
+      val inline =
+        (best.roots.flatMap(fetch => prefetched(fetch.downstream, fetch.delivery, Vector.empty)) :::
+          best.entities.flatMap(fetch => prefetched(fetch.fields, fetch.delivery, fetch.mergePath))).toSet
+
+      def sent(delivery: Deferral.Delivery): Deferral.Delivery = delivery.filterNot(inline)
+
+      /**
+       * Keeps the fields delivered by `parent` and registers the others with each deferred fragment they start.
+       * A fragment nested in another at the same object starts both, even when the outer one has no fields of its own.
+       */
+      def split(values: List[Field], parent: Deferral.Delivery, path: Vector[String], parentType: __Type): List[Field] =
+        values.flatMap { field =>
+          val own  = sent(Deferral.delivery(field, parent, path))
+          val at   = own.tails.collect {
+            case point :: outer if outer.size >= parent.size =>
+              points.getOrElseUpdate(outer -> point, (parentType, ListBuffer.empty[Field]))
+          }.toList
+          val kept =
+            field.copy(fields =
+              split(selectedChildren(field), own, path :+ field.aliasedName, field.fieldType.innerType)
+            )
+          at.headOption.fold[Option[Field]](Some(kept)) { case (_, fields) => fields += kept; None }
+        }
+
+      val roots    = best.roots.map(fetch => fetch.copy(delivery = sent(fetch.delivery))).groupBy(_.delivery)
+      val entities = best.entities.map(fetch => fetch.copy(delivery = sent(fetch.delivery))).groupBy(_.delivery)
+
+      def payload(at: Deferral.Delivery, kept: List[Field], before: Set[FetchId]): Either[PlanningFailure, Payload] = {
+        val ownRoots    = roots.getOrElse(at, Nil)
+        val ownEntities = entities.getOrElse(at, Nil)
+        val ready       = before ++ ownRoots.map(_.id)
+        val done        = ready ++ ownEntities.map(_.id)
+        for {
+          waves    <- FetchGraphOptimizer.waves(ready, ownEntities)
+          deferred <- traverseEither(points.toList.collect { case ((`at`, point), nested) => point -> nested }) {
+                        case (point, (parentType, fields)) =>
+                          payload(point :: at, fields.toList, done).map(DeferredFragment(point, parentType, _))
+                      }
+        } yield Payload(kept, ownRoots, waves, deferred)
+      }
+
+      payload(Nil, split(fields, Nil, Vector.empty, rootType), Set.empty)
+    }
+
+    /**
+     * The deferred fragments started by fields that a fetch delivering `delivery` at `path` selects.
+     */
+    private def prefetched(
+      fields: List[Field],
+      delivery: Deferral.Delivery,
+      path: Vector[String]
+    ): List[Deferral.DeferPoint] =
+      fields.flatMap { field =>
+        val own = Deferral.delivery(field, delivery, path)
+        own.take(own.size - delivery.size) ::: prefetched(field.fields, own, path :+ field.aliasedName)
+      }
+
+    private def selectedChildren(field: Field): List[Field] = {
+      val parentType = field.fieldType.innerType
+      if (isAbstractType(parentType)) field.fields else field.collectFields(parentType.name.getOrElse(""))
     }
 
     private def planRoots(fields: List[Field]): Either[PlanningFailure, PlanCandidate] =
@@ -113,7 +198,7 @@ private[gateway] object OperationPlanner {
               val planned                      = rootFetches(candidates)
               val (fetches, needPrerequisites) = entityFetches(planned.assignments, planned.roots.size)
               val entities                     = FetchGraphOptimizer.optimize(planned.roots, fetches, needPrerequisites)
-              FetchGraphOptimizer.waves(planned.roots, entities).map { waves =>
+              FetchGraphOptimizer.waves(planned.roots.iterator.map(_.id).toSet, entities).map { waves =>
                 val calls = waves.map(_.map(_.groupKey).distinct.size).sum
                 val cost  = PlanCost(planned.roots.size + calls, waves.size, internalSelectionCount(entities))
                 PlanCandidate(planned.roots, waves, cost)
@@ -184,16 +269,18 @@ private[gateway] object OperationPlanner {
         }
 
     private def rootFetches(candidates: List[RootCandidate]): PlannedRootFetches = {
-      val grouped     = mutable.LinkedHashMap.empty[(Source, Option[Int]), (FetchId, mutable.ListBuffer[RootCandidate])]
+      val grouped     =
+        mutable.LinkedHashMap.empty[(Source, Option[Int], Deferral.Delivery), (FetchId, ListBuffer[RootCandidate])]
       val assignments = candidates.zipWithIndex.map { case (candidate, index) =>
-        val key   = candidate.source -> (if (operationType == OperationType.Mutation) Some(index) else None)
-        val group = grouped.getOrElseUpdate(key, FetchId(grouped.size) -> mutable.ListBuffer.empty[RootCandidate])
+        val key   =
+          (candidate.source, if (operationType == OperationType.Mutation) Some(index) else None, candidate.delivery)
+        val group = grouped.getOrElseUpdate(key, FetchId(grouped.size) -> ListBuffer.empty[RootCandidate])
         group._2 += candidate
         candidate -> group._1
       }
-      val roots       = grouped.iterator.map { case ((subgraph, _), (id, planned)) =>
+      val roots       = grouped.iterator.map { case ((subgraph, _, delivery), (id, planned)) =>
         val selected = planned.toList
-        RootFetch(id, subgraph, selected.map(_.downstream) ::: mergeFields(selected.flatMap(_.contextRoots)))
+        RootFetch(id, subgraph, selected.map(_.downstream) ::: mergeFields(selected.flatMap(_.contextRoots)), delivery)
       }.toList
       PlannedRootFetches(roots, assignments)
     }
@@ -266,6 +353,7 @@ private[gateway] object OperationPlanner {
         contextRoots.forall(field =>
           field.name == TypenameField || graph.rootFieldSources(operationType, field.name).contains(currentSubgraph)
         )
+      val delivery                 = Deferral.delivery(selected, Nil, Vector.empty)
       if (!canFetchContextRoots) Right(Nil)
       else
         planFieldCandidates(
@@ -275,7 +363,8 @@ private[gateway] object OperationPlanner {
             Vector(selected.aliasedName),
             isObjectField(currentSubgraph, selected),
             Set.empty,
-            contexts
+            contexts,
+            delivery
           ),
           rootSubgraphs.toSet,
           availableKeys(currentSubgraph, selected.fieldType.innerType),
@@ -372,8 +461,7 @@ private[gateway] object OperationPlanner {
         )
       )
       val subgraphInterfaceObject            = currentSubgraph.isInterfaceObject(subgraphTypeName)
-      val children                           =
-        if (isAbstractType(parentType)) selectedField.fields else selectedField.collectFields(typeName)
+      val children                           = selectedChildren(selectedField)
       val selections                         = children.filter(child =>
         subgraphInterfaceObject || currentSubgraph.fieldApplies(subgraphTypeName, child) &&
           child._condition.forall(condition => possibleTypes.isEmpty || condition.exists(possibleTypes))
@@ -413,20 +501,21 @@ private[gateway] object OperationPlanner {
       satisfiedRequirements: Set[FieldCoordinate],
       assignment: List[(FieldRouting, SourceCandidate)]
     ): Either[PlanningFailure, List[EntityFetchState]] = {
+      val scope                         = context.scope
       val (sameSubgraphFields, pending) = assignment.partitionMap { case (routing, candidate) =>
+        val delivery = Deferral.delivery(routing.field, scope.delivery, scope.path)
         candidate match {
           case SourceCandidate.Remote(subgraph, requirements) =>
-            Right(PendingFetch(subgraph, routing.field :: Nil, requirements))
-          case SourceCandidate.Local(requirements)
-              if usesContext(
-                context.scope.currentSubgraph,
-                routing.field,
-                context.scope.activeContexts,
-                satisfiedRequirements
-              ) =>
-            Right(PendingFetch(context.scope.currentSubgraph, routing.field :: Nil, requirements))
-          case _: SourceCandidate.Local                       =>
-            Left(routing.field -> routing.supplied.toList.flatMap(_.fields))
+            Right(PendingFetch(subgraph, routing.field :: Nil, requirements, delivery))
+          case SourceCandidate.Local(requirements)            =>
+            val local = PendingFetch(scope.currentSubgraph, routing.field :: Nil, requirements, delivery)
+            // A deferred field of the current subgraph gets its own entity fetch when lookups cover its runtime types.
+            // Otherwise it is fetched with its parent, and its fragment is delivered with the parent's payload.
+            if (
+              usesContext(scope.currentSubgraph, routing.field, scope.activeContexts, satisfiedRequirements) ||
+              delivery != scope.delivery && lookupsCover(context, local)
+            ) Right(local)
+            else Left(routing.field -> routing.supplied.toList.flatMap(_.fields))
         }
       }
       planSameSubgraphFields(context.scope, possibleSources, sameSubgraphFields).flatMap(states =>
@@ -531,7 +620,8 @@ private[gateway] object OperationPlanner {
                             child,
                             scope.copy(
                               path = scope.path :+ child.aliasedName,
-                              staticPath = scope.staticPath && isObjectField(scope.currentSubgraph, child)
+                              staticPath = scope.staticPath && isObjectField(scope.currentSubgraph, child),
+                              delivery = Deferral.delivery(child, scope.delivery, scope.path)
                             ),
                             graph.candidateSources(possibleSources, parentTypeName(child), child.name),
                             availableKeys(scope.currentSubgraph, child.fieldType.innerType),
@@ -661,6 +751,18 @@ private[gateway] object OperationPlanner {
       else plan(context.copy(scope = context.scope.copy(visitedFetches = context.scope.visitedFetches + fetchKey)))
     }
 
+    /**
+     * Whether entity lookups cover every runtime type that the fields of `pending` select.
+     */
+    private def lookupsCover(context: EntityFetchContext, pending: PendingFetch): Boolean = {
+      val lookups = resolveEntityLookups(context, pending).lookups
+      pending.fields.forall(
+        _._condition
+          .getOrElse(Set(context.typeName))
+          .forall(runtimeType => lookups.exists(lookup => graph.acceptsRuntimeType(lookup.entityType, runtimeType)))
+      )
+    }
+
     private def resolveEntityLookups(context: EntityFetchContext, pending: PendingFetch): EntityLookupCandidates = {
       val subgraphTypes =
         context.scope.currentSubgraph.possibleTypes(sourceTypeName(context.scope.currentSubgraph, context.field))
@@ -718,7 +820,7 @@ private[gateway] object OperationPlanner {
       for {
         requirementPlans <- planRequirementCandidates(
                               entityField,
-                              context.scope,
+                              context.scope.copy(delivery = pending.delivery),
                               context.carriedKeys,
                               context.provided,
                               requiredFields
@@ -741,7 +843,8 @@ private[gateway] object OperationPlanner {
                                        )
               planned               <- planFieldCandidates(
                                          entityField.copy(fields = entityFields),
-                                         context.scope.copy(currentSubgraph = pending.targetSubgraph),
+                                         context.scope
+                                           .copy(currentSubgraph = pending.targetSubgraph, delivery = pending.delivery),
                                          Set(pending.targetSubgraph),
                                          resolved.selection.lookup.key,
                                          Nil,
@@ -767,7 +870,8 @@ private[gateway] object OperationPlanner {
                                            value.downstream,
                                            value.entities,
                                            resolved.selection.mayNeedPrerequisiteFetches ||
-                                             requirementPlan.entities.nonEmpty || contextArguments.nonEmpty
+                                             requirementPlan.entities.nonEmpty || contextArguments.nonEmpty,
+                                           pending.delivery
                                          )
                                          val next             = EntityFetchState(
                                            injected.downstream,
@@ -797,13 +901,14 @@ private[gateway] object OperationPlanner {
       if (candidates.isEmpty) deferred
       else
         search.flatEvaluate(candidates)(next =>
-          planEntityFetchCandidates(context, state, PendingFetch(next, pending.fields, Nil)).flatMap { values =>
-            val completed = values.filter(_.pending == state.pending)
-            Either.cond(
-              completed.nonEmpty,
-              completed,
-              PlanningFailure.Rejected(s"Intermediate subgraph '$next' did not complete the entity fetch.")
-            )
+          planEntityFetchCandidates(context, state, pending.copy(targetSubgraph = next, requirements = Nil)).flatMap {
+            values =>
+              val completed = values.filter(_.pending == state.pending)
+              Either.cond(
+                completed.nonEmpty,
+                completed,
+                PlanningFailure.Rejected(s"Intermediate subgraph '$next' did not complete the entity fetch.")
+              )
           }
         ) match {
           case Right(values)                            => Right(values)
@@ -1164,15 +1269,18 @@ private[gateway] object OperationPlanner {
         .sorted
 
     private def groupPending(values: List[PendingFetch]): List[PendingFetch] = {
-      val grouped  = mutable.LinkedHashMap.empty[(Source, List[Selection]), mutable.ListBuffer[Field]]
+      val grouped  = mutable.LinkedHashMap.empty[(Source, List[Selection], Deferral.Delivery), ListBuffer[Field]]
       values.foreach(value =>
-        grouped.getOrElseUpdate(value.targetSubgraph -> value.requirements, mutable.ListBuffer.empty) ++= value.fields
+        grouped.getOrElseUpdate((value.targetSubgraph, value.requirements, value.delivery), ListBuffer.empty) ++=
+          value.fields
       )
-      val pending  = grouped.iterator.map { case ((source, requirements), fields) =>
-        PendingFetch(source, mergeFields(fields.toList), requirements)
+      val pending  = grouped.iterator.map { case ((source, requirements, delivery), fields) =>
+        PendingFetch(source, mergeFields(fields.toList), requirements, delivery)
       }.toList
-      val bySource = mutable.LinkedHashMap.empty[Source, mutable.ListBuffer[PendingFetch]]
-      pending.foreach(value => bySource.getOrElseUpdate(value.targetSubgraph, mutable.ListBuffer.empty) += value)
+      val bySource = mutable.LinkedHashMap.empty[(Source, Deferral.Delivery), ListBuffer[PendingFetch]]
+      pending.foreach(value =>
+        bySource.getOrElseUpdate(value.targetSubgraph -> value.delivery, ListBuffer.empty) += value
+      )
       bySource.valuesIterator.flatMap { values =>
         val (required, unrequired) = values.toList.partition(_.requirements.nonEmpty)
         required match {
@@ -1200,10 +1308,10 @@ private[gateway] object OperationPlanner {
     }
 
     private def isCustomDirective(directive: Directive): Boolean =
-      !isInclusionDirective(directive)
+      !isInclusionDirective(directive) && directive.name != Directives.Defer
 
     private def isIncrementalDirective(directive: Directive): Boolean =
-      directive.name == "defer" || directive.name == "stream"
+      directive.name == Directives.Defer || directive.name == Directives.Stream
 
   }
 
@@ -1235,7 +1343,12 @@ private[gateway] object OperationPlanner {
    * Fields still needing an entity fetch, together with their target subgraph and @requires prerequisites.
    * A nested selection may remain pending until an ancestor provides a usable entity lookup.
    */
-  private final case class PendingFetch(targetSubgraph: Source, fields: List[Field], requirements: List[Selection])
+  private final case class PendingFetch(
+    targetSubgraph: Source,
+    fields: List[Field],
+    requirements: List[Selection],
+    delivery: Deferral.Delivery
+  )
 
   private sealed trait SourceCandidate
 
@@ -1260,7 +1373,8 @@ private[gateway] object OperationPlanner {
     path: Vector[String],
     staticPath: Boolean,
     visitedFetches: Set[EntityFetchKey],
-    activeContexts: List[ActiveContext]
+    activeContexts: List[ActiveContext],
+    delivery: Deferral.Delivery
   )
 
   private final case class EntityFetchContext(
@@ -1311,7 +1425,9 @@ private[gateway] object OperationPlanner {
     downstream: Field,
     contextRoots: List[Field],
     entities: List[EntityCandidate]
-  )
+  ) {
+    lazy val delivery: Deferral.Delivery = Deferral.delivery(downstream, Nil, Vector.empty)
+  }
 
   private final case class EntityCandidate(
     mergePath: Vector[String],
@@ -1319,10 +1435,11 @@ private[gateway] object OperationPlanner {
     typenameAlias: Option[String],
     fields: List[Field],
     entities: List[EntityCandidate],
-    mayNeedPrerequisiteFetches: Boolean
+    mayNeedPrerequisiteFetches: Boolean,
+    delivery: Deferral.Delivery
   ) {
     def toFetch(id: FetchId, root: FetchId, dependencies: Set[FetchId]): EntityFetch =
-      EntityFetch(id, root, dependencies, mergePath, target, typenameAlias, fields)
+      EntityFetch(id, root, dependencies, mergePath, target, typenameAlias, fields, delivery)
   }
 
   private final case class InjectedKeyFields(

@@ -10,6 +10,7 @@ final case class GatewayConfig private (
   maxOperationCacheWeight: Long,
   maxPlanningCandidates: Int,
   maxPlanningExpansions: Int,
+  maxOperationFields: Int,
   planningTimeout: Duration,
   maxOperationCost: Option[Long],
   requestTimeout: Duration,
@@ -46,6 +47,12 @@ final case class GatewayConfig private (
    */
   def withMaxPlanningExpansions(value: Int): GatewayConfig =
     copy(maxPlanningExpansions = value)
+
+  /**
+   * Rejects operations selecting more than `value` fields once every fragment spread is expanded, before planning them.
+   */
+  def withMaxOperationFields(value: Int): GatewayConfig =
+    copy(maxOperationFields = value)
 
   /**
    * Sets the maximum duration spent planning one operation.
@@ -111,6 +118,7 @@ final case class GatewayConfig private (
       positive(maxOperationCacheWeight, "Gateway operation cache weight must be positive."),
       positive(maxPlanningCandidates, "Gateway maxPlanningCandidates must be positive."),
       positive(maxPlanningExpansions, "Gateway maxPlanningExpansions must be positive."),
+      positive(maxOperationFields, "Gateway maxOperationFields must be positive."),
       finitePositive(planningTimeout, "Gateway planning timeout must be finite and positive."),
       maxOperationCost.toList.flatMap(value => positive(value, "Gateway maxOperationCost must be positive.")),
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
@@ -133,6 +141,7 @@ object GatewayConfig {
       maxOperationCacheWeight = 8L * 1024L * 1024L,
       maxPlanningCandidates = 8192,
       maxPlanningExpansions = 100000,
+      maxOperationFields = 100000,
       planningTimeout = Duration.fromSeconds(2),
       maxOperationCost = None,
       requestTimeout = Duration.fromSeconds(30),
