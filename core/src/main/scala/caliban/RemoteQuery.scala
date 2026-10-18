@@ -38,60 +38,58 @@ object RemoteQuery {
   }
 
   def toDocument(operationType: OperationType, field: Field): Document =
-    document(operationType, field)(render => List(render(field)))
+    document(operationType, field, identity)(selectionSet => List(field.selecting(field.arguments, selectionSet)))
 
   /**
-   * Renders the operation whose root field is `root`, selecting its sub-fields.
+   * Renders the operation whose root field is `root`, selecting its sub-fields and rendering each field's arguments
+   * with `arguments`.
    */
-  private[caliban] def operationDocument(operationType: OperationType, root: Field): Document =
-    document(operationType, root)(root.selectionSet)
+  private[caliban] def operationDocument(
+    operationType: OperationType,
+    root: Field,
+    arguments: Map[String, InputValue] => Map[String, InputValue]
+  ): Document =
+    document(operationType, root, arguments)(identity)
 
   /**
    * Spreads of a fragment share its fields, so a field selected from several places becomes a fragment rendered once,
    * which keeps the document as small as the field graph rather than the number of paths through it.
    */
-  private def document(operationType: OperationType, field: Field)(
-    selections: (Field => Selection) => List[Selection]
+  private def document(
+    operationType: OperationType,
+    root: Field,
+    arguments: Map[String, InputValue] => Map[String, InputValue]
+  )(
+    selections: List[Selection] => List[Selection]
   ): Document = {
-    val references = new java.util.IdentityHashMap[Field, Array[Int]]()
-    var pending    = List(field)
-    references.put(field, Array(0))
-    while (pending.nonEmpty) {
-      val current = pending.head
-      pending = pending.tail
-      current.fields.foreach { child =>
-        val count = references.get(child)
-        if (count eq null) {
-          references.put(child, Array(1))
-          pending = child :: pending
-        } else count(0) += 1
-      }
-    }
-
-    val fragments = ListBuffer.empty[FragmentDefinition]
-    val rendered  = new java.util.IdentityHashMap[Field, Selection]()
-    var names     = 0
+    val seen      = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Field, java.lang.Boolean]())
+    val names     = new java.util.IdentityHashMap[Field, String]()
+    val fragments = ListBuffer.empty[() => FragmentDefinition]
 
     def render(field: Field): Selection = {
-      val existing = rendered.get(field)
-      if (existing ne null) existing
-      else {
-        val shared    = field.fields.nonEmpty && Option(references.get(field)).exists(_(0) > 1)
-        val selection = field.fieldType.innerType.name match {
-          case Some(typeName) if shared =>
-            val name = s"F$names"
-            names += 1
-            fragments += FragmentDefinition(name, NamedType(typeName, nonNull = false), Nil, field.selectionSet(render))
-            field.selecting(List(Selection.FragmentSpread(name, Nil)))
-          case _                        =>
-            field.selecting(field.selectionSet(render))
-        }
-        rendered.put(field, selection)
-        selection
+      val selectionSet = names.get(field) match {
+        case null => field.selectionSet(render)
+        case name => List(Selection.FragmentSpread(name, Nil))
       }
+      field.selecting(arguments(field.arguments), selectionSet)
     }
 
-    val operation = OperationDefinition(operationType, None, Nil, Nil, selections(render))
-    Document(operation :: fragments.toList, SourceMapper.empty)
+    def collect(field: Field): Unit =
+      field.fields.foreach { child =>
+        if (seen.add(child)) collect(child)
+        else if (child.fields.nonEmpty && !names.containsKey(child))
+          child.fieldType.innerType.name.foreach { typeName =>
+            val name = s"F${fragments.length}"
+            names.put(child, name)
+            fragments += (() =>
+              FragmentDefinition(name, NamedType(typeName, nonNull = false), Nil, child.selectionSet(render))
+            )
+          }
+      }
+
+    collect(root)
+
+    val operation = OperationDefinition(operationType, None, Nil, Nil, selections(root.selectionSet(render)))
+    Document(operation :: fragments.toList.map(_()), SourceMapper.empty)
   }
 }

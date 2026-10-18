@@ -6,7 +6,7 @@ import caliban.rendering.DocumentRenderer
 import caliban.Value.FloatValue.FloatNumber
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
-import caliban.execution.{ ExecutionRequest, Field }
+import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.OperationType
 import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
@@ -30,9 +30,7 @@ object SchemaTracer {
               spanName(request),
               SpanKind.INTERNAL
             ) {
-              ZIO.foreachDiscard(attributes(request)) { case (k, v) =>
-                tracer.setAttribute(k, v)
-              } *> f(request)
+              tracer.setAttribute("document", graphQLQuery(request)) *> f(request)
             }
           )
       }
@@ -52,10 +50,8 @@ object SchemaTracer {
     Seq(Some(operationTypeString), request.operationName).flatten.mkString(" ")
   }
 
-  private def attributes(request: ExecutionRequest) = List("document" -> graphQLQuery(request))
-
   private def graphQLQuery(request: ExecutionRequest): String =
-    DocumentRenderer.renderCompact(RemoteQuery.operationDocument(request.operationType, maskField(request.field)))
+    DocumentRenderer.renderCompact(RemoteQuery.operationDocument(request.operationType, request.field, maskArguments))
 
   private[tracing] def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
     args.map { case (k, v) => (k, maskValue(v)) }.toMap
@@ -71,21 +67,4 @@ object SchemaTracer {
       case _: Value.EnumValue           => Value.EnumValue("__REDACTED")
       case x                            => x
     }
-
-  private def maskField(f: Field): Field = {
-    // Spreads of a fragment share its fields, so each one is masked once and stays shared
-    val masked = new java.util.IdentityHashMap[Field, Field]()
-
-    def loop(f: Field): Field = {
-      val existing = masked.get(f)
-      if (existing ne null) existing
-      else {
-        val result = f.copy(arguments = maskArguments(f.arguments), fields = f.fields.map(loop))
-        masked.put(f, result)
-        result
-      }
-    }
-
-    loop(f)
-  }
 }

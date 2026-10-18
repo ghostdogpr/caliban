@@ -119,20 +119,15 @@ object Wrappers {
     var visits = 0
 
     // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
-    def loop(field: Field, currentDepth: Int): Int = {
-      var children = field.fields
-      var max      = currentDepth
-      while ((children ne Nil) && visits < MaxDirectVisits) {
+    def loop(children: List[Field], depth: Int, max: Int): Int = children match {
+      case child :: rest if visits < Field.MaxDirectVisits =>
         visits += 1
-        val d = loop(children.head, currentDepth + 1)
-        if (d > max) max = d
-        children = children.tail
-      }
-      max
+        loop(rest, depth, loop(child.fields, depth + 1, math.max(max, depth)))
+      case _                                               => max
     }
 
-    val depth = loop(field, 0)
-    if (visits < MaxDirectVisits) depth
+    val depth = loop(field.fields, 1, 0)
+    if (visits < Field.MaxDirectVisits) depth
     else Field.foldShared(field.fields, 0)((max, _, depth, _) => math.max(max, depth))
   }
 
@@ -148,7 +143,7 @@ object Wrappers {
         (doc: Document) =>
           process(doc).tap { req =>
             ZIO.unlessZIODiscard(Configurator.skipValidation) {
-              val fields = countFields(req.field)
+              val fields = Field.expandedCount(req.field)
               if (fields > maxFields)
                 ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
               else Exit.unit
@@ -171,31 +166,6 @@ object Wrappers {
     extraLabels: Set[MetricLabel] = Set.empty
   ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
-
-  private def countFields(rootField: Field): Long = {
-    var visits = 0
-
-    // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
-    def loop(field: Field): Long = {
-      val iter  = field.fields.iterator
-      var count = 0L
-      while (iter.hasNext && visits < MaxDirectVisits) {
-        visits += 1
-        val f = iter.next()
-        count += loop(f) + 1
-      }
-      count
-    }
-
-    val count = loop(rootField)
-    if (visits < MaxDirectVisits) count else Field.expandedCount(rootField)
-  }
-
-  /**
-   * Fields visited by following every path before switching to a walk that visits shared fragment fields once, so a
-   * query spreading fragments inside fragments costs linear rather than exponential time.
-   */
-  private[wrappers] val MaxDirectVisits = 1024
 
   /**
    * Returns a wrapper that check directives on fields and can potentially fail the query

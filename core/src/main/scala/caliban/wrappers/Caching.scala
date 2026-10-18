@@ -258,7 +258,7 @@ object Caching {
 
           def loop(policy: CachePolicy, field: Field, parentHint: Option[CacheHint]): CachePolicy = {
             visits += 1
-            if (visits <= Wrappers.MaxDirectVisits) visit(policy, field, parentHint)
+            if (visits <= Field.MaxDirectVisits) visit(policy, field, parentHint)
             else {
               val seen = visited.getOrDefault(field, Nil)
               if (seen.contains(parentHint)) policy

@@ -140,12 +140,12 @@ case class Field(
       fragment = Field.earliest(self, other)
     )
 
-  lazy val toSelection: Selection = selecting(selectionSet(_.toSelection))
+  lazy val toSelection: Selection = selecting(arguments, selectionSet(_.toSelection))
 
   /**
-   * This field selecting `selectionSet`.
+   * This field with `arguments` selecting `selectionSet`.
    */
-  private[caliban] def selecting(selectionSet: List[Selection]): Selection = {
+  private[caliban] def selecting(arguments: Map[String, InputValue], selectionSet: List[Selection]): Selection = {
     val schemaDirectives =
       parentType.flatMap(pt => Option(pt.innerType.getFieldOrNull(name))).flatMap(_.directives).getOrElse(Nil)
     val directives       =
@@ -329,17 +329,18 @@ object Field {
    * once per depth rather than once per path, in the order it is first reached.
    */
   private[caliban] def foldShared[A](fields: List[Field], zero: A)(f: (A, Field, Int, Long) => A): A = {
+    final class Reached(val field: Field, var paths: Long)
     final class Level {
-      val entries = ListBuffer.empty[(Field, Array[Long])]
-      val paths   = new java.util.IdentityHashMap[Field, Array[Long]]()
+      val entries = ListBuffer.empty[Reached]
+      val reached = new java.util.IdentityHashMap[Field, Reached]()
 
-      def add(field: Field, count: Long): Unit = {
-        val existing = paths.get(field)
+      def add(field: Field, paths: Long): Unit = {
+        val existing = reached.get(field)
         if (existing eq null) {
-          val created = Array(count)
-          paths.put(field, created)
-          entries += (field -> created)
-        } else existing(0) = addPaths(existing(0), count)
+          val created = new Reached(field, paths)
+          reached.put(field, created)
+          entries += created
+        } else existing.paths = addPaths(existing.paths, paths)
       }
     }
 
@@ -349,9 +350,9 @@ object Field {
     fields.foreach(level.add(_, 1L))
     while (level.entries.nonEmpty) {
       val next = new Level
-      level.entries.foreach { case (field, count) =>
-        acc = f(acc, field, depth, count(0))
-        field.fields.foreach(next.add(_, count(0)))
+      level.entries.foreach { entry =>
+        acc = f(acc, entry.field, depth, entry.paths)
+        entry.field.fields.foreach(next.add(_, entry.paths))
       }
       level = next
       depth += 1
@@ -362,8 +363,23 @@ object Field {
   /**
    * The number of fields below `field` once every fragment spread is expanded, capped at `Long.MaxValue`.
    */
-  private[caliban] def expandedCount(field: Field): Long =
-    foldShared(field.fields, 0L)((count, _, _, paths) => addPaths(count, paths))
+  private[caliban] def expandedCount(field: Field): Long = {
+    // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
+    def loop(children: List[Field], count: Long): Long = children match {
+      case child :: rest if count < MaxDirectVisits => loop(rest, loop(child.fields, count + 1))
+      case _                                        => count
+    }
+
+    val count = loop(field.fields, 0L)
+    if (count < MaxDirectVisits) count
+    else foldShared(field.fields, 0L)((count, _, _, paths) => addPaths(count, paths))
+  }
+
+  /**
+   * Fields visited by following every path before switching to a walk that visits shared fragment fields once, so a
+   * query spreading fragments inside fragments costs linear rather than exponential time.
+   */
+  private[caliban] val MaxDirectVisits = 1024
 
   private def addPaths(a: Long, b: Long): Long = {
     val sum = a + b
