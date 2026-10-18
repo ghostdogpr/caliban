@@ -117,10 +117,8 @@ private[gateway] object OperationPlanner {
       fields: List[Field],
       best: PlanCandidate
     ): Either[PlanningFailure, Payload] = {
-      final class Point(val delivery: Deferral.Delivery, val parentType: __Type) {
-        val fields: ListBuffer[Field]                                 = ListBuffer.empty
-        val nested: mutable.LinkedHashMap[Deferral.DeferPoint, Point] = mutable.LinkedHashMap.empty
-      }
+      // The parent type and fields of each deferred fragment, by the delivery of its parent and its defer point.
+      val points = mutable.LinkedHashMap.empty[(Deferral.Delivery, Deferral.DeferPoint), (__Type, ListBuffer[Field])]
 
       val inline =
         (best.roots.flatMap(fetch => prefetched(fetch.downstream, fetch.delivery, Vector.empty)) :::
@@ -132,39 +130,38 @@ private[gateway] object OperationPlanner {
        * Keeps the fields delivered by `parent` and registers the others with each deferred fragment they start.
        * A fragment nested in another at the same object starts both, even when the outer one has no fields of its own.
        */
-
-      def split(values: List[Field], parent: Point, path: Vector[String], parentType: __Type): List[Field] =
+      def split(values: List[Field], parent: Deferral.Delivery, path: Vector[String], parentType: __Type): List[Field] =
         values.flatMap { field =>
-          val own  = sent(Deferral.delivery(field, parent.delivery, path))
-          val at   = own.take(own.size - parent.delivery.size).foldRight(parent) { (point, outer) =>
-            outer.nested.getOrElseUpdate(point, new Point(point :: outer.delivery, parentType))
-          }
-          val kept = field.copy(fields = split(field.fields, at, path :+ field.aliasedName, field.fieldType.innerType))
-          if (at eq parent) Some(kept)
-          else {
-            at.fields += kept
-            None
-          }
+          val own  = sent(Deferral.delivery(field, parent, path))
+          val at   = own.tails.collect {
+            case point :: outer if outer.size >= parent.size =>
+              points.getOrElseUpdate(outer -> point, (parentType, ListBuffer.empty[Field]))
+          }.toList
+          val kept =
+            field.copy(fields =
+              split(selectedChildren(field), own, path :+ field.aliasedName, field.fieldType.innerType)
+            )
+          at.headOption.fold[Option[Field]](Some(kept)) { case (_, fields) => fields += kept; None }
         }
 
       val roots    = best.roots.map(fetch => fetch.copy(delivery = sent(fetch.delivery))).groupBy(_.delivery)
       val entities = best.entities.map(fetch => fetch.copy(delivery = sent(fetch.delivery))).groupBy(_.delivery)
 
-      def payload(point: Point, selected: List[Field], completed: Set[FetchId]): Either[PlanningFailure, Payload] = {
-        val ownRoots    = roots.getOrElse(point.delivery, Nil)
-        val ownEntities = entities.getOrElse(point.delivery, Nil)
-        val ready       = completed ++ ownRoots.map(_.id)
+      def payload(at: Deferral.Delivery, kept: List[Field], before: Set[FetchId]): Either[PlanningFailure, Payload] = {
+        val ownRoots    = roots.getOrElse(at, Nil)
+        val ownEntities = entities.getOrElse(at, Nil)
+        val ready       = before ++ ownRoots.map(_.id)
         val done        = ready ++ ownEntities.map(_.id)
         for {
           waves    <- FetchGraphOptimizer.waves(ready, ownEntities)
-          deferred <- traverseEither(point.nested.toList) { case (inner, nested) =>
-                        payload(nested, nested.fields.toList, done).map(DeferredFragment(inner, nested.parentType, _))
+          deferred <- traverseEither(points.toList.collect { case ((`at`, point), nested) => point -> nested }) {
+                        case (point, (parentType, fields)) =>
+                          payload(point :: at, fields.toList, done).map(DeferredFragment(point, parentType, _))
                       }
-        } yield Payload(selected, ownRoots, waves, deferred)
+        } yield Payload(kept, ownRoots, waves, deferred)
       }
 
-      val initial = new Point(Nil, rootType)
-      payload(initial, split(fields, initial, Vector.empty, rootType), Set.empty)
+      payload(Nil, split(fields, Nil, Vector.empty, rootType), Set.empty)
     }
 
     /**
@@ -179,6 +176,11 @@ private[gateway] object OperationPlanner {
         val own = Deferral.delivery(field, delivery, path)
         own.take(own.size - delivery.size) ::: prefetched(field.fields, own, path :+ field.aliasedName)
       }
+
+    private def selectedChildren(field: Field): List[Field] = {
+      val parentType = field.fieldType.innerType
+      if (isAbstractType(parentType)) field.fields else field.collectFields(parentType.name.getOrElse(""))
+    }
 
     private def planRoots(fields: List[Field]): Either[PlanningFailure, PlanCandidate] =
       search
@@ -454,8 +456,7 @@ private[gateway] object OperationPlanner {
         )
       )
       val subgraphInterfaceObject            = currentSubgraph.isInterfaceObject(subgraphTypeName)
-      val children                           =
-        if (isAbstractType(parentType)) selectedField.fields else selectedField.collectFields(typeName)
+      val children                           = selectedChildren(selectedField)
       val selections                         = children.filter(child =>
         subgraphInterfaceObject || currentSubgraph.fieldApplies(subgraphTypeName, child) &&
           child._condition.forall(condition => possibleTypes.isEmpty || condition.exists(possibleTypes))

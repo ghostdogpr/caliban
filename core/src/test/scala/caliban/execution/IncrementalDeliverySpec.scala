@@ -108,12 +108,22 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
            }
         }
           """)
+        val typed = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             ... on Character @defer {
+               nicknames
+             }
+             nicknames
+           }
+        }
+          """)
 
         for {
-          resp <- interpreter.flatMap(_.execute(query))
-          rest <- runIncrementalResponses(resp)
+          responses <- ZIO.foreach(List(query, typed))(document => interpreter.flatMap(_.execute(document)))
+          rest      <- ZIO.foreach(responses)(runIncrementalResponses)
         } yield assertTrue(
-          rest.map(_.toString) == Chunk("""{"data":{"character":{"nicknames":["Bobbie","Gunny"]}}}""")
+          rest.forall(_.map(_.toString) == Chunk("""{"data":{"character":{"nicknames":["Bobbie","Gunny"]}}}"""))
         )
       },
       test("named fragments") {

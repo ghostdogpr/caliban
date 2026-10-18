@@ -306,7 +306,7 @@ private[gateway] object EntityExecutor {
 
   private final case class CandidatePath(root: FetchId, path: Vector[String])
 
-  private def collectEntities(
+  private[execution] def collectEntities(
     value: ResponseValue,
     fields: List[String],
     reversedPath: List[PathValue],

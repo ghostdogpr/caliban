@@ -68,11 +68,7 @@ private[gateway] object Deferral {
     val rewritten = new java.util.IdentityHashMap[List[Selection], List[Selection]]()
     val ids       = Iterator.from(0)
 
-    def isIncluded(directives: List[Directive]): Boolean =
-      directives.forall(directive =>
-        if (directive.name == "skip") !ifArgument(directive, variables).getOrElse(false)
-        else directive.name != "include" || ifArgument(directive, variables).getOrElse(true)
-      )
+    def isIncluded(directives: List[Directive]): Boolean = Field.checkDirectives(directives.map(resolved(_, variables)))
 
     def deferred(directives: List[Directive]): List[Directive] = directives.filter(isActive(_, variables))
 
@@ -127,20 +123,18 @@ private[gateway] object Deferral {
   }
 
   /**
-   * The value of the `if` argument of a directive, unless it is missing or an unknown variable.
+   * The directive with the value of its `if` argument when that argument is a known variable.
    */
-  private def ifArgument(directive: Directive, variables: Map[String, InputValue]): Option[Boolean] =
-    directive.arguments
-      .get("if")
-      .flatMap {
-        case VariableValue(name) => variables.get(name)
-        case value               => Some(value)
-      }
-      .collect { case BooleanValue(value) => value }
+  private def resolved(directive: Directive, variables: Map[String, InputValue]): Directive =
+    directive.arguments.get("if").collect { case VariableValue(name) => name }.flatMap(variables.get) match {
+      case Some(value) => directive.copy(arguments = directive.arguments.updated("if", value))
+      case None        => directive
+    }
 
   /**
    * A `@defer` that is enabled, or whose condition is a variable resolved later.
    */
   private def isActive(directive: Directive, variables: Map[String, InputValue] = Map.empty): Boolean =
-    directive.name == Directives.Defer && ifArgument(directive, variables).getOrElse(true)
+    directive.name == Directives.Defer &&
+      !resolved(directive, variables).arguments.get("if").contains(BooleanValue(false))
 }

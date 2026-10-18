@@ -88,7 +88,7 @@ case class Field(
             field.aliasedName,
             (_, existing) =>
               if (existing eq null) field
-              else existing.copy(fields = existing.fields ::: field.fields)
+              else existing.copy(fields = existing.fields ::: field.fields, fragment = Field.earliest(existing, field))
           )
         remaining = remaining.tail
       }
@@ -125,13 +125,7 @@ case class Field(
         case (None, Some(_))      => other._condition
         case (None, None)         => None
       },
-      // A field belongs to the earliest payload selecting it: outside deferred fragments, or in the outer one.
-      fragment = (self.fragment, other.fragment) match {
-        case (Some(mine @ Fragment.IsDeferred(_)), Some(theirs @ Fragment.IsDeferred(_))) =>
-          if (mine.directives.startsWith(theirs.directives)) other.fragment else self.fragment
-        case (Some(Fragment.IsDeferred(_)), _)                                            => other.fragment
-        case _                                                                            => self.fragment
-      }
+      fragment = Field.earliest(self, other)
     )
 
   lazy val toSelection: Selection = {
@@ -313,6 +307,18 @@ object Field {
 
   private val identityFnList: List[Field] => List[Field] = l => l
 
+  /**
+   * The fragment of a field selected twice.
+   * A field belongs to the earliest payload selecting it: outside deferred fragments, or in the outer one.
+   */
+  private def earliest(first: Field, second: Field): Option[Fragment] =
+    (first.fragment, second.fragment) match {
+      case (Some(mine @ Fragment.IsDeferred(_)), Some(theirs @ Fragment.IsDeferred(_))) =>
+        if (mine.directives.startsWith(theirs.directives)) second.fragment else first.fragment
+      case (Some(Fragment.IsDeferred(_)), _)                                            => second.fragment
+      case _                                                                            => first.fragment
+    }
+
   private def resolveDirectiveVariables(
     variableValues: Map[String, InputValue],
     variableDefinitions: Map[String, VariableDefinition],
@@ -408,7 +414,7 @@ object Field {
     tpe.map(_ => loop(Set.newBuilder[String] += typeName, tpe).result())
   }
 
-  private def checkDirectives(directives: List[Directive]): Boolean =
+  private[caliban] def checkDirectives(directives: List[Directive]): Boolean =
     directives.isEmpty ||
       (!checkDirective("skip", default = false, directives) &&
         checkDirective("include", default = true, directives))

@@ -153,27 +153,17 @@ object IncrementalDelivery {
         case _                        => true
       }
 
-      @tailrec
-      def allLabelsUnique(selections: List[Selection]): Boolean = selections match {
-        case Selection.Field(_, _, _, directives, children, _) :: rest     =>
-          val label = if (Feature.isStreamEnabled(flags)) extractLabel(directives, Directives.Stream) else None
-
-          isLabelUnique(label) && allLabelsUnique(children ::: rest)
-        case Selection.InlineFragment(_, directives, selectionSet) :: rest =>
-          val label = if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
-
-          isLabelUnique(label) && allLabelsUnique(selectionSet ::: rest)
-        case Selection.FragmentSpread(_, directives) :: rest               =>
-          val label = if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
-
-          isLabelUnique(label) && allLabelsUnique(rest)
-        case _                                                             => true
+      def label(selection: Selection): Option[InputValue] = selection match {
+        case Selection.Field(_, _, _, directives, _, _) =>
+          if (Feature.isStreamEnabled(flags)) extractLabel(directives, Directives.Stream) else None
+        case Selection.InlineFragment(_, directives, _) =>
+          if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
+        case Selection.FragmentSpread(_, directives)    =>
+          if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
       }
 
       // Labels are unique in the document, so each fragment is read once rather than at each spread.
-      val selections =
-        context.operations.flatMap(_.selectionSet) ::: context.fragments.values.toList.flatMap(_.selectionSet)
-      if (!allLabelsUnique(selections)) {
+      if (!context.selectionSets.forall(selection => isLabelUnique(label(selection)))) {
         Left(CalibanError.ValidationError("Stream and defer directive labels must be unique", ""))
       } else {
         Right(())

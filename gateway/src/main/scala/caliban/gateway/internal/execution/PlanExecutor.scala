@@ -6,7 +6,7 @@ import caliban.execution.{ isMetaField, ExecutionRequest, Executor, Field }
 import caliban.gateway.{ responseNames, PhaseHooks, TypenameField }
 import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.composition.ComposedGraph
-import caliban.gateway.internal.execution.EntityExecutor.EntityLocation
+import caliban.gateway.internal.execution.EntityExecutor.{ collectEntities, EntityLocation }
 import caliban.gateway.internal.execution.PlanExecutor._
 import caliban.gateway.internal.execution.ResponseCompletion.Completion
 import caliban.gateway.internal.execution.ResponseMerge._
@@ -23,6 +23,7 @@ import zio.stream.ZStream
 import zio.{ Scope, Trace, UIO, URIO, ZIO }
 
 import scala.collection.compat._
+import scala.collection.mutable.ListBuffer
 
 /**
  * Runs a fetch graph; request lifetimes and preparation stay in the interpreter.
@@ -68,7 +69,7 @@ private[gateway] final class PlanExecutor[-R](
                 Some { (guard: Guard) =>
                   val data    = done.iterator.flatMap(_.roots).map(root => root.id -> root.data).toMap
                   val fetched = Fetched(data, Nil, done.flatMap(_.blocked))
-                  runFragments(plan, plan.preparedFragments, fetched, View(Vector.empty, response.data) :: Nil, guard)
+                  runFragments(plan, plan.preparedFragments, fetched, View(Nil, response.data) :: Nil, guard)
                 }
             Executed(response, deferred)
           }
@@ -117,9 +118,19 @@ private[gateway] final class PlanExecutor[-R](
   )(implicit trace: Trace): URIO[R, ZStream[R, Nothing, List[Incremental[CalibanError]]]] =
     for {
       roots <- ZIO.foreachPar(prepared.roots)(executeRoot(plan, _))
+      kept   = instances.map(_.path).toSet
+      data   = fetched.data.map { case (id, value) =>
+                 val found = ListBuffer.empty[(List[PathValue], ResponseValue)]
+                 collectEntities(value, prepared.fragment.point.path.toList, Nil, found)
+                 // Objects an earlier payload nulled get no deferred fetch.
+                 id -> applyPatches(
+                   value,
+                   found.toList.collect { case (path, _) if !kept(path) => path -> Overwrite(NullValue) }
+                 )
+               }
       done  <- executeEntityFetches(
                  prepared.fragment.payload.entityWaves,
-                 fetched.copy(data = fetched.data ++ roots.map(root => root.id -> root.data), entityErrors = Nil)
+                 fetched.copy(data = data ++ roots.map(root => root.id -> root.data), entityErrors = Nil)
                )
     } yield {
       val fragment          = prepared.fragment
@@ -136,7 +147,7 @@ private[gateway] final class PlanExecutor[-R](
         val path       = instance.path
         val own        = owned.getOrElse(index, Nil)
         val raw        = rawValue(root, path).getOrElse(NullValue)
-        val completion = prepared.completion.complete(raw, path.toList, own)
+        val completion = prepared.completion.complete(raw, path, own)
         completion.toResponseValue match {
           // No field of the fragment applies to this object: nested fragments still read the parent payload.
           case ObjectValue(Nil) => (None, instance)
@@ -156,7 +167,7 @@ private[gateway] final class PlanExecutor[-R](
     error: CalibanError.ExecutionError
   ): ZStream[Any, Nothing, List[Incremental[CalibanError]]] =
     ZStream.succeed(instances.map { instance =>
-      prepared.payload(instance.path, NullValue, error.copy(path = instance.path.toList) :: Nil)
+      prepared.payload(instance.path, NullValue, error.copy(path = instance.path) :: Nil)
     })
 
   def subscription(plan: OperationPlan, resolvedRequest: GraphQLRequest)(implicit
@@ -375,8 +386,8 @@ private[gateway] object PlanExecutor {
     deferred: List[PreparedFragment],
     below: List[String]
   ) {
-    def payload(path: Vector[PathValue], data: ResponseValue, errors: List[CalibanError]): Incremental[CalibanError] =
-      Incremental.Defer(data, ListValue(path.toList), errors, fragment.point.label)
+    def payload(path: List[PathValue], data: ResponseValue, errors: List[CalibanError]): Incremental[CalibanError] =
+      Incremental.Defer(data, ListValue(path), errors, fragment.point.label)
   }
 
   private[internal] def prepareFragments(plan: OperationPlan): List[PreparedFragment] = {
@@ -394,32 +405,22 @@ private[gateway] object PlanExecutor {
   /**
    * Completed objects of a payload: `path` locates `value` in the response.
    */
-  private final case class View(path: Vector[PathValue], value: ResponseValue) {
+  private final case class View(path: List[PathValue], value: ResponseValue) {
 
     /**
      * The non-null objects at `below`, a path without indices relative to this view, with their concrete paths.
      */
     def at(below: List[String]): List[View] = {
-      def walk(value: ResponseValue, path: Vector[PathValue], remaining: List[String]): List[View] =
-        value match {
-          case ListValue(values) =>
-            values.zipWithIndex.flatMap { case (item, index) => walk(item, path :+ PathValue.Index(index), remaining) }
-          case obj: ObjectValue  =>
-            remaining match {
-              case Nil          => View(path, obj) :: Nil
-              case name :: rest =>
-                Option(obj.getOrNull(name)).toList.flatMap(walk(_, path :+ PathValue.Key(name), rest))
-            }
-          case _                 => Nil
-        }
-      walk(value, path, below)
+      val found = ListBuffer.empty[(List[PathValue], ResponseValue)]
+      collectEntities(value, below, path.reverse, found)
+      found.toList.collect { case (path, obj: ObjectValue) => View(path, obj) }
     }
   }
 
   /**
    * The fetched object at a concrete response path below `root`.
    */
-  private def rawValue(root: ResponseValue, path: Vector[PathValue]): Option[ResponseValue] =
+  private def rawValue(root: ResponseValue, path: List[PathValue]): Option[ResponseValue] =
     path.foldLeft(Option(root)) {
       case (Some(obj: ObjectValue), PathValue.Key(key))      => Option(obj.getOrNull(key))
       case (Some(ListValue(values)), PathValue.Index(index)) => values.lift(index)
