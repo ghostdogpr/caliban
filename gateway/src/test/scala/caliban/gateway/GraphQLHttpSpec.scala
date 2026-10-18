@@ -14,7 +14,7 @@ import zio.http._
 import zio.stream.ZStream
 import zio.test._
 
-object GraphQLHttpSpec extends ZIOSpecDefault {
+object GraphQLHttpSpec extends GatewaySpecDefault {
 
   private trait RuntimeHeaders {
     def values: UIO[List[Header]]

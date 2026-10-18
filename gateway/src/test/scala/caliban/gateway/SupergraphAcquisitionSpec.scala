@@ -12,7 +12,7 @@ import zio.test._
 import java.nio.charset.StandardCharsets
 import java.nio.file.{ Files, Path }
 
-object SupergraphAcquisitionSpec extends ZIOSpecDefault {
+object SupergraphAcquisitionSpec extends GatewaySpecDefault {
 
   private def load(source: Supergraph.Source): URIO[GatewayHttpClient, Exit[SupergraphAcquisitionError, Document]] =
     acquisitionLoader(source).flatten.exit

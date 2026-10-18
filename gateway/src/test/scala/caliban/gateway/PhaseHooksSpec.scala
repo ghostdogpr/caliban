@@ -11,7 +11,7 @@ import zio.{ Duration, FiberRef, Promise, Ref, Scope, ZIO }
 import zio.test.{ assert, assertTrue, Assertion, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
 import zio.stream.ZStream
 
-object PhaseHooksSpec extends ZIOSpecDefault {
+object PhaseHooksSpec extends GatewaySpecDefault {
 
   private val schema = "type Query { value: String! }"
 

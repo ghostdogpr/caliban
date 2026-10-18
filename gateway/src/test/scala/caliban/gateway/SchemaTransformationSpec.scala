@@ -11,7 +11,7 @@ import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
 import zio._
 import zio.test._
 
-object SchemaTransformationSpec extends ZIOSpecDefault {
+object SchemaTransformationSpec extends GatewaySpecDefault {
 
   private object LocalApi extends GenericSchema[Any] {
     import auto._

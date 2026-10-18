@@ -7,7 +7,7 @@ import caliban.gateway.GatewayTestSupport._
 import zio.{ Ref, Scope, ZIO }
 import zio.test._
 
-object AbstractOperationSpec extends ZIOSpecDefault {
+object AbstractOperationSpec extends GatewaySpecDefault {
 
   private val primaryUnionSchema =
     s"""

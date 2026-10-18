@@ -14,7 +14,7 @@ import caliban.schema.Types
 import zio.{ IO, ZIO }
 import zio.test._
 
-object ExecutionModelSpec extends ZIOSpecDefault {
+object ExecutionModelSpec extends GatewaySpecDefault {
   private val queryType  = Types.makeObject(Some("Query"), None, Nil, Nil)
   private val objectType = Types.makeObject(Some("Product"), None, Nil, Nil)
   private object completion {

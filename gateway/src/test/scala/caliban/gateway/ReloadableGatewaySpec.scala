@@ -16,7 +16,7 @@ import java.time.{ Instant, LocalDateTime, OffsetDateTime }
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 
-object ReloadableGatewaySpec extends ZIOSpecDefault {
+object ReloadableGatewaySpec extends GatewaySpecDefault {
   private val schema  = "type Query { value: String } type Mutation { setValue: String }"
   private val changed = "type Query { value: String added: String } type Mutation { setValue: String }"
 

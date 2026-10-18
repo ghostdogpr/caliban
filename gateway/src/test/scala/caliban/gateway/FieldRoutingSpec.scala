@@ -8,7 +8,7 @@ import caliban.{ GraphQLRequest, InputValue }
 import zio.{ Duration, Scope, ZIO }
 import zio.test._
 
-object FieldRoutingSpec extends ZIOSpecDefault {
+object FieldRoutingSpec extends GatewaySpecDefault {
 
   private val nodeWithNameAccounts =
     s"""

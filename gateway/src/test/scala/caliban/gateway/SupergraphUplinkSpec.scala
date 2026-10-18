@@ -20,7 +20,7 @@ import zio.test._
  * The loader is stateful across runs by design, since `Gateway` builds it once per gateway
  * rather than once per reload cycle, so every test here runs one loader more than once.
  */
-object SupergraphUplinkSpec extends ZIOSpecDefault {
+object SupergraphUplinkSpec extends GatewaySpecDefault {
 
   /** Nests five deep inside the field definition, well past the response envelope's own three. */
   private val deeplyNestedSdl =

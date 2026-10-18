@@ -9,7 +9,7 @@ import zio.http.{ Body, Header, Headers, Response, Status }
 import zio.stream.ZStream
 import zio.test._
 
-object SchemaAcquisitionSpec extends ZIOSpecDefault {
+object SchemaAcquisitionSpec extends GatewaySpecDefault {
 
   private object ProductsApi extends GenericSchema[Any] {
     import auto._

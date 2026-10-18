@@ -11,7 +11,7 @@ import caliban._
 import zio._
 import zio.test._
 
-object GatewaySpec extends ZIOSpecDefault {
+object GatewaySpec extends GatewaySpecDefault {
 
   private trait Greeting {
     def value: UIO[String]

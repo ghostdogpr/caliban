@@ -7,7 +7,7 @@ import caliban.gateway.GatewayTestSupport._
 import zio._
 import zio.test._
 
-object RoutePlanningSpec extends ZIOSpecDefault {
+object RoutePlanningSpec extends GatewaySpecDefault {
 
   private val rootSchema =
     s"""

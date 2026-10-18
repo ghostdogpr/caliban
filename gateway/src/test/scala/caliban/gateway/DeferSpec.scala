@@ -11,7 +11,7 @@ import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test._
 
-object DeferSpec extends ZIOSpecDefault {
+object DeferSpec extends GatewaySpecDefault {
 
   private final class Fixture(val gate: Promise[Nothing, Unit], val calls: Ref[List[String]]) {
     def record(call: String): UIO[Unit] = calls.update(call :: _)

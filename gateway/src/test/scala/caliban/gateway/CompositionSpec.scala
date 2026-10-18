@@ -11,7 +11,7 @@ import caliban.parsing.adt.{ Directive, OperationType }
 import zio._
 import zio.test._
 
-object CompositionSpec extends ZIOSpecDefault {
+object CompositionSpec extends GatewaySpecDefault {
 
   private final case class CompositionInput(
     name: String,
