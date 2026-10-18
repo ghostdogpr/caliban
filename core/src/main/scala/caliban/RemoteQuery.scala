@@ -52,8 +52,7 @@ object RemoteQuery {
     document(operationType, root, arguments)(identity)
 
   /**
-   * Spreads of a fragment share its fields, so a field selected from several places becomes a fragment rendered once,
-   * which keeps the document as small as the field graph rather than the number of paths through it.
+   * Renders each field selected from several places once, as a named fragment.
    */
   private def document(
     operationType: OperationType,

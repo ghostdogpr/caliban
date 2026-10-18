@@ -1,5 +1,6 @@
 package caliban.gateway.internal.composition
 
+import caliban.execution.Feature
 import caliban.gateway._
 import caliban.gateway.GatewayBuildError.SchemaCompositionFailed
 import caliban.gateway.SubgraphBuildError.{ InvalidTransformations, SchemaValidationFailed }
@@ -8,7 +9,7 @@ import caliban.gateway.internal.composition.FederationCompilation._
 import caliban.gateway.internal.composition.FederationCompilation.FederationDirective._
 import caliban.introspection.adt._
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.{ Directives, Document, OperationType, Selection }
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -321,7 +322,8 @@ private[gateway] final class SchemaComposer private (subgraphs: List[ComposedGra
         composedTypes.get("Mutation").filter(_.allFields.nonEmpty),
         composedTypes.get("Subscription").filter(_.allFields.nonEmpty),
         additionalTypes,
-        composedDirectives.definitions(rewriteType(_, composedTypes))
+        composedDirectives.definitions(rewriteType(_, composedTypes)).filterNot(_.name == Directives.Defer) :::
+          Feature.Defer.directives
       )
     }
   }

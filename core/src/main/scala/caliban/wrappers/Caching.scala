@@ -252,7 +252,6 @@ object Caching {
         f: Document => ZIO[R, CalibanError.ValidationError, ExecutionRequest]
       ): Document => ZIO[R, CalibanError.ValidationError, ExecutionRequest] = { (d: Document) =>
         f(d).flatMap { request =>
-          // Spreads of a fragment share its fields, and restricting twice with the same hints changes nothing
           var visits       = 0
           lazy val visited = new java.util.IdentityHashMap[Field, List[Option[CacheHint]]]()
 

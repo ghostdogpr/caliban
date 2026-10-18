@@ -3,11 +3,10 @@ package caliban.gateway.internal.planning
 import caliban.InputValue
 import caliban.InputValue.VariableValue
 import caliban.Value.{ BooleanValue, StringValue }
-import caliban.execution.{ Feature, Field }
+import caliban.execution.Field
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, Directives, Document, Selection }
-import caliban.schema.RootType
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -29,11 +28,6 @@ private[gateway] object Deferral {
    * The payload that delivers a field: the innermost deferred fragment comes first, and the initial payload is empty.
    */
   type Delivery = List[DeferPoint]
-
-  def clientRootType(rootType: RootType): RootType =
-    rootType.copy(additionalDirectives =
-      rootType.additionalDirectives.filterNot(_.name == Directives.Defer) ::: Feature.Defer.directives
-    )
 
   def hasDefer(document: Document, operationName: Option[String]): Boolean =
     document.hasDirective(operationName)(_.name == Directives.Defer)

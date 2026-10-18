@@ -110,8 +110,7 @@ case class Field(
     Math.ceil(nMappings / 0.75d).toInt
 
   /**
-   * The sub-fields of this field and of another selection of it.
-   * Spreads of a fragment share its fields, so keeping each one once stops nested spreads from multiplying them.
+   * The sub-fields of this field and of another selection of it, keeping fields shared by both once.
    */
   private def mergeFields(other: Field): List[Field] =
     if (self.fields.lengthCompare(Field.MaxScannedFields) <= 0)
@@ -325,8 +324,8 @@ object Field {
 
   /**
    * Folds `f` over `fields` and every field below them, passing each one's depth, starting at one, and the number of
-   * selection paths reaching it. Spreads of a fragment share its fields, so a field reached by many paths is visited
-   * once per depth rather than once per path, in the order it is first reached.
+   * selection paths reaching it. A field reached by several paths is visited once per depth, in the order it is first
+   * reached.
    */
   private[caliban] def foldShared[A](fields: List[Field], zero: A)(f: (A, Field, Int, Long) => A): A = {
     final class Reached(val field: Field, var paths: Long)
@@ -364,7 +363,6 @@ object Field {
    * The number of fields below `field` once every fragment spread is expanded, capped at `Long.MaxValue`.
    */
   private[caliban] def expandedCount(field: Field): Long = {
-    // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
     def loop(children: List[Field], count: Long): Long = children match {
       case child :: rest if count < MaxDirectVisits => loop(rest, loop(child.fields, count + 1))
       case _                                        => count
@@ -376,8 +374,7 @@ object Field {
   }
 
   /**
-   * Fields visited by following every path before switching to a walk that visits shared fragment fields once, so a
-   * query spreading fragments inside fragments costs linear rather than exponential time.
+   * Fields the direct walks visit, following every path, before switching to `foldShared`.
    */
   private[caliban] val MaxDirectVisits = 1024
 

@@ -10,7 +10,7 @@ import caliban.gateway.internal.execution.EntityExecutor.{ collectEntities, Enti
 import caliban.gateway.internal.execution.PlanExecutor._
 import caliban.gateway.internal.execution.ResponseCompletion.Completion
 import caliban.gateway.internal.execution.ResponseMerge._
-import caliban.gateway.internal.planning.{ Deferral, OperationPlan }
+import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.introspection.Introspector
 import caliban.parsing.SourceMapper
@@ -215,8 +215,7 @@ private[gateway] final class PlanExecutor[-R](
       )
   }
 
-  private lazy val introspection: RootSchema[Any] =
-    Introspector.introspect[Any](Deferral.clientRootType(graph.rootType))
+  private lazy val introspection: RootSchema[Any] = Introspector.introspect[Any](graph.rootType)
   private val entityExecutor                      = new EntityExecutor[R](graph, executorFor)
 
   private def executorFor(source: ComposedGraph.Source): SubgraphExecutor[R] =

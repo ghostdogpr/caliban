@@ -162,7 +162,7 @@ object IncrementalDelivery {
           if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
       }
 
-      // Labels are unique in the document, so each fragment is read once rather than at each spread.
+      // Labels must be unique in the document text, so each fragment counts once however often it is spread.
       if (!context.selectionSets.forall(selection => isLabelUnique(label(selection)))) {
         Left(CalibanError.ValidationError("Stream and defer directive labels must be unique", ""))
       } else {

@@ -118,7 +118,6 @@ object Wrappers {
   private def calculateDepth(field: Field): Int = {
     var visits = 0
 
-    // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
     def loop(children: List[Field], depth: Int, max: Int): Int = children match {
       case child :: rest if visits < Field.MaxDirectVisits =>
         visits += 1

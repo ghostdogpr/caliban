@@ -109,7 +109,7 @@ final class Gateway[-R] private[gateway] (
       security     = new OperationSecurity(graph)
       _           <- validate(if (hooks.authorization.nonEmpty) Nil else security.diagnostics)
       executors    = executables.map(value => value.prepared.name -> value.executor).toMap
-      requestRoot  = Introspector.withIntrospection(Deferral.clientRootType(graph.rootType))
+      requestRoot  = Introspector.withIntrospection(graph.rootType)
       operations  <- OperationPreparation.make(
                        requestRoot,
                        new OperationPlanner(

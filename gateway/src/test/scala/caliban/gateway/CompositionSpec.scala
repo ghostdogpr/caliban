@@ -1484,7 +1484,7 @@ object CompositionSpec extends ZIOSpecDefault {
         assertTrue(
           result.isRight,
           graph.toList.flatMap(_.rootType.additionalDirectives).map(_.name).sorted ==
-            List("audit__trace", "federation__tag"),
+            List("audit__trace", "defer", "federation__tag"),
           directives(field.flatMap(_.directives)).map(_._1).sorted == List("audit__trace", "federation__tag")
         )
       },
@@ -1520,7 +1520,11 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           result.isRight,
-          composed.toList.flatMap(_.rootType.additionalDirectives).map(_.name).sorted == List("audit", "label"),
+          composed.toList.flatMap(_.rootType.additionalDirectives).map(_.name).sorted == List(
+            "audit",
+            "defer",
+            "label"
+          ),
           directives(query.flatMap(_.directives)).exists(_._1 == "label"),
           directives(product.flatMap(_.directives)).exists(_._1 == "audit"),
           directives(display.flatMap(_.directives)).map(_._1).sorted == List("audit", "label"),
@@ -1681,7 +1685,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           merged.isRight,
-          merged.toOption.toList.flatMap(_.rootType.additionalDirectives.map(_.name)) == List("audit"),
+          merged.toOption.toList.flatMap(_.rootType.additionalDirectives.map(_.name)) == List("audit", "defer"),
           directives(field.flatMap(_.directives)).collect { case ("audit", arguments) => arguments("label") } ==
             List[caliban.InputValue](StringValue("audit")),
           collision.left.exists(
