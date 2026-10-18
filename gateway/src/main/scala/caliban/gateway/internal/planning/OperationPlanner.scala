@@ -509,11 +509,11 @@ private[gateway] object OperationPlanner {
             Right(PendingFetch(subgraph, routing.field :: Nil, requirements, delivery))
           case SourceCandidate.Local(requirements)            =>
             val local = PendingFetch(scope.currentSubgraph, routing.field :: Nil, requirements, delivery)
-            // A deferred field of the current subgraph gets its own entity fetch when the parent type has a lookup.
+            // A deferred field of the current subgraph gets its own entity fetch when lookups cover its runtime types.
             // Otherwise it is fetched with its parent, and its fragment is delivered with the parent's payload.
             if (
               usesContext(scope.currentSubgraph, routing.field, scope.activeContexts, satisfiedRequirements) ||
-              delivery != scope.delivery && resolveEntityLookups(context, local).lookups.nonEmpty
+              delivery != scope.delivery && lookupsCover(context, local)
             ) Right(local)
             else Left(routing.field -> routing.supplied.toList.flatMap(_.fields))
         }
@@ -749,6 +749,18 @@ private[gateway] object OperationPlanner {
       if (context.scope.visitedFetches.contains(fetchKey))
         Left(PlanningFailure.Rejected(s"Entity routing cycle detected: ${fetchKey.render}."))
       else plan(context.copy(scope = context.scope.copy(visitedFetches = context.scope.visitedFetches + fetchKey)))
+    }
+
+    /**
+     * Whether entity lookups cover every runtime type that the fields of `pending` select.
+     */
+    private def lookupsCover(context: EntityFetchContext, pending: PendingFetch): Boolean = {
+      val lookups = resolveEntityLookups(context, pending).lookups
+      pending.fields.forall(
+        _._condition
+          .getOrElse(Set(context.typeName))
+          .forall(runtimeType => lookups.exists(lookup => graph.acceptsRuntimeType(lookup.entityType, runtimeType)))
+      )
     }
 
     private def resolveEntityLookups(context: EntityFetchContext, pending: PendingFetch): EntityLookupCandidates = {

@@ -196,6 +196,20 @@ object DeferSpec extends GatewaySpecDefault {
         )
       }
     },
+    test("delivers deferred fields of a union member without a lookup with their parent's payload") {
+      run("""{ items { ... on Coupon @defer { code } } }""").map { ran =>
+        assertTrue(ran.results == List("""{"data":{"items":[{},{"code":"SAVE"}]}}"""))
+      }
+    },
+    test("delivers fields of an abstract type also selected outside the deferred fragment in the initial payload") {
+      for {
+        deferred <-
+          run(
+            """{ items { ... on Product { reviews { body } } ... @defer { ... on Product { reviews { score } } } } }"""
+          )
+        merged   <- run("""{ items { ... on Product { reviews { body score } } } }""")
+      } yield assertTrue(deferred.results == merged.results, deferred.calls == merged.calls)
+    },
     test("fetches deferred fields only for objects the earlier payload keeps") {
       run("""{ items { ... on Product { reviews { score } ... @defer { rating } } } }""").map { ran =>
         assertTrue(ran.results.headOption.exists(_.contains(""""items":[null,{}]""")), ran.calls == List("reviews:1"))

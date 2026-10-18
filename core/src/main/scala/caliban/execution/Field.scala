@@ -305,8 +305,8 @@ object Field {
               case Left(l)  => l.foreach(builder.addField(_, typeName))
               case Right(l) =>
                 l.foreach {
-                  case (f, c) if c.exists(isSubsetCondition) => builder.addField(f, c)
-                  case (f, _)                                => builder.addField(f, typeName)
+                  case (f, c) if typeName.isEmpty || c.exists(isSubsetCondition) => builder.addField(f, c)
+                  case (f, _)                                                    => builder.addField(f, typeName)
                 }
             }
           }
