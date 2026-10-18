@@ -88,7 +88,7 @@ case class Field(
             field.aliasedName,
             (_, existing) =>
               if (existing eq null) field
-              else existing.copy(fields = existing.fields ::: field.fields, fragment = Field.earliest(existing, field))
+              else existing.copy(fields = existing.mergeFields(field), fragment = Field.earliest(existing, field))
           )
         remaining = remaining.tail
       }
@@ -109,10 +109,22 @@ case class Field(
   private def calculateMapCapacity(nMappings: Int): Int =
     Math.ceil(nMappings / 0.75d).toInt
 
+  /**
+   * The sub-fields of this field and of another selection of it.
+   * Spreads of a fragment share its fields, so keeping each one once stops nested spreads from multiplying them.
+   */
+  private def mergeFields(other: Field): List[Field] =
+    if (self.fields.lengthCompare(Field.MaxScannedFields) <= 0)
+      self.fields ::: other.fields.filterNot(field => self.fields.exists(_ eq field))
+    else {
+      val shared = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Field, java.lang.Boolean]())
+      self.fields.foreach(shared.add)
+      self.fields ::: other.fields.filterNot(shared.contains)
+    }
+
   def combine(other: Field): Field =
     self.copy(
-      // Spreads of a fragment share its fields, so keeping each one once stops nested spreads from multiplying them.
-      fields = self.fields ::: other.fields.filterNot(field => self.fields.exists(_ eq field)),
+      fields = mergeFields(other),
       targets = (self.targets, other.targets) match {
         case (Some(t1), Some(t2)) => if (t1 == t2) self.targets else Some(t1 ++ t2)
         case (Some(_), None)      => self.targets
@@ -306,6 +318,55 @@ object Field {
   }
 
   private val identityFnList: List[Field] => List[Field] = l => l
+
+  private val MaxScannedFields = 16
+
+  /**
+   * Folds `f` over `fields` and every field below them, passing each one's depth, starting at one, and the number of
+   * selection paths reaching it. Spreads of a fragment share its fields, so a field reached by many paths is visited
+   * once per depth rather than once per path, in the order it is first reached.
+   */
+  private[caliban] def foldShared[A](fields: List[Field], zero: A)(f: (A, Field, Int, Long) => A): A = {
+    final class Level {
+      val entries = ListBuffer.empty[(Field, Array[Long])]
+      val paths   = new java.util.IdentityHashMap[Field, Array[Long]]()
+
+      def add(field: Field, count: Long): Unit = {
+        val existing = paths.get(field)
+        if (existing eq null) {
+          val created = Array(count)
+          paths.put(field, created)
+          entries += (field -> created)
+        } else existing(0) = addPaths(existing(0), count)
+      }
+    }
+
+    var level = new Level
+    var depth = 1
+    var acc   = zero
+    fields.foreach(level.add(_, 1L))
+    while (level.entries.nonEmpty) {
+      val next = new Level
+      level.entries.foreach { case (field, count) =>
+        acc = f(acc, field, depth, count(0))
+        field.fields.foreach(next.add(_, count(0)))
+      }
+      level = next
+      depth += 1
+    }
+    acc
+  }
+
+  /**
+   * The number of fields below `field` once every fragment spread is expanded, capped at `Long.MaxValue`.
+   */
+  private[caliban] def expandedCount(field: Field): Long =
+    foldShared(field.fields, 0L)((count, _, _, paths) => addPaths(count, paths))
+
+  private def addPaths(a: Long, b: Long): Long = {
+    val sum = a + b
+    if (sum < 0) Long.MaxValue else sum
+  }
 
   /**
    * The fragment of a field selected twice.

@@ -27,11 +27,9 @@ private[gateway] final class OperationPlanner(
   def progressiveOverrides(fields: List[Field]): Set[OverrideLabel] =
     if (!graph.hasProgressiveOverrides) Set.empty
     else
-      fields
-        .flatMap(field =>
-          graph.progressiveOverrides(innerParentTypeName(field), field.name) ++ progressiveOverrides(field.fields)
-        )
-        .toSet
+      Field.foldShared(fields, Set.empty[OverrideLabel])((labels, field, _, _) =>
+        labels ++ graph.progressiveOverrides(innerParentTypeName(field), field.name)
+      )
 
   /**
    * All recursive planning for an operation shares one mutable budget through its planning session.
@@ -70,6 +68,13 @@ private[gateway] object OperationPlanner {
       val defers                        = Deferral.hasDefer(document, execution.operationName)
 
       for {
+        _                  <- Either.cond(
+                                Field.expandedCount(execution.field) <= limits.maxFields,
+                                (),
+                                PlanningFailure.Exhausted(
+                                  s"Operation selects more than ${limits.maxFields} fields once fragments are expanded."
+                                )
+                              )
         _                  <- search.checkTimeout
         _                  <- Either.cond(
                                 !isSubscription || (subgraphFields.size == 1 && localFields.isEmpty),

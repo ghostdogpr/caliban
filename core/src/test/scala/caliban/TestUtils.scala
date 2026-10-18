@@ -179,6 +179,28 @@ object TestUtils {
     SubscriptionIO(ZStream.empty)
   )
 
+  case class Nested(value: Int, next: () => Nested)
+  case class NestedQuery(root: Nested)
+  lazy val nested: Nested                             = Nested(1, () => nested)
+  implicit lazy val nestedSchema: Schema[Any, Nested] = Schema.gen
+  val nestedApi                                       = graphQL(RootResolver(NestedQuery(nested)))
+
+  /**
+   * A query nesting `levels` fields through fragments spread side by side at each level. Expanding its fragments gives
+   * 3^levels + 1 fields, while its response is `levels` fields deep.
+   */
+  def nestedSpreads(levels: Int): String =
+    "{ root { ...A0 ...B0 } } " + (0 until levels)
+      .flatMap(k =>
+        List("A", "B").map(name =>
+          s"fragment $name$k on Nested { next { ...A${k + 1} @include(if: true) ...A${k + 1} @skip(if: false) ...B${k + 1} } }"
+        )
+      )
+      .mkString(" ") + s" fragment A$levels on Nested { value } fragment B$levels on Nested { value }"
+
+  def nestedResult(levels: Int): String =
+    """{"root":""" + """{"next":""" * levels + """{"value":1}""" + "}" * (levels + 1)
+
   object Directives {
     val Test = __Directive(
       name = "test",

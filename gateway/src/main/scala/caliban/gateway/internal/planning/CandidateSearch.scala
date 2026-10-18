@@ -109,7 +109,7 @@ private[gateway] object CandidateSearch {
     final case class Rejected(message: String)  extends PlanningFailure
   }
 
-  final case class Limits(maxCandidates: Int, maxExpansions: Int, timeout: Duration)
+  final case class Limits(maxCandidates: Int, maxExpansions: Int, maxFields: Int, timeout: Duration)
 
   private[planning] val NoCompleteCandidate: PlanningFailure =
     PlanningFailure.Rejected("No complete route candidate was found.")

@@ -71,7 +71,7 @@ object OperationCostSpec extends ZIOSpecDefault {
                        .fromEither(composeDocuments(List("nodes" -> document), federation = false))
                        .orDieWith(errors => new AssertionError(errors.mkString))
                    )
-      limits     = CandidateSearch.Limits(Int.MaxValue, Int.MaxValue, Duration.Infinity)
+      limits     = CandidateSearch.Limits(Int.MaxValue, Int.MaxValue, Int.MaxValue, Duration.Infinity)
       plan      <- ZIO
                      .fromEither(new OperationPlanner(graph, limits).plan(operation, request, Set.empty))
                      .orDieWith(failure => new AssertionError(failure.toString))

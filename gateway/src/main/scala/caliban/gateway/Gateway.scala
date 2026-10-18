@@ -115,9 +115,10 @@ final class Gateway[-R] private[gateway] (
                        new OperationPlanner(
                          graph,
                          CandidateSearch.Limits(
-                           config.maxPlanningCandidates,
-                           config.maxPlanningExpansions,
-                           config.planningTimeout
+                           maxCandidates = config.maxPlanningCandidates,
+                           maxExpansions = config.maxPlanningExpansions,
+                           maxFields = config.maxOperationFields,
+                           timeout = config.planningTimeout
                          )
                        ),
                        security,

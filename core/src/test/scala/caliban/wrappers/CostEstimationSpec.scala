@@ -10,7 +10,7 @@ import caliban.Value.{ FloatValue, IntValue }
 import caliban.wrappers.CostEstimation.GQLCost
 import zio.Console.print
 import zio.test._
-import zio.{ Ref, UIO, ZIO }
+import zio.{ durationInt, Ref, UIO, ZIO }
 
 object CostEstimationSpec extends ZIOSpecDefault {
   case class WithArgs(limit: Int)
@@ -48,6 +48,18 @@ object CostEstimationSpec extends ZIOSpecDefault {
             response.errors == List(ValidationError("Query costs too much: 101.0. Max cost: 99.0.", ""))
           )
         },
+        test("Counts fields shared by fragments spread inside fragments once per path") {
+          for {
+            plain    <- (TestUtils.nestedApi @@ CostEstimation.maxCost(100)(_ => 1.0)).interpreter
+            effect   <- (TestUtils.nestedApi @@ CostEstimation.maxCostZIO(100)(_ => ZIO.succeed(1.0))).interpreter
+            query     = TestUtils.nestedSpreads(30)
+            response <- plain.execute(query)
+            zio      <- effect.execute(query)
+          } yield assertTrue(
+            response.errors == List(ValidationError("Query costs too much: 2.05891132094651E14. Max cost: 100.0.", "")),
+            zio.errors == response.errors
+          )
+        } @@ TestAspect.timeout(30.seconds),
         test("Allow queries below the limit") {
           val wrapper = CostEstimation.maxCost(200)(CostEstimation.costDirective)
           for {

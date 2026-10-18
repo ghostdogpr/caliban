@@ -48,6 +48,25 @@ object FragmentSpec extends ZIOSpecDefault {
           directives.data.toString == repeated.data.toString
         )
       } @@ TestAspect.timeout(30.seconds),
+      test("fragments spread several times around a nested field at each level") {
+        for {
+          int <- nestedApi.interpreter
+          res <- int.execute(nestedSpreads(30))
+        } yield assertTrue(res.data.toString == nestedResult(30))
+      } @@ TestAspect.timeout(30.seconds),
+      test("merges large selections of a field selected twice") {
+        def aliases(prefix: String) = (1 to 20).map(i => s"$prefix$i: name").mkString(" ")
+        val amos                    = """amos: character(name: "Amos Burton")"""
+        val query                   =
+          s"{ ... { $amos { ${aliases("a")} } } ... { $amos { ...Names ${aliases("b")} } } } fragment Names on Character { ${aliases("a")} }"
+        val expected                =
+          (1 to 20).map(i => s""""a$i":"Amos Burton"""") ++ (1 to 20).map(i => s""""b$i":"Amos Burton"""")
+
+        for {
+          int <- graphQL(resolver).interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.data.toString == expected.mkString("""{"amos":{""", ",", "}}"))
+      },
       test("fragment on root query") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""

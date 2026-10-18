@@ -116,27 +116,24 @@ object Wrappers {
     }
 
   private def calculateDepth(field: Field): Int = {
-    // Faster because it doesn't allocate a new list on each iteration but not stack-safe
-    def loopUnsafe(field: Field, currentDepth: Int): Int = {
+    var visits = 0
+
+    // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
+    def loop(field: Field, currentDepth: Int): Int = {
       var children = field.fields
       var max      = currentDepth
-      while (children ne Nil) {
-        val d = loopUnsafe(children.head, currentDepth + 1)
+      while ((children ne Nil) && visits < MaxDirectVisits) {
+        visits += 1
+        val d = loop(children.head, currentDepth + 1)
         if (d > max) max = d
         children = children.tail
       }
       max
     }
 
-    @tailrec
-    def loopSafe(fields: List[Field], currentDepth: Int): Int =
-      if (fields.isEmpty) currentDepth
-      else loopSafe(fields.flatMap(_.fields), currentDepth + 1)
-
-    try loopUnsafe(field, 0)
-    catch {
-      case _: StackOverflowError => loopSafe(field.fields, 0)
-    }
+    val depth = loop(field, 0)
+    if (visits < MaxDirectVisits) depth
+    else Field.foldShared(field.fields, 0)((max, _, depth, _) => math.max(max, depth))
   }
 
   /**
@@ -175,28 +172,30 @@ object Wrappers {
   ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
-  private def countFields(rootField: Field): Int = {
-    // Faster because it doesn't allocate a new list on each iteration but not stack-safe
-    def loopUnsafe(field: Field): Int = {
+  private def countFields(rootField: Field): Long = {
+    var visits = 0
+
+    // Faster because it doesn't allocate a new list on each iteration; MaxDirectVisits bounds its recursion
+    def loop(field: Field): Long = {
       val iter  = field.fields.iterator
-      var count = 0
-      while (iter.hasNext) {
+      var count = 0L
+      while (iter.hasNext && visits < MaxDirectVisits) {
+        visits += 1
         val f = iter.next()
-        count += loopUnsafe(f) + 1
+        count += loop(f) + 1
       }
       count
     }
 
-    @tailrec
-    def loopSafe(fields: List[Field], acc: Int): Int =
-      if (fields.isEmpty) acc
-      else loopSafe(fields.flatMap(_.fields), acc + fields.length)
-
-    try loopUnsafe(rootField)
-    catch {
-      case _: StackOverflowError => loopSafe(rootField.fields, 0)
-    }
+    val count = loop(rootField)
+    if (visits < MaxDirectVisits) count else Field.expandedCount(rootField)
   }
+
+  /**
+   * Fields visited by following every path before switching to a walk that visits shared fragment fields once, so a
+   * query spreading fragments inside fragments costs linear rather than exponential time.
+   */
+  private[wrappers] val MaxDirectVisits = 1024
 
   /**
    * Returns a wrapper that check directives on fields and can potentially fail the query

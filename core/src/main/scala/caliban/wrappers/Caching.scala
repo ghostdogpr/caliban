@@ -252,7 +252,24 @@ object Caching {
         f: Document => ZIO[R, CalibanError.ValidationError, ExecutionRequest]
       ): Document => ZIO[R, CalibanError.ValidationError, ExecutionRequest] = { (d: Document) =>
         f(d).flatMap { request =>
+          // Spreads of a fragment share its fields, and restricting twice with the same hints changes nothing
+          var visits       = 0
+          lazy val visited = new java.util.IdentityHashMap[Field, List[Option[CacheHint]]]()
+
           def loop(policy: CachePolicy, field: Field, parentHint: Option[CacheHint]): CachePolicy = {
+            visits += 1
+            if (visits <= Wrappers.MaxDirectVisits) visit(policy, field, parentHint)
+            else {
+              val seen = visited.getOrDefault(field, Nil)
+              if (seen.contains(parentHint)) policy
+              else {
+                visited.put(field, parentHint :: seen)
+                visit(policy, field, parentHint)
+              }
+            }
+          }
+
+          def visit(policy: CachePolicy, field: Field, parentHint: Option[CacheHint]): CachePolicy = {
             val fieldHint   = extractCacheDirective(field.directives)
             val isInherited = fieldHint.exists(_.inheritMaxAge)
             def typeHint    = field.parentType.flatMap(cacheHintFromType)
