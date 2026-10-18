@@ -140,53 +140,55 @@ case class Field(
       fragment = Field.earliest(self, other)
     )
 
-  lazy val toSelection: Selection = {
-    def loop(f: Field): Selection = {
-      // Not pretty, but it avoids computing the hashmap if it isn't needed
-      var map: mutable.Map[String, List[Selection]] =
-        null.asInstanceOf[mutable.Map[String, List[Selection]]]
+  lazy val toSelection: Selection = selecting(selectionSet(_.toSelection))
 
-      val children = f.fields.flatMap { child =>
-        val childSelection = loop(child)
-        child.targets match {
-          case Some(targets) =>
-            targets.foreach { target =>
-              if (map eq null) map = mutable.LinkedHashMap.empty
-              map.update(target, childSelection :: map.getOrElse(target, Nil))
-            }
-            None
-          case None          =>
-            Some(childSelection)
-        }
-      }
+  /**
+   * This field selecting `selectionSet`.
+   */
+  private[caliban] def selecting(selectionSet: List[Selection]): Selection = {
+    val schemaDirectives =
+      parentType.flatMap(pt => Option(pt.innerType.getFieldOrNull(name))).flatMap(_.directives).getOrElse(Nil)
+    val directives       =
+      if (schemaDirectives.isEmpty) self.directives else self.directives.filterNot(schemaDirectives.contains)
 
-      val inlineFragments =
-        if (map eq null) Nil
-        else
-          map.map { case (name, selections) =>
-            Selection.InlineFragment(
-              Some(NamedType(name, nonNull = false)),
-              Nil,
-              selections
-            )
+    Selection.Field(alias, name, arguments, directives, selectionSet, 0)
+  }
+
+  /**
+   * The selections of this field's sub-fields, rendering each one with `child` and grouping those with type conditions
+   * into inline fragments.
+   */
+  private[caliban] def selectionSet(child: Field => Selection): List[Selection] = {
+    // Not pretty, but it avoids computing the hashmap if it isn't needed
+    var map: mutable.Map[String, List[Selection]] =
+      null.asInstanceOf[mutable.Map[String, List[Selection]]]
+
+    val children = fields.flatMap { field =>
+      val childSelection = child(field)
+      field.targets match {
+        case Some(targets) =>
+          targets.foreach { target =>
+            if (map eq null) map = mutable.LinkedHashMap.empty
+            map.update(target, childSelection :: map.getOrElse(target, Nil))
           }
-
-      val schemaDirectives =
-        f.parentType.flatMap(pt => Option(pt.innerType.getFieldOrNull(f.name))).flatMap(_.directives).getOrElse(Nil)
-      val directives       =
-        if (schemaDirectives.isEmpty) f.directives else f.directives.filterNot(schemaDirectives.contains)
-
-      Selection.Field(
-        f.alias,
-        f.name,
-        f.arguments,
-        directives,
-        children ++ inlineFragments,
-        0
-      )
+          None
+        case None          =>
+          Some(childSelection)
+      }
     }
 
-    loop(this)
+    val inlineFragments =
+      if (map eq null) Nil
+      else
+        map.map { case (name, selections) =>
+          Selection.InlineFragment(
+            Some(NamedType(name, nonNull = false)),
+            Nil,
+            selections
+          )
+        }
+
+    children ++ inlineFragments
   }
 }
 
