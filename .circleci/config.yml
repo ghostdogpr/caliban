@@ -23,7 +23,7 @@ jobs:
     steps:
       - checkout
       - restore_sbt_cache
-      - run: sbt ++2.13 check ++3.3 check
+      - run: sbt ++2.13 check ++3.9 check
       - save_sbt_cache
   test212_jdk:
     docker:
@@ -83,7 +83,7 @@ jobs:
     steps:
       - checkout
       - restore_sbt_cache
-      - run: sbt ++3.3 rootJVM3/test benchmarks/test
+      - run: sbt ++3.9 rootJVM3/test benchmarks/test
       - save_sbt_cache
   test33_jdk21:
     docker:
@@ -93,7 +93,7 @@ jobs:
     steps:
       - checkout
       - restore_sbt_cache
-      - run: sbt ++3.3 rootJVM3/test benchmarks/test
+      - run: sbt ++3.9 rootJVM3/test benchmarks/test
       - save_sbt_cache
   test37_jdk:
     docker:
@@ -102,7 +102,7 @@ jobs:
     steps:
       - checkout
       - restore_sbt_cache
-      - run: sbt ++3.8.3 codegenSbt/test
+      - run: sbt ++3.9 codegenSbt/test
       - save_sbt_cache
   scripted3_sbt2_jdk:
     docker:
@@ -111,7 +111,7 @@ jobs:
     steps:
       - checkout
       - restore_sbt_cache
-      - run: sbt ++3.8.3 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
+      - run: sbt ++3.9 "set ThisBuild / Compile / packageDoc / publishArtifact := false" codegenSbt/scripted
       - save_sbt_cache
   test213_js_native:
     docker:
@@ -131,7 +131,7 @@ jobs:
       - checkout
       - restore_sbt_cache
       - run: ./.circleci/install-native-deps.sh
-      - run: sbt ++3.3 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
+      - run: sbt ++3.9 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
       - save_sbt_cache
   test213_docs:
     docker:
@@ -150,7 +150,7 @@ jobs:
       - checkout
       - restore_sbt_cache
       # Not checked: tools/mimaReportBinaryIssues
-      - run: sbt ++2.13 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues ++3.3 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues
+      - run: sbt ++2.13 http4s/mimaReportBinaryIssues akkaHttp/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues ++3.9 catsInterop/mimaReportBinaryIssues monixInterop/mimaReportBinaryIssues clientJVM/mimaReportBinaryIssues clientJS/mimaReportBinaryIssues clientLaminextJS/mimaReportBinaryIssues http4s/mimaReportBinaryIssues federation/mimaReportBinaryIssues reporting/mimaReportBinaryIssues tracing/mimaReportBinaryIssues core/mimaReportBinaryIssues tapirInterop/mimaReportBinaryIssues pekkoHttp/mimaReportBinaryIssues quickAdapter/mimaReportBinaryIssues play/mimaReportBinaryIssues
       - save_sbt_cache
   release:
     docker:

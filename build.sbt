@@ -4,11 +4,10 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 import sbt.*
 import Keys.*
 
-val scala212     = "2.12.21"
-val scala213     = "2.13.18"
-val scala3Lts    = "3.3.9"
-val scala3ForSbt = "3.8.4"
-val allScala     = Seq(scala212, scala213, scala3Lts)
+val scala212 = "2.12.21"
+val scala213 = "2.13.18"
+val scala3   = "3.9.0"
+val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
 val akkaHttpVersion           = "10.2.10"
@@ -17,7 +16,7 @@ val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.17"
 val fs2Version                = "3.14.0"
 val http4sVersion             = "0.23.38"
-val javaTimeVersion           = "2.7.0"
+val javaTimeVersion           = "2.9.0"
 val jsoniterVersion           = "2.42.2"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.14"
@@ -26,17 +25,17 @@ val pekkoHttpVersion          = "1.4.2"
 val playVersion               = "3.0.12"
 val playJsonVersion           = "3.0.6"
 val scalafmtVersion           = "3.11.5"
-val sttpVersion               = "4.0.27"
-val tapirVersion              = "1.13.33"
+val sttpVersion               = "4.1.0"
+val tapirVersion              = "1.14.1"
 val zioVersion                = "2.1.27"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.14"
 val zioInteropReactiveVersion = "2.0.2"
-val zioConfigVersion          = "4.0.8"
+val zioConfigVersion          = "4.1.0"
 val zqueryVersion             = "0.7.8"
-val zioJsonVersion            = "1.0.0"
+val zioJsonVersion            = "1.1.1"
 val zioHttpVersion            = "3.11.6"
-val zioOpenTelemetryVersion   = "3.1.19"
+val zioOpenTelemetryVersion   = "3.1.21"
 val zioMetricsVersion         = "2.6.0"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -64,7 +63,7 @@ inThisBuild(
       )
     ),
     versionScheme            := Some("pvp"),
-    ConsoleHelper.welcomeMessage(scala212, scala213, scala3Lts),
+    ConsoleHelper.welcomeMessage(scala212, scala213, scala3),
     resolvers += Resolver.sonatypeCentralSnapshots
   )
 )
@@ -182,7 +181,7 @@ lazy val macros = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3Lts) {
+      if (scalaVersion.value == scala3) {
         Seq(
           "com.softwaremill.magnolia1_3" %% "magnolia" % magnoliaScala3Version
         )
@@ -338,10 +337,10 @@ lazy val codegenSbt = project
   )
   .settings(
     sbtPlugin                     := true,
-    crossScalaVersions            := Seq(scala212, scala3ForSbt),
+    crossScalaVersions            := Seq(scala212, scala3),
     pluginCrossBuild / sbtVersion := (scalaBinaryVersion.value match {
       case "2.12" => sbtVersion.value
-      case _      => "2.0.0"
+      case _      => "2.1.0-RC2"
     }),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-config"          % zioConfigVersion,
@@ -386,7 +385,7 @@ lazy val catsInterop = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3Lts) Seq()
+      if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++ Seq(
       "org.typelevel" %% "cats-effect"      % catsEffect3Version,
@@ -421,7 +420,7 @@ lazy val tapirInterop = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3Lts) Seq()
+      if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++
       Seq(
@@ -445,7 +444,7 @@ lazy val http4s = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3Lts) Seq()
+      if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++
       Seq(
@@ -479,9 +478,9 @@ lazy val akkaHttp = project
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
-    skip           := (scalaVersion.value == scala3Lts),
-    ideSkipProject := (scalaVersion.value == scala3Lts),
-    crossScalaVersions -= scala3Lts,
+    skip           := (scalaVersion.value == scala3),
+    ideSkipProject := (scalaVersion.value == scala3),
+    crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
       "com.typesafe.akka"           %% "akka-http"                  % akkaHttpVersion,
       "com.typesafe.akka"           %% "akka-serialization-jackson" % akkaVersion,
@@ -499,7 +498,7 @@ lazy val pekkoHttp = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3Lts) Seq()
+      if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++ Seq(
       "org.apache.pekko"            %% "pekko-http"              % pekkoHttpVersion,
@@ -519,7 +518,7 @@ lazy val play = project
     ideSkipProject := (scalaVersion.value == scala212),
     crossScalaVersions -= scala212,
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3Lts) Seq()
+      if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     },
     libraryDependencies ++= Seq(
@@ -568,8 +567,7 @@ lazy val clientNative = client.native
       "com.github.lolgab" %%% "scala-native-crypto" % "0.3.0",
       "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
     ),
-    Test / fork := false,
-    scalacOptions -= "-Yfuture-lazy-vals" // Some reason SN doesn't like this, but it's only needed for JVM anyway
+    Test / fork := false
   )
 
 lazy val clientLaminext = crossProject(JSPlatform)
@@ -577,7 +575,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .js
   .in(file("client-laminext"))
   .settings(scalaVersion := scala213)
-  .settings(crossScalaVersions := Seq(scala213, scala3Lts))
+  .settings(crossScalaVersions := Seq(scala213, scala3))
   .settings(name := "caliban-client-laminext")
   .settings(commonSettings)
   .settings(enableMimaSettingsJS)
@@ -650,7 +648,7 @@ lazy val apolloCompatibility =
     .settings(
       skip               := (scalaVersion.value == scala212),
       ideSkipProject     := (scalaVersion.value == scala212),
-      crossScalaVersions := Seq(scala213, scala3Lts)
+      crossScalaVersions := Seq(scala213, scala3)
     )
     .settings(assemblyAppSettings("apollo-subgraph-compatibility.jar", "Main"))
     .dependsOn(federation, core, quickAdapter)
@@ -679,7 +677,7 @@ lazy val benchmarks = project
     skip               := (scalaVersion.value == scala212),
     ideSkipProject     := (scalaVersion.value == scala212),
     publish / skip     := true,
-    crossScalaVersions := Seq(scala213, scala3Lts)
+    crossScalaVersions := Seq(scala213, scala3)
   )
   .dependsOn(core % "compile->compile")
   .enablePlugins(JmhPlugin)
@@ -785,8 +783,8 @@ lazy val docs = project
   .settings(commonSettings)
   .disablePlugins(AssemblyPlugin)
   .settings(
-    skip               := (scalaVersion.value == scala3Lts),
-    ideSkipProject     := (scalaVersion.value == scala3Lts),
+    skip               := (scalaVersion.value == scala3),
+    ideSkipProject     := (scalaVersion.value == scala3),
     crossScalaVersions := Seq(scala212, scala213),
     name               := "caliban-docs",
     mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
@@ -844,15 +842,15 @@ lazy val commonSettings = Def.settings(
         "-explaintypes"
       )
 
-    case Some((3, minor)) =>
+    case Some((3, _)) =>
       Seq(
         "-Werror",
         "-explain-types",
-        s"-${if (minor >= 5) "X" else "Y"}kind-projector",
-        if (minor == 3) "-Yfuture-lazy-vals" else "",
-        "-no-indent"
+        "-Xkind-projector",
+        "-no-indent",
+        "-source:3.3" // cross-built sources keep the dialect shared with Scala 2
       )
-    case _                => Nil
+    case _            => Nil
   })
 )
 

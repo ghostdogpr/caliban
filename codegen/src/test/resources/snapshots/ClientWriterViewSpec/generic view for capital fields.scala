@@ -10,7 +10,7 @@ object Client {
 
     type ViewSelection = SelectionBuilder[TypeWithCapitalFields, TypeWithCapitalFieldsView]
 
-    def view: ViewSelection = (Name ~ Value).map { case (name$, value$) => TypeWithCapitalFieldsView(name$, value$) }
+    def view: ViewSelection = (Name ~ Value).map { case (name_, value_) => TypeWithCapitalFieldsView(name_, value_) }
 
     def Name: SelectionBuilder[TypeWithCapitalFields, scala.Option[String]]  =
       _root_.caliban.client.SelectionBuilder.Field("Name", OptionOf(Scalar()))
