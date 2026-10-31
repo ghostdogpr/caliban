@@ -57,7 +57,7 @@ object ClientWriter {
     )
 
     def safeUnapplyName(name: String): String =
-      if (reservedKeywords.contains(name) || name.endsWith("_") || isCapital(name)) s"${decapitalize(name)}$$"
+      if (reservedKeywords.contains(name) || name.endsWith("_") || isCapital(name)) s"${decapitalize(name)}_"
       else name
 
     def isCapital(name: String): Boolean = name.nonEmpty && name.charAt(0).isUpper
