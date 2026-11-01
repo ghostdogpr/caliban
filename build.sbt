@@ -121,10 +121,12 @@ lazy val allProjects: Seq[ProjectReference] =
     federation,
     gateway,
     gatewayTracing,
+    gatewayHive,
     gatewayExamples,
     gatewayAudit,
     gatewayBenchmark,
     reporting,
+    hive,
     tracing,
     apolloCompatibility
   )
@@ -752,6 +754,31 @@ lazy val gatewayTracing = project
   .disablePlugins(AssemblyPlugin)
   .dependsOn(gateway % "compile->compile;test->test", tracing % "compile->compile;test->test")
 
+lazy val hive = project
+  .in(file("hive"))
+  .settings(name := "caliban-hive")
+  .settings(commonSettings)
+  .settings(
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-http"     % zioHttpVersion,
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(core)
+
+lazy val gatewayHive = project
+  .in(file("gateway-hive"))
+  .settings(name := "caliban-gateway-hive")
+  .settings(commonSettings)
+  .settings(
+    mimaPreviousArtifacts := Set.empty
+  )
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(gateway % "compile->compile;test->test", hive % "compile->compile;test->test")
+
 lazy val gatewayAudit = project
   .in(file("gateway-audit"))
   .settings(commonSettings)
@@ -800,7 +827,19 @@ lazy val docs = project
       "dev.zio"                               %% "zio-metrics-connectors-prometheus" % zioMetricsVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter, federation, gateway, gatewayTracing)
+  .dependsOn(
+    core,
+    catsInterop,
+    tapirInterop,
+    http4s,
+    tools,
+    quickAdapter,
+    federation,
+    gateway,
+    gatewayTracing,
+    hive,
+    gatewayHive
+  )
 
 lazy val commonSettings = Def.settings(
   apiMappingSettings,
