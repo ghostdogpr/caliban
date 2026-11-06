@@ -3,6 +3,8 @@ package caliban.relay
 import caliban.CalibanError
 import zio.Exit
 
+import scala.util.control.NoStackTrace
+
 object Pagination {
   import PaginationCount._
   import PaginationCursor._
@@ -84,7 +86,10 @@ object Pagination {
       case (Left(c), _)         => Left(List(c))
       case (_, Left(r))         => Left(List(r))
     }
-    Exit.fromEither(v.left.map(errors => CalibanError.ExecutionError(msg = errors.mkString(", "))))
+    Exit.fromEither(v.left.map { errors =>
+      val reason = errors.mkString(", ")
+      CalibanError.ExecutionError(msg = reason, innerThrowable = Some(PaginationError(reason)))
+    })
   }
 
 }
@@ -132,4 +137,10 @@ abstract class BackwardPaginationArgs[C: Cursor] { self =>
   def toPagination: Exit[CalibanError, Pagination[C]] = Pagination(self)
 }
 
-case class PaginationError(reason: String)
+/**
+ * The `innerThrowable` of the [[caliban.CalibanError.ExecutionError]] returned when pagination arguments are rejected,
+ * which lets an error caused by the caller's input be told apart from other execution errors.
+ */
+case class PaginationError(reason: String) extends NoStackTrace {
+  override def getMessage: String = reason
+}
