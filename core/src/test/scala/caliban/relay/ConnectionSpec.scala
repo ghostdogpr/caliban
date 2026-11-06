@@ -1,5 +1,7 @@
 package caliban.relay
 
+import caliban.ResponseValue.ObjectValue
+import caliban.Value.StringValue
 import caliban._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
@@ -387,6 +389,31 @@ object ConnectionSpec extends ZIOSpecDefault {
               hasMessage(equalTo("last cannot be negative"))
             )
           )
+        )
+      }
+    ),
+    suite("PaginationError")(
+      test("is the cause of rejected arguments") {
+        for {
+          args     <- Args(first = Some(1), last = Some(1), before = None, after = None).toPagination.flip
+          forward  <- ForwardArgs(first = None, after = None).toPagination.flip
+          backward <- BackwardArgs(last = Some(-1), before = None).toPagination.flip
+        } yield assertTrue(
+          args.getCause == PaginationError("first and last cannot both be set"),
+          forward.getCause == PaginationError("first cannot be empty"),
+          backward.getCause == PaginationError("last cannot be negative")
+        )
+      },
+      test("is the cause of an undecodable cursor") {
+        for {
+          error <- ForwardArgs(first = Some(1), after = Some("not a cursor")).toPagination.flip
+        } yield assertTrue(error.getCause == PaginationError(error.getMessage))
+      },
+      test("is not exposed in the response") {
+        for {
+          error <- ForwardArgs(first = None, after = None).toPagination.flip
+        } yield assertTrue(
+          error.toResponseValue == ObjectValue(List("message" -> StringValue("first cannot be empty")))
         )
       }
     )
