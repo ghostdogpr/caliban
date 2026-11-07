@@ -11,3 +11,5 @@ features:
 - title: Excellent interoperability
   details: Out-of-the-box support for major HTTP server libraries, effect types, JSON libraries, and more.
 ---
+
+<a class="stack-badge" href="https://ghostdogpr.github.io/" target="_blank" rel="noreferrer">Part of the ghostdogpr stack →</a>
