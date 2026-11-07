@@ -49,10 +49,6 @@ module.exports = {
             link: '/about/'
           },
           {
-            text: 'ghostdogpr stack',
-            link: 'https://ghostdogpr.github.io/'
-          },
-          {
             text: 'GitHub',
             link: 'https://github.com/ghostdogpr/caliban'
           },
