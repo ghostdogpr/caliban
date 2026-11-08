@@ -301,3 +301,31 @@ val application = serve.provide(
 Run `application` from your `ZIOAppDefault.run`. Configure the agent's exporter and service name when launching the JVM. Without an initialized SDK and exporter, these layers alone do not send spans anywhere. If you configure the SDK in Scala instead, use `OpenTelemetry.custom` and `OpenTelemetry.contextZIO`, following the [ZIO OpenTelemetry setup guide](https://zio.dev/zio-telemetry/opentelemetry/#setup).
 
 Tracing covers the whole request, including preparation and remote calls. Subscriptions have setup and event spans. `QuickAdapter` propagates incoming trace headers.
+
+### Reporting usage to GraphQL Hive
+
+To report which operations the gateway serves to [GraphQL Hive](https://the-guild.dev/graphql/hive), add the optional module to `build.sbt`:
+
+```scala
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-gateway-hive" % "3.1.5"
+```
+
+Attach its hooks to the gateway and provide a `HiveUsage` layer:
+
+```scala mdoc:compile-only
+import caliban.QuickAdapter
+import caliban.gateway.hive.GatewayHive
+import caliban.hive.{ HiveConfig, HiveUsage }
+import zio._
+
+val config = HiveConfig(Config.Secret("<access token>"), "my-organization/my-project/production")
+
+val reporting = ZIO.scoped {
+  for {
+    interpreter <- (Gateway.compose(products) @@ GatewayHive.hooks).interpreter
+    _           <- QuickAdapter(interpreter).runServer(4000, "/graphql")
+  } yield ()
+}.provide(HiveUsage.layer(config), Client.default)
+```
+
+The schema coordinates come from the composed schema. Reports are built and sent as described in [Usage Reporting](../usage-reporting.md).

@@ -73,6 +73,7 @@ module.exports = {
               'federation',
               'relay-connections',
               'schema-reporting',
+              'usage-reporting',
             ]
           },
           {
