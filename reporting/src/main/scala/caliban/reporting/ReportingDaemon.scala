@@ -12,12 +12,12 @@ trait ReportingDaemon {
    * Registers a schema reference for upload. Returns a managed which can be used to manage the lifespan of the
    * reporting.
    */
-  def register(ref: SchemaReportingRef[_])(implicit trace: Trace): ZIO[Scope, Nothing, Unit]
+  def register(ref: SchemaReportingRef[?])(implicit trace: Trace): ZIO[Scope, Nothing, Unit]
 }
 
 object ReportingDaemon {
 
-  def register(ref: SchemaReportingRef[_]): ZIO[ReportingDaemon with Scope, Nothing, Unit] =
+  def register(ref: SchemaReportingRef[?]): ZIO[ReportingDaemon with Scope, Nothing, Unit] =
     ZIO.serviceWithZIO[ReportingDaemon](_.register(ref))
 
   def live: ZLayer[SchemaReporter, Nothing, ReportingDaemon] = ZLayer(make)
@@ -26,7 +26,7 @@ object ReportingDaemon {
     ZIO.serviceWith[SchemaReporter] { reporter =>
       new ReportingDaemon {
 
-        override def register(ref: SchemaReportingRef[_])(implicit trace: Trace): ZIO[Scope, Nothing, Unit] = {
+        override def register(ref: SchemaReportingRef[?])(implicit trace: Trace): ZIO[Scope, Nothing, Unit] = {
           def loop(withCoreSchema: Boolean): ZIO[Any, Nothing, Unit] =
             reporter
               .report(ref, withCoreSchema)

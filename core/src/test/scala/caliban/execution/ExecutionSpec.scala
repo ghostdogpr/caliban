@@ -734,15 +734,17 @@ object ExecutionSpec extends ZIOSpecDefault {
         val interpreter = graphQL(
           RootResolver(
             Queries(json =>
-              Json.Obj(
-                "a" -> Json.Arr(
-                  Json.Num(333),
-                  Json.Str("hello"),
-                  Json.Bool(false),
-                  Json.Null,
-                  Json.Obj("b" -> Json.Num(444))
+              Json
+                .Obj(
+                  "a" -> Json.Arr(
+                    Json.Num(333),
+                    Json.Str("hello"),
+                    Json.Bool(false),
+                    Json.Null,
+                    Json.Obj("b" -> Json.Num(444))
+                  )
                 )
-              ) merge json.value
+                .merge(json.value)
             )
           )
         ).interpreter

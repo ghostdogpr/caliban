@@ -23,10 +23,10 @@ private[caliban] trait StringParsers {
     final val Comma        = ','
     final val CommentStart = '#'
 
-    override def apply(p: P[_]): P[Unit] =
+    override def apply(p: P[?]): P[Unit] =
       loop(p.index, state = Normal)(p, p.input)
 
-    @tailrec def loop(index: Int, state: State)(implicit ctx: P[_], input: ParserInput): ParsingRun[Unit] =
+    @tailrec def loop(index: Int, state: State)(implicit ctx: P[?], input: ParserInput): ParsingRun[Unit] =
       if (input.isReachable(index)) {
         val currentChar = input(index)
         (state: @switch) match {

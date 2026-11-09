@@ -159,7 +159,7 @@ object HttpInterpreter {
       : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S] =
       endpoint.post
         .in(
-          (headers and stringBody and queryParams).mapDecode { case (headers, body, params) =>
+          (headers `and` stringBody `and` queryParams).mapDecode { case (headers, body, params) =>
             val getRequest =
               if (params.get("query").isDefined)
                 queryFromQueryParams(params)

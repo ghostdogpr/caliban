@@ -21,7 +21,7 @@ import scala.util.Try
 
 private[gateway] object RemoteSchemaAcquisition {
 
-  def load(remote: Subgraph.Source.Remote[_], http: GatewayHttpClient)(implicit
+  def load(remote: Subgraph.Source.Remote[?], http: GatewayHttpClient)(implicit
     trace: Trace
   ): IO[SubgraphAcquisitionError, Document] =
     remote.schema match {

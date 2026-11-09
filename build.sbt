@@ -710,7 +710,7 @@ lazy val federation = project
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-circe" % jsoniterVersion % Test
     ),
     Compile / PB.targets := Seq(
-      scalapb.gen(grpc = false) -> (Compile / sourceManaged).value / "scalapb"
+      scalapb.gen(grpc = false, scala3Sources = isScala3.value) -> (Compile / sourceManaged).value / "scalapb"
     ),
     libraryDependencies ++= Seq(
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
@@ -843,13 +843,23 @@ lazy val commonSettings = Def.settings(
       )
 
     case Some((3, _)) =>
+      val warningFilters = Seq(
+        "-Wconf:msg=Implicit parameters should be provided with a `using` clause:s",
+        "-Wconf:msg=Ignoring \\[this\\] qualifier:s",
+        "-Wconf:msg=with as a type operator has been deprecated:s",
+        "-Wconf:msg=The trailing ` _` for eta-expansion is unnecessary:s",
+        "-Wconf:msg=no longer supported for vararg splices:s"
+      )
+
       Seq(
         "-Werror",
         "-explain-types",
         "-Xkind-projector",
         "-no-indent",
-        "-source:3.3" // cross-built sources keep the dialect shared with Scala 2
-      )
+        "-Ybackend-parallelism:4",
+        "-opt",
+        "-opt-inline:scala.**"
+      ) ++ warningFilters
     case _            => Nil
   })
 )
@@ -908,5 +918,12 @@ lazy val apiMappingSettings = Def.settings(
     ).flatten.toMap
   }
 )
+
+lazy val isScala3 = Def.setting {
+  CrossVersion.partialVersion(scalaVersion.value) match {
+    case Some((3, _)) => true
+    case _            => false
+  }
+}
 
 Global / excludeLintKeys += ideSkipProject

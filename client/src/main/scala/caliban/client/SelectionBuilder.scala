@@ -363,7 +363,7 @@ object SelectionBuilder {
     name: String,
     builder: FieldBuilder[A],
     alias: Option[String] = None,
-    arguments: List[Argument[_]] = Nil,
+    arguments: List[Argument[?]] = Nil,
     directives: List[Directive] = Nil
   ) extends SelectionBuilder[Origin, A] { self =>
     override def fromGraphQL(value: __Value): Either[DecodingError, A] =
