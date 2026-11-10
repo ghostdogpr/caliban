@@ -1,7 +1,7 @@
 package caliban.client
 
 import caliban.client.__Value.__ObjectValue
-import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import com.github.plokhotnyuk.jsoniter_scala.core.{ JsonReader, JsonValueCodec, JsonWriter }
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 
 /**
@@ -15,7 +15,14 @@ case class GraphQLResponse(
 
 object GraphQLResponse {
 
-  // `errors` is absent from successful responses, which `makeCirceLike` rejects since jsoniter-scala 2.43.0
-  implicit val jsonCodec: JsonValueCodec[GraphQLResponse] = JsonCodecMaker.make[GraphQLResponse]
+  private val decoder: JsonValueCodec[GraphQLResponse] = JsonCodecMaker.make[GraphQLResponse]
+  private val encoder: JsonValueCodec[GraphQLResponse] = JsonCodecMaker.makeCirceLike[GraphQLResponse]
+
+  implicit val jsonCodec: JsonValueCodec[GraphQLResponse] = new JsonValueCodec[GraphQLResponse] {
+    override def decodeValue(in: JsonReader, default: GraphQLResponse): GraphQLResponse =
+      decoder.decodeValue(in, default)
+    override def encodeValue(x: GraphQLResponse, out: JsonWriter): Unit                 = encoder.encodeValue(x, out)
+    override def nullValue: GraphQLResponse                                             = decoder.nullValue
+  }
 
 }
