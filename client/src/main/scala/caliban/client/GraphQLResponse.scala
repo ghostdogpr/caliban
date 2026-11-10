@@ -15,6 +15,6 @@ case class GraphQLResponse(
 
 object GraphQLResponse {
 
-  implicit val jsonCodec: JsonValueCodec[GraphQLResponse] = JsonCodecMaker.makeCirceLike[GraphQLResponse]
+  implicit val jsonCodec: JsonValueCodec[GraphQLResponse] = JsonCodecMaker.make[GraphQLResponse]
 
 }
