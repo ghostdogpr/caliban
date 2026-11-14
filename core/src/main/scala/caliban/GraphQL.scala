@@ -31,7 +31,7 @@ trait GraphQL[-R] { self =>
   protected val transformer: Transformer[R]
 
   private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] =
-    SchemaValidator.validateSchema(schemaBuilder)
+    SchemaValidator.validateSchema(schemaBuilder, additionalDirectives)
 
   /**
    * Returns this GraphQL rendered as a string in the GraphQL SDL format.
