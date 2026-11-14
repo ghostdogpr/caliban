@@ -5,7 +5,7 @@ import caliban.execution.{ isIntrospectionField, ExecutionRequest, Executor, Fea
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
-import caliban.parsing.adt.{ Directive, Document, OperationType }
+import caliban.parsing.adt.{ Directive, Document, OperationType, SchemaCoordinate }
 import caliban.parsing.SourceMapper
 import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema._
@@ -73,6 +73,21 @@ trait GraphQL[-R] { self =>
       SourceMapper.empty
     )
 
+  final def resolveSchemaCoordinate(coordinate: SchemaCoordinate): Either[ValidationError, Option[SchemaElement]] =
+    validated.flatMap { case (_, rootType) => rootType.resolve(coordinate) }
+
+  private lazy val validated: Either[ValidationError, (RootSchema[R], RootType)] =
+    validateRootSchema.map { schema =>
+      schema -> RootType(
+        schema.query.opType,
+        schema.mutation.map(_.opType),
+        schema.subscription.map(_.opType),
+        schemaBuilder.additionalTypes,
+        additionalDirectives,
+        schemaBuilder.schemaDescription
+      )
+    }
+
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
    * adding some middleware around the query execution.
@@ -100,18 +115,8 @@ trait GraphQL[-R] { self =>
    * @see [[interpreterUnsafe]] of an unsafe variant that will throw validation errors
    */
   final lazy val interpreterEither: Either[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    validateRootSchema.map { schema =>
+    validated.map { case (schema, rootType) =>
       new GraphQLInterpreter[R, CalibanError] {
-        private val rootType =
-          RootType(
-            schema.query.opType,
-            schema.mutation.map(_.opType),
-            schema.subscription.map(_.opType),
-            schemaBuilder.additionalTypes,
-            additionalDirectives,
-            schemaBuilder.schemaDescription
-          )
-
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
         private lazy val rootTypeWithIntrospection: RootType    = Introspector.withIntrospection(rootType)

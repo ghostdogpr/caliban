@@ -152,7 +152,14 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
           "Argument 'a' was added on field 'name' of type 'Hero'."
         )
 
-        compare(schema1, schema2, expected)
+        for {
+          result <- compare(schema1, schema2, expected)
+          s1     <- Parser.parseQuery(schema1)
+          s2     <- Parser.parseQuery(schema2)
+        } yield result && assertTrue(
+          compareDocuments(s1, s2).map(_.coordinate.map(_.toString)) ==
+            List(Some("HeroInput.test2"), Some("HeroInput.test"), Some("Hero.name"), Some("Hero.name(a:)"))
+        )
       },
       test("optional argument added") {
         val schema1: String =

@@ -2,10 +2,51 @@ package caliban.tools
 
 import caliban.InputValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation
-import caliban.parsing.adt.Type
+import caliban.parsing.adt.{ SchemaCoordinate, Type }
+import caliban.parsing.adt.SchemaCoordinate._
 
-sealed trait SchemaComparisonChange {
+sealed trait SchemaComparisonChange { self =>
+  import SchemaComparisonChange._
+
   def breaking: Boolean = false
+
+  def coordinate: Option[SchemaCoordinate] = self match {
+    case TypeAdded(name)                                  => Some(TypeCoordinate(name))
+    case TypeDeleted(name)                                => Some(TypeCoordinate(name))
+    case TypeKindChanged(typeName, _, _)                  => Some(TypeCoordinate(typeName))
+    case EnumValueAdded(typeName, value)                  => Some(MemberCoordinate(typeName, value))
+    case EnumValueDeleted(typeName, value)                => Some(MemberCoordinate(typeName, value))
+    case UnionMemberAdded(typeName, _)                    => Some(TypeCoordinate(typeName))
+    case UnionMemberDeleted(typeName, _)                  => Some(TypeCoordinate(typeName))
+    case ObjectImplementsAdded(typeName, _)               => Some(TypeCoordinate(typeName))
+    case ObjectImplementsDeleted(typeName, _)             => Some(TypeCoordinate(typeName))
+    case InterfaceImplementsAdded(typeName, _)            => Some(TypeCoordinate(typeName))
+    case InterfaceImplementsDeleted(typeName, _)          => Some(TypeCoordinate(typeName))
+    case _: SchemaQueryTypeChanged                        => None
+    case _: SchemaMutationTypeChanged                     => None
+    case _: SchemaSubscriptionTypeChanged                 => None
+    case FieldAdded(typeName, field)                      => Some(MemberCoordinate(typeName, field))
+    case FieldDeleted(typeName, field)                    => Some(MemberCoordinate(typeName, field))
+    case DirectiveDefinitionAdded(name)                   => Some(DirectiveCoordinate(name))
+    case DirectiveDefinitionDeleted(name)                 => Some(DirectiveCoordinate(name))
+    case DirectiveDefinitionRepeatableChanged(name, _, _) => Some(DirectiveCoordinate(name))
+    case DirectiveLocationAdded(_, name)                  => Some(DirectiveCoordinate(name))
+    case DirectiveLocationDeleted(_, name)                => Some(DirectiveCoordinate(name))
+    case DescriptionAdded(target)                         => target.coordinate
+    case DescriptionDeleted(target)                       => target.coordinate
+    case DescriptionChanged(target)                       => target.coordinate
+    case DirectiveAdded(_, target)                        => target.coordinate
+    case DirectiveDeleted(_, target)                      => target.coordinate
+    case DirectiveArgumentAdded(_, _, target)             => target.coordinate
+    case DirectiveArgumentDeleted(_, _, target)           => target.coordinate
+    case DirectiveArgumentChanged(_, _, _, _, target)     => target.coordinate
+    case ArgumentAdded(name, target, _)                   => Target.Argument(name, target).coordinate
+    case ArgumentDeleted(name, target)                    => Target.Argument(name, target).coordinate
+    case ArgumentChanged(name, _, _, target)              => Target.Argument(name, target).coordinate
+    case TypeChanged(_, _, target)                        => target.coordinate
+    case TypeExtensionAdded(name)                         => Some(TypeCoordinate(name))
+    case TypeExtensionDeleted(name)                       => Some(TypeCoordinate(name))
+  }
 }
 
 object SchemaComparisonChange {
@@ -168,8 +209,22 @@ object SchemaComparisonChange {
     override def toString: String = s"Type extension '$name' was deleted."
   }
 
-  sealed trait Target
-  object Target {
+  sealed trait Target { self =>
+    def coordinate: Option[SchemaCoordinate] = self match {
+      case Target.Directive(name)            => Some(DirectiveCoordinate(name))
+      case Target.Type(name)                 => Some(TypeCoordinate(name))
+      case Target.Field(name, typeName)      => Some(MemberCoordinate(typeName, name))
+      case Target.EnumValue(value, typeName) => Some(MemberCoordinate(typeName, value))
+      case Target.Argument(name, target)     =>
+        target.coordinate.flatMap {
+          case TypeCoordinate(typeName)                               => Some(MemberCoordinate(typeName, name))
+          case MemberCoordinate(typeName, fieldName)                  => Some(ArgumentCoordinate(typeName, fieldName, name))
+          case DirectiveCoordinate(directiveName)                     => Some(DirectiveArgumentCoordinate(directiveName, name))
+          case _: ArgumentCoordinate | _: DirectiveArgumentCoordinate => None
+        }
+    }
+  }
+  object Target       {
     case class Directive(name: String)                    extends Target {
       override def toString: String = s"directive '$name'"
     }

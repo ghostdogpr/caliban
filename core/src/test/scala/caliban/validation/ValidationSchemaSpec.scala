@@ -79,31 +79,31 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
         test("name on a type can't start with '__'") {
           check(
             graphQL(resolverWrongDirectiveName),
-            "Directive '__name' of Type 'TestWrongDirectiveName' can't start with '__'"
+            "Directive '@__name' on 'TestWrongDirectiveName' can't start with '__'"
           )
         },
         test("name on a field type can't start with '__'") {
           check(
             graphQL(resolverWrongFieldDirectiveName),
-            "Directive '__name' of Field 'field' of Type 'TestWrongFieldDirectiveName' can't start with '__'"
+            "Directive '@__name' on 'TestWrongFieldDirectiveName.field' can't start with '__'"
           )
         },
         test("name on a inputValue on a type can't start with '__'") {
           check(
             graphQL(resolverWrongInputFieldDirectiveName),
-            "Directive '__name' of InputValue 'inputValue' of Type 'WrongDirectiveNameInput' can't start with '__'"
+            "Directive '@__name' on 'WrongDirectiveNameInput.inputValue' can't start with '__'"
           )
         },
         test("name on a inputValue on a field type can't start with '__'") {
           check(
             graphQL(resolverWrongFieldArgDirectiveName),
-            "Directive '__name' of InputValue 'inputValue' of Field 'field' of Type 'TestWrongFieldArgDirectiveName' can't start with '__'"
+            "Directive '@__name' on 'TestWrongFieldArgDirectiveName.field(inputValue:)' can't start with '__'"
           )
         },
         test("argument name can't start with '__'") {
           check(
             graphQL(resolverWrongArgumentDirectiveName),
-            "Argument '__name' of Directive 'name' of Field 'field' of Type 'TestWrongArgumentDirectiveName' can't start with '__'"
+            "Argument '__name' of Directive '@name' on 'TestWrongArgumentDirectiveName.field' can't start with '__'"
           )
         }
       ),
@@ -133,13 +133,13 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
         test("name can't start with '__'") {
           check(
             graphQL(resolverWrongMutationUnderscore),
-            "InputValue '__name' of InputObject 'DoubleUnderscoreArgInput' can't start with '__'"
+            "Input field 'DoubleUnderscoreArgInput.__name' can't start with '__'"
           )
         },
         test("should only contain types for which IsInputType(type) is true") {
           check(
             graphQL(resolverWrongMutationUnion),
-            "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+            "UnionInput of Input field 'UnionArgInput.union' is of kind UNION, must be an InputType"
           )
         }
       ), {
@@ -169,7 +169,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("field name can't start with '__'") {
             check(
               graphQL(resolverInterfaceWrongFieldName),
-              "Field '__name' of Interface 'InterfaceWrongFieldName' can't start with '__'"
+              "Field 'InterfaceWrongFieldName.__name' can't start with '__'"
             )
           },
           test("field can't be input type") {
@@ -188,19 +188,19 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
                   ),
                 subTypes = Nil
               ),
-              "InputType of Field 'InputField' of Interface 'InputTypeFieldInterface' is of kind INPUT_OBJECT, must be an OutputType"
+              "InputType of Field 'InputTypeFieldInterface.InputField' is of kind INPUT_OBJECT, must be an OutputType"
             )
           },
           test("field argument name can't start with '__'") {
             check(
               graphQL(resolverInterfaceWrongArgumentName),
-              "InputValue '__name' of Field 'x' of Interface 'InterfaceWrongArgumentName' can't start with '__'"
+              "Argument 'InterfaceWrongArgumentName.x(__name:)' can't start with '__'"
             )
           },
           test("field argument can't be output type") {
             check(
               graphQL(resolverInterfaceWrongArgumentInputType),
-              "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+              "UnionInput of Input field 'UnionArgInput.union' is of kind UNION, must be an InputType"
             )
           },
           test("clashing input and object types") {
@@ -234,19 +234,19 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("field name can't start with '__'") {
             check(
               graphQL(resolverWrongFieldName),
-              "Field '__name' of Object 'ObjectWrongFieldName' can't start with '__'"
+              "Field 'ObjectWrongFieldName.__name' can't start with '__'"
             )
           },
           test("field argument name can't start with '__'") {
             check(
               graphQL(resolverWrongArgumentName),
-              "InputValue '__name' of Field 'x' of Object 'ObjectWrongArgumentName' can't start with '__'"
+              "Argument 'ObjectWrongArgumentName.x(__name:)' can't start with '__'"
             )
           },
           test("field argument can't be output type") {
             check(
               graphQL(resolverWrongArgumentInputType),
-              "UnionInput of InputValue 'union' of InputObject 'UnionArgInput' is of kind UNION, must be an InputType"
+              "UnionInput of Input field 'UnionArgInput.union' is of kind UNION, must be an InputType"
             )
           },
           test("may declare that it implements one or more unique interfaces") {
@@ -276,7 +276,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("field type with the same name but not equal to or a subtype of an interface field is invalid") {
             checkTypeError(
               objectWrongInterfaceFieldType,
-              "Field 'a' in Object 'ObjectWrongInterfaceFieldType' is an invalid subtype"
+              "Field 'ObjectWrongInterfaceFieldType.a' is an invalid subtype"
             )
           },
           test("field type that is a valid list item subtype is valid") {
@@ -288,7 +288,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("field type that is an invalid list item subtype is invalid") {
             checkTypeError(
               objectWrongListItemSubtype,
-              "Field 'a' in Object 'ObjectWrongListItemSubtype' is an invalid list item subtype"
+              "Field 'ObjectWrongListItemSubtype.a' is an invalid list item subtype"
             )
           },
           test("field type that is a Non-Null variant of a valid interface field type is valid") {
@@ -346,8 +346,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("fields with additional non-nullable args are invalid") {
             checkTypeError(
               nonNullableExtraArgsObject,
-              "Field 'fieldWithArg' with extra non-nullable arg(s) 'extraArg'" +
-                " in Object 'NonNullableExtraArgsObject' is invalid"
+              "Field 'NonNullableExtraArgsObject.fieldWithArg' with extra non-nullable arg(s) 'extraArg' is invalid"
             )
           },
           test("wrong type name is invalid") {
@@ -359,7 +358,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("wrong field name is invalid") {
             check(
               graphQL(resolverBadFieldName),
-              "Field 'bool: Boolean\n  num' of Object 'WrongFieldName' is not a valid name."
+              "Field 'WrongFieldName.bool: Boolean\n  num' is not a valid name."
             )
           },
           test("query root type not an object") {
@@ -371,7 +370,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("input field is deprecated and non null with no default value") {
             check(
               graphQL(resolverQueryInputDeprecated),
-              "InputValue 'a' of Field 'test' of Object 'QueryInputDeprecated' has no default value, is non-null and deprecated."
+              "Argument 'QueryInputDeprecated.test(a:)' has no default value, is non-null and deprecated."
             )
           }
         )
@@ -418,7 +417,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
 
           check(
             graphQL(RootResolver(Queries(_.toString))),
-            "OneOf InputObject 'FooInput' argument has a default value"
+            "OneOf Input field 'FooInput.foo' has a default value"
           )
         },
         test("must have unique field names") {

@@ -27,19 +27,18 @@ object Parser {
     }
   }
 
-  def parseInputValue(rawValue: String): Either[ParsingError, InputValue] = {
-    val sm = SourceMapper(rawValue)
-    Try(parse(rawValue, value(_))).toEither.left
-      .map(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
-      .flatMap {
-        case Parsed.Success(value, _) => Right(value)
-        case f: Parsed.Failure        => Left(ParsingError(f.msg, Some(sm.getLocation(f.index))))
-      }
-  }
+  def parseInputValue(rawValue: String): Either[ParsingError, InputValue] =
+    parseWith(rawValue)(value(_))
 
-  def parseName(rawValue: String): Either[ParsingError, String] = {
+  def parseName(rawValue: String): Either[ParsingError, String] =
+    parseWith(rawValue)(nameOnly(_))
+
+  def parseSchemaCoordinate(rawValue: String): Either[ParsingError, SchemaCoordinate] =
+    parseWith(rawValue)(schemaCoordinate(_))
+
+  private def parseWith[A](rawValue: String)(parser: P[_] => P[A]): Either[ParsingError, A] = {
     val sm = SourceMapper(rawValue)
-    Try(parse(rawValue, nameOnly(_))).toEither.left
+    Try(parse(rawValue, parser)).toEither.left
       .map(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
       .flatMap {
         case Parsed.Success(value, _) => Right(value)

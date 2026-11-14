@@ -1,11 +1,12 @@
 package caliban.introspection
 
-import caliban.CalibanError.{ ExecutionError, ValidationError }
+import caliban.CalibanError.{ ExecutionError, ParsingError, ValidationError }
 import caliban._
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value._
-import caliban.introspection.adt.__Introspection
+import caliban.introspection.adt.{ __Introspection, SchemaElement }
+import caliban.parsing.Parser
 import caliban.schema.Schema.auto._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
 import zio._
@@ -306,6 +307,59 @@ object IntrospectionSpec extends ZIOSpecDefault {
             response == """{"__type":{"name":"__Schema","fields":[{"name":"description"},{"name":"queryType"},{"name":"mutationType"},{"name":"subscriptionType"},{"name":"types"},{"name":"directives"}]},"__schema":{"types":[{"name":"Boolean"},{"name":"Captain"},{"name":"CaptainShipName"},{"name":"Character"},{"name":"Engineer"},{"name":"Float"},{"name":"Int"},{"name":"Mechanic"},{"name":"Origin"},{"name":"Pilot"},{"name":"QueryIO"},{"name":"Role"},{"name":"String"},{"name":"__Directive"},{"name":"__DirectiveLocation"},{"name":"__EnumValue"},{"name":"__Field"},{"name":"__InputValue"},{"name":"__Schema"},{"name":"__Type"},{"name":"__TypeKind"}]}}"""
           )
         }
+      },
+      test("resolve schema coordinates") {
+        val api = graphQL(resolver)
+
+        def resolve(raw: String): Either[CalibanError, Option[String]] =
+          Parser
+            .parseSchemaCoordinate(raw)
+            .flatMap(api.resolveSchemaCoordinate)
+            .map(_.map {
+              case SchemaElement.Type(t)       => s"type ${t.name.getOrElse("")}"
+              case SchemaElement.Field(f)      => s"field ${f.name}"
+              case SchemaElement.InputValue(v) => s"input ${v.name}"
+              case SchemaElement.EnumValue(v)  => s"enum ${v.name}"
+              case SchemaElement.Directive(d)  => s"directive ${d.name}"
+            })
+
+        val found   = List(
+          "Character"                 -> "type Character",
+          "ID"                        -> "type ID",
+          "Query.character"           -> "field character",
+          "Human.name"                -> "field name",
+          "CharacterInput.origin"     -> "input origin",
+          "Origin.MOON"               -> "enum MOON",
+          "Query.characters(origin:)" -> "input origin",
+          "@skip"                     -> "directive skip",
+          "@oneOf"                    -> "directive oneOf",
+          "@specifiedBy(url:)"        -> "input url",
+          "@deprecated(reason:)"      -> "input reason"
+        )
+        val missing =
+          List("Unknown", "Query.unknown", "Origin.PLUTO", "Query.characters(unknown:)", "@unknown", "@skip(unless:)")
+        val invalid =
+          List("Unknown.name", "Role.shipName", "Origin.MOON(at:)", "Query.unknown(origin:)", "@unknown(if:)")
+
+        val malformed =
+          List(
+            "Query .character",
+            "Query. character",
+            "Query#c\n.character",
+            "Query,",
+            "@ skip",
+            "@skip(if)",
+            "1Query",
+            ""
+          )
+
+        assertTrue(
+          found.forall { case (raw, expected) => resolve(raw) == Right(Some(expected)) },
+          found.forall { case (raw, _) => Parser.parseSchemaCoordinate(raw).map(_.toString) == Right(raw) },
+          missing.forall(resolve(_) == Right(None)),
+          invalid.forall(resolve(_).left.exists(_.isInstanceOf[ValidationError])),
+          malformed.forall(resolve(_).left.exists(_.isInstanceOf[ParsingError]))
+        )
       },
       test("introspect OneOf input object types") {
         val interpreter = graphQL(resolverOneOf).interpreter

@@ -361,4 +361,20 @@ object Parsers extends SelectionParsers {
 
   def document(implicit ev: P[Any]): P[ParsedDocument] =
     ((Start ~ executableDefinition.rep ~ End) | (Start ~ definition.rep ~ End)).map(seq => ParsedDocument(seq.toList))
+
+  private def coordinateArgument(implicit ev: P[Any]): P[String] = "(" ~~ name ~~ ":" ~~ ")"
+
+  def schemaCoordinate(implicit ev: P[Any]): P[SchemaCoordinate] =
+    Start ~~ (
+      ("@" ~~ name ~~ coordinateArgument.?).map {
+        case (directive, None)           => SchemaCoordinate.DirectiveCoordinate(directive)
+        case (directive, Some(argument)) => SchemaCoordinate.DirectiveArgumentCoordinate(directive, argument)
+      } |
+        (name ~~ ("." ~~ name ~~ coordinateArgument.?).?).map {
+          case (typeName, None)                          => SchemaCoordinate.TypeCoordinate(typeName)
+          case (typeName, Some((member, None)))          => SchemaCoordinate.MemberCoordinate(typeName, member)
+          case (typeName, Some((field, Some(argument)))) =>
+            SchemaCoordinate.ArgumentCoordinate(typeName, field, argument)
+        }
+    ) ~~ End
 }

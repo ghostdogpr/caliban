@@ -252,9 +252,9 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         "schema { query: Query } schema { query: Query } type Query { value: String }"                                                                                     -> "Schema is defined multiple times.",
         "schema { query: Root mutation: Root } type Root { value: String }"                                                                                                -> "Root operation type 'Root' is used more than once.",
         "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                                                           ->
-          "Field 'id' in Object 'User' is deprecated but the interface field is not",
+          "Field 'User.id' is deprecated but the interface field is not",
         "type Query { user: User } interface Node { id: ID! } interface Resource implements Node { id: ID! @deprecated } type User implements Node & Resource { id: ID! }" ->
-          "Field 'id' in Interface 'Resource' is deprecated but the interface field is not"
+          "Field 'Resource.id' is deprecated but the interface field is not"
       )
 
       assertTrue(

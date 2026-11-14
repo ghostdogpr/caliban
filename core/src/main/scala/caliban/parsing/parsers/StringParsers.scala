@@ -58,7 +58,7 @@ private[caliban] trait StringParsers {
   def sourceCharacter(implicit ev: P[Any]): P[Unit]                      = CharIn("\u0009\u000A\u000D\u0020-\uFFFF")
   def sourceCharacterWithoutLineTerminator(implicit ev: P[Any]): P[Unit] = CharIn("\u0009\u0020-\uFFFF")
   def name(implicit ev: P[Any]): P[String]                               =
-    CharsWhileIn("_0-9A-Za-z", 1).!.flatMap { s =>
+    CharsWhileIn("_0-9A-Za-z", 1).!.flatMapX { s =>
       // Less efficient in case of an error, but more efficient in case of success (happy path)
       if (s.charAt(0) <= '9') ev.freshFailure()
       else ev.freshSuccess(s)

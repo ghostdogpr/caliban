@@ -25,6 +25,9 @@ object Types {
   val float: __Type   = makeScalar("Float")
   val double: __Type  = makeScalar("Double")
 
+  private[caliban] val builtInScalars: Map[String, __Type] =
+    Map("Int" -> int, "Float" -> float, "String" -> string, "Boolean" -> boolean, "ID" -> makeScalar("ID"))
+
   def makeEnum(
     name: Option[String],
     description: Option[String],
