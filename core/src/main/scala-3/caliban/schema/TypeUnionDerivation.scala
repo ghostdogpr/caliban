@@ -46,7 +46,7 @@ object TypeUnionDerivation {
       }
     )
 
-    val annotations: Expr[List[Any]] = magnolia1.Macro.anns[T](summon, quotes)
+    val annotations: Expr[List[Any]] = magnolia1.Macro.anns[T]
     '{
       val schemaByName: Map[String, Schema[R, Any]] = ${ schemaByTypeNameList }.toMap
       new Schema[R, T] {

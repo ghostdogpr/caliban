@@ -332,7 +332,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
       subgraphs <- subgraphStubs
     } yield Uplink(uplink, answer, subgraphs)
 
-  private def uplinkPoll(runtime: ReloadableGatewayInterpreter[_]): UIO[Option[String]] =
+  private def uplinkPoll(runtime: ReloadableGatewayInterpreter[?]): UIO[Option[String]] =
     poll(runtime, uplinkPollInterval)
 
   private val uplinkSuite = suite("uplink source")(

@@ -62,7 +62,7 @@ trait WebSocketHooks[-R, +E] { self =>
       override def onAck: Option[ZIO[R2, E2, ResponseValue]] = (self.onAck, other.onAck) match {
         case (None, Some(f))      => Some(f)
         case (Some(f), None)      => Some(f)
-        case (Some(f1), Some(f2)) => Some((f1 zipWithPar f2)(_ deepMerge _))
+        case (Some(f1), Some(f2)) => Some(f1.zipWithPar(f2)(_.deepMerge(_)))
         case _                    => None
       }
     }

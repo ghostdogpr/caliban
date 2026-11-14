@@ -301,10 +301,10 @@ object PhaseHooks {
     case object Cancelled       extends Outcome { val label = "cancelled"        }
     case object InternalError   extends Outcome { val label = "internal_error"   }
 
-    private[gateway] def fromResponse(response: GraphQLResponse[_]): Outcome =
+    private[gateway] def fromResponse(response: GraphQLResponse[?]): Outcome =
       if (response.errors.isEmpty) Success else GraphQLError
 
-    private[gateway] def fromCause(cause: Cause[_]): Outcome = if (cause.isInterrupted) Cancelled else InternalError
+    private[gateway] def fromCause(cause: Cause[?]): Outcome = if (cause.isInterrupted) Cancelled else InternalError
   }
 
   /**
@@ -334,13 +334,13 @@ object PhaseHooks {
   )
 
   object Result {
-    private[gateway] def fromResponse(response: GraphQLResponse[_]): Result =
+    private[gateway] def fromResponse(response: GraphQLResponse[?]): Result =
       Result(Outcome.fromResponse(response), errorCount = response.errors.size)
 
     private[gateway] def classifyExit(failure: Outcome)(exit: Exit[Any, Any]): Result =
       fromExit(exit)(_ => Result(Outcome.Success), _ => Result(failure))
 
-    private[gateway] def classifyResponse[E](exit: Exit[E, GraphQLResponse[_]]): Result =
+    private[gateway] def classifyResponse[E](exit: Exit[E, GraphQLResponse[?]]): Result =
       fromExit(exit)(fromResponse, _ => Result(Outcome.InternalError))
 
     private[gateway] def fromExit[E, A](exit: Exit[E, A])(success: A => Result, failure: E => Result): Result =

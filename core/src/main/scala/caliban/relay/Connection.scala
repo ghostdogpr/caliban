@@ -26,7 +26,7 @@ abstract class Edge[+C: Cursor, +T] {
  * An abstract class representing a Relay connection for
  * some edge `T`.
  */
-abstract class Connection[T <: Edge[_, _]] {
+abstract class Connection[T <: Edge[?, ?]] {
   val pageInfo: PageInfo
   val edges: List[T]
 }
@@ -44,7 +44,7 @@ object Connection {
    * @param args a set of [[caliban.relay.Pagination]] arguments
    * @return a paginated connection
    */
-  def fromList[A, E <: Edge[Base64Cursor, _], C <: Connection[E]](
+  def fromList[A, E <: Edge[Base64Cursor, ?], C <: Connection[E]](
     makeConnection: (PageInfo, List[E]) => C
   )(makeEdge: (A, Int) => E)(
     items: List[A],

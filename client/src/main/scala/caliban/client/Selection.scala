@@ -8,7 +8,7 @@ object Selection {
   case class Field(
     alias: Option[String],
     name: String,
-    arguments: List[Argument[_]],
+    arguments: List[Argument[?]],
     directives: List[Directive],
     selectionSet: List[Selection],
     code: Int
@@ -23,6 +23,6 @@ object Selection {
     val code: Int = hashCode()
   }
 
-  case class Directive(name: String, arguments: List[Argument[_]] = Nil)
+  case class Directive(name: String, arguments: List[Argument[?]] = Nil)
 
 }
