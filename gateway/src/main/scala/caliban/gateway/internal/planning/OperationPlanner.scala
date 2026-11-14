@@ -197,11 +197,17 @@ private[gateway] object OperationPlanner {
           search
             .evaluate(options) { candidates =>
               val planned                      = rootFetches(candidates)
-              val (fetches, needPrerequisites) = entityFetches(planned.assignments, planned.roots.size)
-              val entities                     = FetchGraphOptimizer.optimize(planned.roots, fetches, needPrerequisites)
-              FetchGraphOptimizer.waves(planned.roots.iterator.map(_.id).toSet, entities).map { waves =>
-                val calls = waves.map(_.map(_.groupKey).distinct.size).sum
-                val cost  = PlanCost(planned.roots.size + calls, waves.size, internalSelectionCount(entities))
+              val (fetches, needPrerequisites) = entityFetches(planned.roots, planned.assignments)
+              val optimized                    = FetchGraphOptimizer.optimize(planned.roots, fetches, needPrerequisites)
+              val completed                    = planned.roots.iterator.map(_.id).toSet
+              for {
+                waves  <- FetchGraphOptimizer.waves(completed, optimized.entities)
+                scored <- optimized.unconditioned.fold[Either[PlanningFailure, List[List[EntityFetch]]]](Right(waves))(
+                            FetchGraphOptimizer.waves(completed, _)
+                          )
+              } yield {
+                val calls = scored.map(_.map(_.groupKey).distinct.size).sum
+                val cost  = PlanCost(planned.roots.size + calls, scored.size, internalSelectionCount(scored.flatten))
                 PlanCandidate(planned.roots, waves, cost)
               }
             }
@@ -292,25 +298,54 @@ private[gateway] object OperationPlanner {
     }
 
     private def entityFetches(
-      assignments: List[(RootCandidate, FetchId)],
-      firstId: Int
+      roots: List[RootFetch],
+      assignments: List[(RootCandidate, FetchId)]
     ): (List[EntityFetch], Set[FetchId]) = {
-      var nextFetchId       = firstId
+      var nextFetchId       = roots.size
       val needPrerequisites = Set.newBuilder[FetchId]
 
-      def flatten(values: List[EntityCandidate], root: FetchId, dependencies: Set[FetchId]): List[EntityFetch] =
+      def flatten(
+        values: List[EntityCandidate],
+        root: FetchId,
+        dependencies: Set[FetchId]
+      ): List[(EntityFetch, List[TypeCondition])] =
         values.flatMap { entity =>
           val id       = FetchId(nextFetchId)
           nextFetchId += 1
           if (entity.mayNeedPrerequisiteFetches) needPrerequisites += id
-          val current  = entity.toFetch(id, root, dependencies)
+          val current  = entity.toFetch(id, root, dependencies) -> entity.conditions
           val children = flatten(entity.entities, root, Set(id))
           current :: children
         }
 
-      val fetches = assignments.flatMap { case (planned, root) => flatten(planned.entities, root, Set(root)) }
+      val flattened = assignments.flatMap { case (planned, root) => flatten(planned.entities, root, Set(root)) }
+      val fetches   = withPathConditions(roots, flattened)
       fetches -> needPrerequisites.result()
     }
+
+    /**
+     * Resolves the type conditions of each fetch to the runtime typename aliases selected at their paths.
+     * A condition without such an alias cannot be checked at runtime, so the fetch covers every object there.
+     */
+    private def withPathConditions(
+      roots: List[RootFetch],
+      fetches: List[(EntityFetch, List[TypeCondition])]
+    ): List[EntityFetch] =
+      if (fetches.forall(_._2.isEmpty)) fetches.map(_._1)
+      else {
+        val aliases = mutable.HashMap.empty[Vector[String], String]
+        collectTypenameSelections(roots, fetches.map(_._1)).foreach(selection =>
+          if (!aliases.contains(selection.path)) aliases.update(selection.path, selection.responseName)
+        )
+        fetches.map { case (fetch, conditions) =>
+          val resolved = conditions.flatMap(condition =>
+            aliases
+              .get(fetch.mergePath.take(condition.depth))
+              .map(PathCondition(condition.depth, _, condition.types))
+          )
+          if (resolved.isEmpty) fetch else fetch.copy(pathConditions = resolved)
+        }
+      }
 
     private def collectTypenameSelections(
       roots: List[RootFetch],
@@ -627,7 +662,10 @@ private[gateway] object OperationPlanner {
                             scope.copy(
                               path = scope.path :+ child.aliasedName,
                               staticPath = scope.staticPath && isObjectField(scope.currentSubgraph, child),
-                              delivery = Deferral.delivery(child, scope.delivery, scope.path)
+                              delivery = Deferral.delivery(child, scope.delivery, scope.path),
+                              conditions = child._condition.fold(scope.conditions)(types =>
+                                scope.conditions :+ TypeCondition(scope.path.length, types)
+                              )
                             ),
                             graph.candidateSources(possibleSources, parentTypeName(child), child.name),
                             availableKeys(scope.currentSubgraph, child.fieldType.innerType),
@@ -877,7 +915,8 @@ private[gateway] object OperationPlanner {
                                            value.entities,
                                            resolved.selection.mayNeedPrerequisiteFetches ||
                                              requirementPlan.entities.nonEmpty || contextArguments.nonEmpty,
-                                           pending.delivery
+                                           pending.delivery,
+                                           context.scope.conditions
                                          )
                                          val next             = EntityFetchState(
                                            injected.downstream,
@@ -1380,8 +1419,15 @@ private[gateway] object OperationPlanner {
     staticPath: Boolean,
     visitedFetches: Set[EntityFetchKey],
     activeContexts: List[ActiveContext],
-    delivery: Deferral.Delivery
+    delivery: Deferral.Delivery,
+    conditions: List[TypeCondition] = Nil
   )
+
+  /**
+   * The runtime types a fragment selects on the objects at the first `depth` names of a path, before the typename
+   * alias that reads them is known.
+   */
+  private final case class TypeCondition(depth: Int, types: Set[String])
 
   private final case class EntityFetchContext(
     field: Field,
@@ -1442,10 +1488,11 @@ private[gateway] object OperationPlanner {
     fields: List[Field],
     entities: List[EntityCandidate],
     mayNeedPrerequisiteFetches: Boolean,
-    delivery: Deferral.Delivery
+    delivery: Deferral.Delivery,
+    conditions: List[TypeCondition]
   ) {
     def toFetch(id: FetchId, root: FetchId, dependencies: Set[FetchId]): EntityFetch =
-      EntityFetch(id, root, dependencies, mergePath, target, typenameAlias, fields, delivery)
+      EntityFetch(id, root, dependencies, mergePath, target, typenameAlias, fields, delivery, Nil, None)
   }
 
   private final case class InjectedKeyFields(

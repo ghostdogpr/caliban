@@ -5,7 +5,7 @@ import caliban.execution.Field
 import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.composition.DirectiveComposition._
-import caliban.gateway.internal.planning.OperationPlan.EntityFetch
+import caliban.gateway.internal.planning.OperationPlan.{ EntityFetch, FetchId }
 import caliban.introspection.adt._
 import caliban.parsing.adt.OperationType
 import caliban.Value.{ IntValue, NullValue }
@@ -30,13 +30,34 @@ private[gateway] final class OperationCost(
         walk.fieldsCost(fetch.downstream.mapConserve(collected), fetch.source, Vector.empty, BigInt(1), Nil)
     }
     // A fetch sizes only paths below its merge path, so shorter merge paths go first.
-    val entityCost = plan.payload.allEntities
+    val entityCost = chargedEntities(plan.payload.allEntities)
       .groupBy(fetch => fetch.root -> fetch.mergePath)
       .toList
       .sortBy(_._1._2.length)
       .foldLeft(BigInt(0)) { case (total, (_, fetches)) => total + walk.entityFetchesCost(fetches) }
     walk.error.toLeft(bounded(rootCost + entityCost))
   }
+
+  /**
+   * Fetches that differ only in their path conditions are charged as the one fetch they merge into without them, which
+   * selects the fields of every union member for every object: splitting a fetch by member keeps the estimate of the
+   * plan that did not split it.
+   */
+  private def chargedEntities(entities: List[EntityFetch]): List[EntityFetch] =
+    if (!entities.exists(_.mergesInto.nonEmpty)) entities
+    else {
+      val charged = mutable.LinkedHashMap.empty[FetchId, EntityFetch]
+      entities.foreach { fetch =>
+        val id = fetch.mergesInto.getOrElse(fetch.id)
+        charged.update(
+          id,
+          charged
+            .get(id)
+            .fold(fetch)(other => other.copy(fields = FetchGraphOptimizer.mergeFields(other.fields ::: fetch.fields)))
+        )
+      }
+      charged.values.toList
+    }
 
   private val sized = costMetadata.listSizes.nonEmpty
 

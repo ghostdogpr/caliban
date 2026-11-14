@@ -9,12 +9,29 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 
 private[planning] object FetchGraphOptimizer {
+
+  /**
+   * The fetches to execute and, when some carry path conditions, the fetches they merge into without them: the plan
+   * search scores a plan on those, so that a fetch split by union member counts as the one fetch it was before.
+   */
+  final case class Optimized(entities: List[EntityFetch], unconditioned: Option[List[EntityFetch]])
+
   def optimize(
     roots: List[RootFetch],
     fetches: List[EntityFetch],
     needPrerequisites: Set[FetchId]
-  ): List[EntityFetch] =
-    mergeEquivalentFetches(addFetchDependencies(fetches, roots, needPrerequisites))
+  ): Optimized = {
+    val merged = mergeEquivalentFetches(addFetchDependencies(fetches, roots, needPrerequisites))
+    if (!merged.exists(_.pathConditions.nonEmpty)) Optimized(merged, None)
+    else {
+      // Before the payloads are split, so that merges follow the dependencies and deliveries of every payload.
+      val (unconditioned, into) = merge(merged.map(_.copy(pathConditions = Nil)), Map.empty)
+      Optimized(
+        merged.map(fetch => into.get(fetch.id).fold(fetch)(id => fetch.copy(mergesInto = Some(id)))),
+        Some(unconditioned)
+      )
+    }
+  }
 
   /**
    * Orders entity fetches into dependency waves, starting with the `completed` fetches.
@@ -120,7 +137,16 @@ private[planning] object FetchGraphOptimizer {
       }
     }
 
-  private def mergeEquivalentFetches(fetches: List[EntityFetch]): List[EntityFetch] = {
+  private def mergeEquivalentFetches(fetches: List[EntityFetch]): List[EntityFetch] = merge(fetches, Map.empty)._1
+
+  /**
+   * Merges the fetches equal but for their ids and fields, and returns the fetch each merged one went into, added to
+   * `into`.
+   */
+  private def merge(
+    fetches: List[EntityFetch],
+    into: Map[FetchId, FetchId]
+  ): (List[EntityFetch], Map[FetchId, FetchId]) = {
     val grouped  = mutable.LinkedHashMap.empty[EntityFetch, EntityFetch]
     val replaced = mutable.HashMap.empty[FetchId, FetchId]
     fetches.foreach { fetch =>
@@ -136,12 +162,13 @@ private[planning] object FetchGraphOptimizer {
           grouped.update(key, existing.copy(fields = mergeFields(existing.fields ::: fetch.fields)))
       }
     }
-    if (replaced.isEmpty) fetches
+    if (replaced.isEmpty) (fetches, into)
     else
-      mergeEquivalentFetches(
+      merge(
         grouped.valuesIterator
           .map(fetch => fetch.copy(dependencies = fetch.dependencies.map(id => replaced.getOrElse(id, id))))
-          .toList
+          .toList,
+        into.map { case (id, target) => id -> replaced.getOrElse(target, target) } ++ replaced
       )
   }
 

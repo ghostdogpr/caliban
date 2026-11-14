@@ -110,6 +110,17 @@ private[gateway] object OperationPlan {
     final override lazy val hashCode: Int = Hash.caseClassHash(this)
   }
 
+  /**
+   * Restricts an entity fetch to the objects at the first `depth` names of its merge path whose runtime type, read
+   * from the injected `typenameAlias`, is one of `types`. Fragments on different members of an abstract type select
+   * different fields under the same response names, so each fetch only covers the objects of its own fragment.
+   */
+  final case class PathCondition(depth: Int, typenameAlias: String, types: Set[String])
+
+  /**
+   * `mergesInto` names the fetch this one would merge into without the path conditions of the plan, for the cost
+   * estimate: a fetch split by union member is charged as the one fetch it was before the split.
+   */
   final case class EntityFetch(
     id: FetchId,
     root: FetchId,
@@ -118,7 +129,9 @@ private[gateway] object OperationPlan {
     target: EntityTarget,
     typenameAlias: Option[String],
     fields: List[Field],
-    delivery: Deferral.Delivery
+    delivery: Deferral.Delivery,
+    pathConditions: List[PathCondition],
+    mergesInto: Option[FetchId]
   ) {
 
     private[internal] lazy val lookupVariant = EntityLookup.variant(this, Map.empty)
@@ -276,10 +289,18 @@ private[gateway] object OperationPlan {
         }
       }
 
+    def mergePath(fetch: EntityFetch): String =
+      fetch.mergePath.zipWithIndex.map { case (name, index) =>
+        fetch.pathConditions
+          .find(_.depth == index + 1)
+          .fold(name)(condition => s"$name|[${condition.types.toList.sorted.mkString(",")}]")
+      }
+        .mkString(".")
+
     def entityLines(entities: List[EntityFetch]): List[String] =
       entities.map { fetch =>
         val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
-        s"fetch ${fetch.target.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
+        s"fetch ${fetch.target.source} after $dependencies at $$.${mergePath(fetch)} " +
           s"via ${fetch.target.entityType}(${fetch.target.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields)
               .mkString("[", ", ", "]")}"
       }
