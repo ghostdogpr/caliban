@@ -141,6 +141,19 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             graphQL(resolverWrongMutationUnion),
             "UnionInput of Input field 'UnionArgInput.union' is of kind UNION, must be an InputType"
           )
+        },
+        test("must not reference itself through an unbroken chain of non-null fields") {
+          case class Next(next: Next)
+          case class Queries(next: Next => String)
+
+          implicit lazy val ab: ArgBuilder[Next]          = ArgBuilder.gen
+          implicit lazy val nextSchema: Schema[Any, Next] = Schema.gen
+          implicit val schema: Schema[Any, Queries]       = Schema.gen
+
+          check(
+            graphQL(RootResolver(Queries(_.toString))),
+            "InputObject 'NextInput' has an unbreakable cycle and cannot have a finite value"
+          )
         }
       ), {
         import InvalidSchemas.Interface._

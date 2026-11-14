@@ -222,12 +222,16 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         })
       }
     },
-    test("preserves and validates OneOf input objects") {
+    test("preserves and validates OneOf and recursive input objects") {
+      val shared        = (0 until 30).map(i => s"input A$i { left: A${i + 1}! right: A${i + 1}! }").mkString("\n")
       val validSchema   =
-        """
-          |type Query { find(by: Choice!): String }
-          |input Choice @oneOf { id: ID name: String }
-          |""".stripMargin
+        s"""
+           |type Query { find(by: Choice!, filter: Filter, a: A0): String }
+           |input Choice @oneOf { id: ID name: String next: Choice }
+           |input Filter { not: Filter and: [Filter!]! value: String! }
+           |$shared
+           |input A30 { value: String }
+           |""".stripMargin
       val invalidSchema =
         """
           |type Query { find(by: Choice!): String }
@@ -254,7 +258,13 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                                                           ->
           "Field 'User.id' is deprecated but the interface field is not",
         "type Query { user: User } interface Node { id: ID! } interface Resource implements Node { id: ID! @deprecated } type User implements Node & Resource { id: ID! }" ->
-          "Field 'Resource.id' is deprecated but the interface field is not"
+          "Field 'Resource.id' is deprecated but the interface field is not",
+        "type Query { find(a: A): String } input A { b: B! } input B { a: A! }"                                                                                            ->
+          "InputObject 'A' has an unbreakable cycle and cannot have a finite value",
+        "type Query { find(a: A): String } input A @oneOf { a: A }"                                                                                                        ->
+          "OneOf InputObject 'A' has an unbreakable cycle and cannot have a finite value",
+        "type Query { find(a: First): String } input First @oneOf { second: Second } input Second { first: First! }"                                                       ->
+          "OneOf InputObject 'First' has an unbreakable cycle and cannot have a finite value"
       )
 
       assertTrue(
