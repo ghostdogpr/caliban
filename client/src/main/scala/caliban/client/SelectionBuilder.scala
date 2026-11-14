@@ -93,6 +93,13 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       result      <- self.fromGraphQL(objectValue)
     } yield (result, parsed.errors, parsed.extensions)
 
+  private[client] def decodeResponse(
+    body: String,
+    isSuccess: Boolean,
+    contentType: Option[String]
+  ): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[__ObjectValue])] =
+    if (isSuccess || SelectionBuilder.isGraphQLResponse(contentType)) decode(body) else Left(CommunicationError(body))
+
   /**
    * Transforms a root selection into a GraphQL request.
    * @param useVariables if true, all arguments will be passed as variables (default: false)
@@ -160,9 +167,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       .header(HeaderNames.Accept, SelectionBuilder.Accept)
       .body(asJson(toGraphQL(useVariables, queryName, directives, dropNullInputValues)))
       .response(asStringAlways.mapWithMetadata { (body, metadata) =>
-        if (metadata.isSuccess || SelectionBuilder.isGraphQLResponse(metadata.contentType))
-          decode(body).map { case (result, errors, extensions) => mapResponse(result, errors, extensions) }
-        else Left(CommunicationError(body))
+        decodeResponse(body, metadata.isSuccess, metadata.contentType).map { case (result, errors, extensions) =>
+          mapResponse(result, errors, extensions)
+        }
       })
 
   /**

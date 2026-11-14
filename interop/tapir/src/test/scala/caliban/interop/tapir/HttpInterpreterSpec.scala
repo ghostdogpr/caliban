@@ -15,7 +15,7 @@ import zio.test._
 object HttpInterpreterSpec extends ZIOSpecDefault {
   case class Query(value: String)
 
-  private def interpreterOf[E](response: UIO[GraphQLResponse[E]]) = new GraphQLInterpreter[Any, E] {
+  private def interpreterOf(response: UIO[GraphQLResponse[Nothing]]) = new GraphQLInterpreter[Any, Nothing] {
     def check(query: String)(implicit trace: Trace)                    = ZIO.unit
     def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
   }
@@ -67,52 +67,25 @@ object HttpInterpreterSpec extends ZIOSpecDefault {
         List(http, upload).forall(_._4.left.toOption.exists(_.toString.contains("List((Authorization,Bearer token))")))
       )
     },
-    test("takes the status from the execution outcome and the status code config, not from mapError") {
+    test("takes the status from the execution outcome, not from the errors mapError returns") {
       import StreamConstructor.zioStreams
-      val gql     = "application/graphql-response+json"
-      val json    = "application/json"
-      val partial = interpreterOf(
-        ZIO.succeed(
-          GraphQLResponse[CalibanError](
-            ResponseValue.ObjectValue(List("value" -> StringValue("v"))),
-            List(CalibanError.ExecutionError("failed"))
-          )
-        )
-      )
-      def status[E](
-        interpreter: GraphQLInterpreter[Any, E],
-        config: StatusCodeConfig = StatusCodeConfig.default,
-        accept: String = gql
-      ) =
-        HttpInterpreter(interpreter, config)
-          .executeRequest[ZStream[Any, Throwable, Byte]](
-            GraphQLRequest(query = Some("{ missing }")),
-            post(Header("Accept", accept))
-          )
-          .map(response => (response._2.code, response._1.toString))
+      val strict                                             = post(Header("Accept", "application/graphql-response+json"))
+      def status[E](interpreter: GraphQLInterpreter[Any, E]) =
+        HttpInterpreter(interpreter)
+          .executeRequest[ZStream[Any, Throwable, Byte]](GraphQLRequest(query = Some("{ missing }")), strict)
+          .map(_._2)
 
       for {
-        api            <- graphQL(RootResolver(Query("value"))).interpreter
-        rewritten      <- status(api.mapError(e => CalibanError.ExecutionError(e.getMessage)))
-        unavailable    <- status(
-                            interpreterOf(
-                              GraphQLResponseContext
-                                .markServerError(ServerFailure.Unavailable)
-                                .as(GraphQLResponse(Value.NullValue, Nil))
-                            )
-                          )
-        partialDefault <- status(partial)
-        partialSpec    <- status(partial, StatusCodeConfig.spec)
-        jsonDefault    <- status(api, accept = json)
-        jsonSpec       <- status(api, StatusCodeConfig.spec, json)
-      } yield assertTrue(
-        rewritten == ((422, gql)),
-        unavailable._1 == 503,
-        partialDefault == ((200, gql)),
-        partialSpec == ((294, gql)),
-        jsonDefault == ((200, json)),
-        jsonSpec == ((422, gql))
-      )
+        api         <- graphQL(RootResolver(Query("value"))).interpreter
+        rewritten   <- status(api.mapError(e => CalibanError.ExecutionError(e.getMessage)))
+        unavailable <- status(
+                         interpreterOf(
+                           GraphQLResponseContext
+                             .markServerError(ServerFailure.Unavailable)
+                             .as(GraphQLResponse(Value.NullValue, Nil))
+                         )
+                       )
+      } yield assertTrue(rewritten == StatusCode.UnprocessableEntity, unavailable == StatusCode.ServiceUnavailable)
     },
     test("materializes incoming headers only when requested and only once") {
       var evaluations = 0

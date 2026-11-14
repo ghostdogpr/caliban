@@ -108,7 +108,6 @@ object TapirAdapter {
     buildHttpResponse(
       request,
       ResponseEncoding.negotiate(request.header(HeaderNames.Accept)).getOrElse(ResponseEncoding.Json),
-      StatusCodeConfig.default,
       response,
       GraphQLResponseContext.outcome(response)
     )
@@ -116,8 +115,7 @@ object TapirAdapter {
   private[tapir] def executeHttpRequest[R, E, BS](
     interpreter: GraphQLInterpreter[R, E],
     request: GraphQLRequest,
-    serverRequest: ServerRequest,
-    statusCodes: StatusCodeConfig = StatusCodeConfig.default
+    serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
     ResponseEncoding.negotiate(serverRequest.header(HeaderNames.Accept)) match {
       case None           => ZIO.fail(notAcceptable)
@@ -125,7 +123,7 @@ object TapirAdapter {
         IncomingRequestHeaders
           .locally(headerValues(serverRequest))(
             GraphQLResponseContext.capture(interpreter.executeRequest(request)) { (response, outcome) =>
-              val built = buildHttpResponse[E, BS](serverRequest, encoding, statusCodes, response, outcome)
+              val built = buildHttpResponse[E, BS](serverRequest, encoding, response, outcome)
               built match {
                 case (mediaType, status, _, Left(body)) if outcome == Outcome.MutationOverGet =>
                   Left(
@@ -146,12 +144,11 @@ object TapirAdapter {
   private def buildHttpResponse[E, BS](
     request: ServerRequest,
     encoding: ResponseEncoding,
-    statusCodes: StatusCodeConfig,
     response: GraphQLResponse[E],
     outcome: Outcome
   )(implicit streamConstructor: StreamConstructor[BS]): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
-    val httpStatus     = HttpUtils.httpStatus(response, outcome, encoding, statusCodes)
+    val httpStatus     = HttpUtils.httpStatus(response, outcome, encoding)
     val status         = StatusCode(httpStatus.code)
 
     def sse(events: ZStream[Any, Nothing, ResponseValue]) =

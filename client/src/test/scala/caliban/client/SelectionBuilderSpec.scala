@@ -7,8 +7,7 @@ import caliban.client.SelectionBuilder.Field
 import caliban.client.TestData._
 import caliban.client.__Value.{ __ListValue, __ObjectValue, __StringValue }
 import sttp.client4.UriContext
-import sttp.client4.testing.{ ResponseStub, SyncBackendStub }
-import sttp.model.{ Header, HeaderNames, MediaType, StatusCode }
+import sttp.model.HeaderNames
 import zio.test.Assertion._
 import zio.test._
 
@@ -278,23 +277,19 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
       ),
       suite("response parsing")(
         test("sends Accept and decodes GraphQL errors from any graphql-response+json status") {
-          val accept                                          = "application/graphql-response+json, application/json;q=0.9"
-          val gql                                             = Header.contentType(MediaType("application", "graphql-response+json"))
-          def send(code: Int, body: String, headers: Header*) =
-            Queries
-              .characters()(Character.name)
-              .toRequest(uri"http://localhost/graphql")
-              .send(
-                SyncBackendStub
-                  .whenRequestMatches(_.header(HeaderNames.Accept).contains(accept))
-                  .thenRespond(ResponseStub.adjust(body, StatusCode(code), headers.toList))
-              )
-              .body
+          val query = Queries.characters()(Character.name)
+          val gql   = Some("application/graphql-response+json; charset=utf-8")
           assertTrue(
-            send(422, """{"errors":[{"message":"invalid"}]}""", gql) ==
+            query
+              .toRequest(uri"http://localhost/graphql")
+              .header(HeaderNames.Accept)
+              .contains("application/graphql-response+json, application/json;q=0.9"),
+            query.decodeResponse("""{"errors":[{"message":"invalid"}]}""", isSuccess = false, gql) ==
               Left(CalibanClientError.ServerError(List(GraphQLResponseError("invalid", None, None, None)))),
-            send(294, """{"data":{"characters":[{"name":"Amos"}]}}""", gql) == Right(List("Amos")),
-            send(502, "Bad Gateway") == Left(CalibanClientError.CommunicationError("Bad Gateway"))
+            query.decodeResponse("""{"data":{"characters":[{"name":"Amos"}]}}""", isSuccess = true, gql).map(_._1) ==
+              Right(List("Amos")),
+            query.decodeResponse("Bad Gateway", isSuccess = false, None) ==
+              Left(CalibanClientError.CommunicationError("Bad Gateway"))
           )
         },
         test("simple object") {

@@ -23,8 +23,7 @@ final private class QuickRequestHandler[R](
   interpreter: GraphQLInterpreter[R, Any],
   wsConfig: quick.WebSocketConfig[R],
   sseConfig: quick.SseConfig,
-  httpConfig: quick.HttpConfig,
-  statusCodeConfig: StatusCodeConfig
+  httpConfig: quick.HttpConfig
 ) {
   import QuickRequestHandler._
   import ValueJsoniter.stringListCodec
@@ -33,10 +32,9 @@ final private class QuickRequestHandler[R](
     interpreter: GraphQLInterpreter[R1, Any] = this.interpreter,
     wsConfig: quick.WebSocketConfig[R1] = this.wsConfig,
     sseConfig: quick.SseConfig = this.sseConfig,
-    httpConfig: quick.HttpConfig = this.httpConfig,
-    statusCodeConfig: StatusCodeConfig = this.statusCodeConfig
+    httpConfig: quick.HttpConfig = this.httpConfig
   ): QuickRequestHandler[R1] =
-    new QuickRequestHandler(interpreter, wsConfig, sseConfig, httpConfig, statusCodeConfig)
+    new QuickRequestHandler(interpreter, wsConfig, sseConfig, httpConfig)
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     copy(
@@ -58,9 +56,6 @@ final private class QuickRequestHandler[R](
 
   def configureHttp(config: quick.HttpConfig): QuickRequestHandler[R] =
     copy(httpConfig = config)
-
-  def configureStatusCodes(config: StatusCodeConfig): QuickRequestHandler[R] =
-    copy(statusCodeConfig = config)
 
   def handleHttpRequest(request: Request)(implicit
     trace: Trace
@@ -212,7 +207,13 @@ final private class QuickRequestHandler[R](
     outcome: Outcome
   )(implicit trace: Trace): Response = {
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
-    val httpStatus     = HttpUtils.httpStatus(response, outcome, encoding, statusCodeConfig)
+    val httpStatus     = HttpUtils.httpStatus(
+      response,
+      outcome,
+      encoding,
+      httpConfig.partialSuccessStatus,
+      httpConfig.jsonClientStatusCodes
+    )
     val status         = Status.fromInt(httpStatus.code)
 
     val encoded = HttpUtils.delivery(response, outcome) match {

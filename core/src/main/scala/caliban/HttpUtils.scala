@@ -239,10 +239,11 @@ object HttpUtils {
     response: GraphQLResponse[Any],
     outcome: GraphQLResponseContext.Outcome,
     encoding: ResponseEncoding,
-    config: StatusCodeConfig
+    partialSuccessStatus: Boolean = false,
+    jsonClientStatusCodes: Boolean = false
   ): HttpStatus = {
     import GraphQLResponseContext.{ Outcome, ServerFailure }
-    val strict = encoding.strict || encoding == ResponseEncoding.Json && config.jsonClientStatusCodes
+    val strict = encoding.strict || encoding == ResponseEncoding.Json && jsonClientStatusCodes
     val code   = outcome match {
       case ServerFailure.Internal             => 500
       case ServerFailure.Unavailable          => 503
@@ -251,7 +252,7 @@ object HttpUtils {
       case Outcome.ParsingFailed if strict    => 400
       case Outcome.ValidationFailed if strict => 422
       case Outcome.Executed
-          if config.partialSuccess && encoding == ResponseEncoding.GraphQLJson && response.errors.nonEmpty =>
+          if partialSuccessStatus && encoding == ResponseEncoding.GraphQLJson && response.errors.nonEmpty =>
         294
       case _                                  => 200
     }

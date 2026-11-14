@@ -210,15 +210,15 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       }
     },
     test("uses 294 and full status codes for application/json clients only when configured") {
-      val gql                                = "application/graphql-response+json"
-      val json                               = "application/json"
-      val partial                            = GraphQLResponse[CalibanError](
+      val gql                          = "application/graphql-response+json"
+      val json                         = "application/json"
+      val partial                      = GraphQLResponse[CalibanError](
         ResponseValue.ObjectValue(List("name" -> Value.StringValue("Amos"))),
         List(CalibanError.ExecutionError("failed"))
       )
-      val invalid                            = GraphQLResponse[CalibanError](Value.NullValue, List(CalibanError.ValidationError("invalid", "")))
-      val cases                              = List(partial -> gql, partial -> json, invalid -> json)
-      def statuses(config: StatusCodeConfig) =
+      val invalid                      = GraphQLResponse[CalibanError](Value.NullValue, List(CalibanError.ValidationError("invalid", "")))
+      val cases                        = List(partial -> gql, partial -> json, invalid -> json)
+      def statuses(config: HttpConfig) =
         ZIO.foreach(cases) { case (response, accept) =>
           respond(ZIO.succeed(response), accept, config).flatMap { r =>
             r.body.asString.map(body =>
@@ -227,8 +227,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
           }
         }
       for {
-        defaults <- statuses(StatusCodeConfig.default)
-        spec     <- statuses(StatusCodeConfig.spec)
+        defaults <- statuses(HttpConfig.default)
+        spec     <- statuses(HttpConfig.default.withPartialSuccessStatus(true).withJsonClientStatusCodes(true))
       } yield assertTrue(
         defaults == List((200, Some(gql), true), (200, Some(json), true), (200, Some(json), true)),
         spec == List((294, Some(gql), true), (200, Some(json), true), (422, Some(gql), false))
@@ -369,14 +369,14 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private def respond(
     response: UIO[GraphQLResponse[CalibanError]],
     accept: String,
-    statusCodes: StatusCodeConfig = StatusCodeConfig.default
+    httpConfig: HttpConfig = HttpConfig.default
   ) = {
     val interpreter = new GraphQLInterpreter[Any, CalibanError] {
       def check(query: String)(implicit trace: Trace)                    = ZIO.unit
       def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
     }
     QuickAdapter(interpreter)
-      .configureStatusCodes(statusCodes)
+      .configureHttp(httpConfig)
       .handlers
       .api
       .runZIO(
