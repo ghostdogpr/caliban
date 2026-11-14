@@ -73,7 +73,13 @@ private[caliban] trait StringParsers {
       if (codePoint <= Character.MAX_CODE_POINT && !isSurrogate(codePoint.toInt))
         ev.freshSuccess(new String(Character.toChars(codePoint.toInt)))
       else ev.freshFailure()
-    } | (hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
+    } | codeUnit.filter(!_.isLowSurrogate).flatMapX { c =>
+      if (c.isHighSurrogate) ("\\u" ~~ codeUnit.filter(_.isLowSurrogate)).map(low => s"$c$low")
+      else ev.freshSuccess(c.toString)
+    }
+
+  private def codeUnit(implicit ev: P[Any]): P[Char] =
+    (hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar)
 
   private def isSurrogate(codePoint: Int): Boolean =
     codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE
