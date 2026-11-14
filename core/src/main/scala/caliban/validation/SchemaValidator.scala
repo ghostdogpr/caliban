@@ -121,6 +121,16 @@ private[caliban] object SchemaValidator {
         case _                       => unit
       })
 
+  private def validateDeprecationReason(
+    isDeprecated: Boolean,
+    reason: Option[String],
+    errorContext: => String
+  ): Either[ValidationError, Unit] =
+    failWhen(isDeprecated && reason.isEmpty)(
+      s"$errorContext is deprecated without a reason.",
+      "The `reason` argument of the `@deprecated` directive must be a non-null String."
+    )
+
   private def validateClashingTypes(types: List[__Type]): Either[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
     check match {
@@ -188,8 +198,15 @@ private[caliban] object SchemaValidator {
 
   private def validateEnum(t: __Type): Either[ValidationError, Unit] =
     t.allEnumValues match {
-      case _ :: _ => unit
-      case Nil    =>
+      case values @ (_ :: _) =>
+        validateAllDiscard(values)(v =>
+          validateDeprecationReason(
+            v.isDeprecated,
+            v.deprecationReason,
+            s"EnumValue '${v.name}' of Enum '${t.name.getOrElse("")}'"
+          )
+        )
+      case Nil               =>
         failValidation(
           s"Enum ${t.name.getOrElse("")} doesn't contain any values",
           "An Enum type must define one or more unique enum values."
@@ -268,6 +285,7 @@ private[caliban] object SchemaValidator {
     lazy val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
+      _ <- validateDeprecationReason(inputValue.isDeprecated, inputValue.deprecationReason, fieldContext)
       _ <- checkName(inputValue.name, fieldContext)
       _ <- onlyInputType(inputValue._type, fieldContext)
     } yield ()
@@ -446,6 +464,7 @@ private[caliban] object SchemaValidator {
         lazy val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- checkName(field.name, fieldContext)
+          _ <- validateDeprecationReason(field.isDeprecated, field.deprecationReason, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
           _ <- validateAllDiscard(field.allArgs)(validateInputValue(_, fieldContext))
         } yield ()

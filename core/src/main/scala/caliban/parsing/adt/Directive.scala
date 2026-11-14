@@ -18,11 +18,20 @@ object Directives {
   final val OneOf               = "oneOf"
   final val Stream              = "stream"
 
+  final val DefaultDeprecationReason = "No longer supported"
+
   def isDeprecated(directives: List[Directive]): Boolean =
     directives.exists(_.name == DeprecatedDirective)
 
   def deprecationReason(directives: List[Directive]): Option[String] =
-    findDirective(directives, DeprecatedDirective, "reason")
+    directives.collectFirst {
+      case d if d.name == DeprecatedDirective =>
+        d.arguments.get("reason") match {
+          case Some(Value.StringValue(value)) => Some(value)
+          case None                           => Some(DefaultDeprecationReason)
+          case _                              => None
+        }
+    }.flatten
 
   def isNewType(directives: List[Directive]): Boolean =
     directives.exists(_.name == NewtypeDirective)

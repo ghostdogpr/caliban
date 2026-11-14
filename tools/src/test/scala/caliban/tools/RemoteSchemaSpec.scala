@@ -198,6 +198,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       } yield assertTrue(
         !visible.exists(_.name == "legacy"),
         legacy.flatMap(_.deprecationReason).contains("No longer supported"),
+        normalize(schema.replace("@deprecated", "@deprecated(reason: null)")).isLeft,
         url.flatMap(_.specifiedByURL).contains("https://example.com/url"),
         rootType.types.get("Status").flatMap(_.description).contains("Product status")
       )
