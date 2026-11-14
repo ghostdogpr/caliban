@@ -249,7 +249,9 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
           "The query root operation is missing.",
         "type Mutation { update: Boolean }"                                                                                                 -> "The query root operation is missing.",
         "schema { query: Query } schema { query: Query } type Query { value: String }"                                                      -> "Schema is defined multiple times.",
-        "schema { query: Root mutation: Root } type Root { value: String }"                                                                 -> "Root operation type 'Root' is used more than once."
+        "schema { query: Root mutation: Root } type Root { value: String }"                                                                 -> "Root operation type 'Root' is used more than once.",
+        "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                            ->
+          "Field 'id' in Object 'User' is deprecated but the interface field is not"
       )
 
       assertTrue(

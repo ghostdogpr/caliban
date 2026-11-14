@@ -97,7 +97,11 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("interface only take fields that return the same type") {
-        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1", "c2"))
+        val fields = introspect[MyInterface].allFields
+        assertTrue(
+          fields.map(_.name) == List("c1", "c2"),
+          fields.map(_.deprecationReason) == List(Some("Use c2"), None)
+        )
       },
       test("excluding fields from interfaces") {
         assertTrue(
@@ -431,8 +435,9 @@ object SchemaSpec extends ZIOSpecDefault {
   @GQLInterface
   sealed trait MyInterface
   object MyInterface {
-    case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int)      extends MyInterface
-    case class B(c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int) extends MyInterface
+    case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int) extends MyInterface
+    case class B(@GQLDeprecated("Use c2") c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int)
+        extends MyInterface
   }
 
   @GQLInterface(excludedFields = "c2", "c3")
