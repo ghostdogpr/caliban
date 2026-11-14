@@ -491,6 +491,61 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           "value".r.findAllIn(query).size == 1
         )
       },
+      test("fills empty selection sets with a private typename for sources") {
+        val item     = "type Item @shareable { value: String child: Item }"
+        val typename = "_caliban_gateway_runtime_typename"
+        val response =
+          s"""{"data":{"node":{"$typename":"A"},"item":{"$typename":"Item","child":{"$typename":"Item"}}}}"""
+        for {
+          source  <- stub(response)
+          other   <- stub(response)
+          runtime <-
+            Gateway
+              .compose(
+                Subgraph.federation(
+                  "source",
+                  source.endpoint,
+                  s"${federationSchemaPreamble("@shareable")} type Query { node: Node item: Item @shareable } " +
+                    s"interface Node { value: String } type A implements Node { value: String } $item"
+                ),
+                Subgraph.federation(
+                  "other",
+                  other.endpoint,
+                  s"${federationSchemaPreamble("@shareable")} type Query { item: Item @shareable } $item"
+                )
+              )
+              .interpreter
+          results <- ZIO.foreach(List("{ node {} item {} }", "{ item { child {} } }"))(runtime.execute(_))
+          sent    <- source.requests.get.zipWith(other.requests.get)(_ ++ _)
+        } yield assertTrue(
+          results.forall(_.errors.isEmpty),
+          results.map(_.data.toString) == List("""{"node":{},"item":{}}""", """{"item":{"child":{}}}"""),
+          sent.nonEmpty,
+          sent.flatMap(_.query).forall(query => !query.contains("{}") && query.contains(s"$typename:__typename"))
+        )
+      },
+      test("does not forward empty selection sets to a single source") {
+        val queries = List(
+          "{ item { value ... on Item {} } }"                -> None,
+          "{ item { value ...f } } fragment f on Item {}"    -> None,
+          "query Selected { item { value } } query Other {}" -> Some("Selected")
+        )
+        for {
+          source  <- stub("""{"data":{"item":{"value":"v"}}}""")
+          runtime <-
+            Gateway
+              .compose(
+                Subgraph.graphql("source", source.endpoint, "type Query { item: Item } type Item { value: String }")
+              )
+              .interpreter
+          results <- ZIO.foreach(queries) { case (query, name) => runtime.execute(query, name) }
+          sent    <- source.requests.get
+        } yield assertTrue(
+          results.forall(_.errors.isEmpty),
+          results.forall(_.data.toString == """{"item":{"value":"v"}}"""),
+          sent.flatMap(_.query) == Vector("query{item{value}}", "query{item{value}}", "query Selected{item{value}}")
+        )
+      },
       test("retains concrete fragments when single-source execution needs runtime evidence") {
         val response =
           """{"data":{"response":{"actions":[{"_caliban_gateway_runtime_typename":"Alpha","value":"alpha"}]}}}"""

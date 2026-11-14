@@ -883,7 +883,9 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.Definition#ExecutableDefinition#*"),
       ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.Definition$ExecutableDefinition$*"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.VariableDefinition.*"),
-      ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.VariableDefinition$")
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.VariableDefinition$"),
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.parsing.adt.Selection#Field.*")
     )
   )
 

@@ -284,7 +284,7 @@ private[gateway] final class SchemaMapping private (
         field.copy(
           name = clientField(parentType, field.name),
           arguments = arguments,
-          selectionSet = field.selectionSet.map(transformFieldSetSelection(childType, _))
+          selectionSet = field.selectionSet.map(_.map(transformFieldSetSelection(childType, _)))
         )
       case fragment: Selection.InlineFragment =>
         val nextType = fragment.typeCondition.map(_.name).getOrElse(parentType)

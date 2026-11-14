@@ -171,8 +171,7 @@ object Validator {
         case f: Field          =>
           add(f.arguments)
           collectDirectives(f.directives)
-          val set = f.selectionSet
-          if (set ne Nil) collectValues(set)
+          f.selectionSet.foreach(collectValues)
         case f: FragmentSpread =>
           val name = f.name
           collectDirectives(f.directives)
@@ -212,7 +211,7 @@ object Validator {
       if (selectionSet ne Nil) {
         buffer addAll selectionSet
         selectionSet.foreachOne {
-          case f: Field          => loop(f.selectionSet)
+          case f: Field          => f.selectionSet.foreach(loop)
           case f: InlineFragment => loop(f.selectionSet)
           case _: FragmentSpread => ()
         }
@@ -275,7 +274,7 @@ object Validator {
         case f: Field          =>
           val directives = f.directives
           if (directives ne Nil) builder addOne directives.map((_, __DirectiveLocation.FIELD))
-          loop(f.selectionSet)
+          f.selectionSet.foreach(loop)
         case f: FragmentSpread =>
           val directives = f.directives
           if (directives ne Nil) builder addOne directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD))
@@ -480,7 +479,7 @@ object Validator {
 
   private def containsFragments(selectionSet: List[Selection]): Boolean =
     selectionSet.exists {
-      case f: Selection.Field          => containsFragments(f.selectionSet)
+      case f: Selection.Field          => f.selectionSet.exists(containsFragments)
       case _: Selection.InlineFragment => true
       case _: Selection.FragmentSpread => true
     }
@@ -502,8 +501,8 @@ object Validator {
     context: Context,
     selectionSet: List[Selection],
     currentType: __Type
-  )(implicit checked: ValidatedFragments): Either[ValidationError, Unit] = {
-    val v1 = validateAllDiscard(selectionSet) {
+  )(implicit checked: ValidatedFragments): Either[ValidationError, Unit] =
+    validateAllDiscard(selectionSet) {
       case f: Field          =>
         validateField(context, f, currentType)
       case f: FragmentSpread =>
@@ -522,9 +521,6 @@ object Validator {
       case f: InlineFragment =>
         validateSpread(context, None, currentType, f.typeCondition, f.selectionSet)
     }
-    val v2 = validateLeafFieldSelection(currentType, selectionSet ne Nil)
-    v2.fold(v1)(v1 *> _)
-  }
 
   private def validateSpread(
     context: Context,
@@ -578,11 +574,15 @@ object Validator {
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
           )
         case f    =>
-          val v1 = validateFields(context, field.selectionSet, f._type.innerType)
-          val v2 = validateArguments(field, f, currentType, context)
+          val fieldType = f._type.innerType
+          val v1        = validateFields(context, field.selectionSet.getOrElse(Nil), fieldType)
+          val v2        = combineOptionalValidations(
+            validateLeafFieldSelection(fieldType, field.selectionSet.isDefined),
+            validateArguments(field, f, currentType, context)
+          )
           v2.fold(v1)(v1 *> _)
       }
-    } else unit
+    } else validateLeafFieldSelection(Types.string, field.selectionSet.isDefined).getOrElse(unit)
 
   private def validateArguments(
     field: Field,
@@ -857,7 +857,11 @@ object Validator {
                 s"Subscription $subscription uses @skip or @include on its root selection set.",
                 "The root selection set of a subscription operation must not use the @skip or @include directives."
               )
-            case Nil                                                       => unit
+            case Nil                                                       =>
+              failValidation(
+                s"Subscription $subscription has no root field.",
+                "Subscription operations must have exactly one root field."
+              )
             case head :: Nil                                               =>
               failWhen(head.name == "__typename")(
                 s"Subscription $subscription has a field named '__typename'.",

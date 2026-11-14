@@ -166,15 +166,17 @@ object FragmentValidator {
         mode.findNameOrArgumentsConflict(f1, f2) match {
           case conflict @ Some(_) => conflict
           case None               =>
-            if (f1.selection.selectionSet.nonEmpty && f2.selection.selectionSet.nonEmpty)
-              findConflictsBetweenSubSelectionSets(
-                mode,
-                f1.fieldDef._type.innerType,
-                f1.selection.selectionSet,
-                f2.fieldDef._type.innerType,
-                f2.selection.selectionSet
-              )
-            else None
+            (f1.selection.selectionSet, f2.selection.selectionSet) match {
+              case (Some(s1), Some(s2)) =>
+                findConflictsBetweenSubSelectionSets(
+                  mode,
+                  f1.fieldDef._type.innerType,
+                  s1,
+                  f2.fieldDef._type.innerType,
+                  s2
+                )
+              case _                    => None
+            }
         }
     }
 
@@ -332,13 +334,15 @@ object FragmentValidator {
         while (remaining.nonEmpty) {
           remaining.head match {
             case field: Field                                       =>
-              if (field.selectionSet.nonEmpty) {
-                val fieldDef = parentType.getFieldOrNull(field.name)
-                if (fieldDef ne null) {
-                  val nestedConflict =
-                    validateSelectionSets(fieldDef._type.innerType, field.selectionSet, validatedFragments)
-                  if (nestedConflict.nonEmpty) return nestedConflict
-                }
+              field.selectionSet match {
+                case Some(selectionSet) =>
+                  val fieldDef = parentType.getFieldOrNull(field.name)
+                  if (fieldDef ne null) {
+                    val nestedConflict =
+                      validateSelectionSets(fieldDef._type.innerType, selectionSet, validatedFragments)
+                    if (nestedConflict.nonEmpty) return nestedConflict
+                  }
+                case None               => ()
               }
             case FragmentSpread(name, _)                            =>
               if (validatedFragments.add(name)) {

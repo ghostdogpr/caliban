@@ -1431,5 +1431,5 @@ object ParserSpec extends ZIOSpecDefault {
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil,
     index: Int = 0
-  ): Field = Field(alias, name, arguments, directives, selectionSet, index)
+  ): Field = Field(alias, name, arguments, directives, Some(selectionSet).filter(_.nonEmpty), index)
 }
