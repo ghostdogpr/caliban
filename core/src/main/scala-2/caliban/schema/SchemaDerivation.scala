@@ -227,10 +227,18 @@ trait CommonSchemaDerivation[R] {
             .groupBy(_.name)
             .collect {
               case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
+                val deprecated = list.find(_.isDeprecated)
                 Types
                   .unify(list)
                   .flatMap(t =>
-                    list.headOption.map(_.copy(description = Types.extractCommonDescription(list), `type` = () => t))
+                    list.headOption.map(
+                      _.copy(
+                        description = Types.extractCommonDescription(list),
+                        `type` = () => t,
+                        isDeprecated = deprecated.isDefined,
+                        deprecationReason = deprecated.flatMap(_.deprecationReason)
+                      )
+                    )
                   )
             }
             .flatten
