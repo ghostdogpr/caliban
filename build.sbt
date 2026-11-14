@@ -876,7 +876,10 @@ lazy val enableMimaSettingsJVM =
         "caliban.interop.jsoniter.GraphQLResponseJsoniter$GraphQLResponseDTO*"
       ),
       // private implementation class; construction is handled by QuickAdapter
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this"),
+      // includeDeprecated is now Boolean! = false, as required by the September 2025 spec
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*")
     )
   )
 

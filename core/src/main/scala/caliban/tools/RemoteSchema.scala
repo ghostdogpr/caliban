@@ -26,7 +26,7 @@ object RemoteSchema {
    * stitching.
    */
   def parseRemoteSchema(doc: Document): Option[__Schema] = {
-    val converter = new Converter(doc.typeDefinitions, includeDeprecatedByDefault = true)
+    val converter = new Converter(doc.typeDefinitions)
 
     def rootType(name: SchemaDefinition => Option[String]): Option[ObjectTypeDefinition] =
       doc.schemaDefinition.flatMap(name).flatMap(doc.objectTypeDefinition)
@@ -205,7 +205,7 @@ object RemoteSchema {
   ): Either[ValidationError, RootType] = {
     val definitions   = document.typeDefinitions
     val rootTypeNames = roots.names.toSet
-    val converter     = new Converter(definitions, includeDeprecatedByDefault = false)
+    val converter     = new Converter(definitions)
 
     def rootDefinition(operation: String, name: String): Either[ValidationError, ObjectTypeDefinition] =
       document
@@ -253,7 +253,7 @@ object RemoteSchema {
     )
   }
 
-  private final class Converter(definitions: List[TypeDefinition], includeDeprecatedByDefault: Boolean) {
+  private final class Converter(definitions: List[TypeDefinition]) {
 
     def toTypeDefinition(definition: TypeDefinition): __Type =
       definition match {
@@ -421,7 +421,7 @@ object RemoteSchema {
       }
 
     private def filterDeprecated[A](values: List[A], args: __DeprecatedArgs)(isDeprecated: A => Boolean): List[A] =
-      if (args.includeDeprecated.getOrElse(includeDeprecatedByDefault)) values else values.filterNot(isDeprecated)
+      if (args.includeDeprecated) values else values.filterNot(isDeprecated)
 
     private def deprecatable[D, A](definitions: List[D])(convert: D => A)(
       isDeprecated: A => Boolean
