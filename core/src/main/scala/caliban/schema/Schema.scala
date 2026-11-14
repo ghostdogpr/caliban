@@ -360,11 +360,24 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val intSchema: Schema[Any, Int]               = scalarSchema("Int", None, None, None, IntValue(_))
   implicit val longSchema: Schema[Any, Long]             = scalarSchema("Long", None, None, None, IntValue(_))
   implicit val bigIntSchema: Schema[Any, BigInt]         = scalarSchema("BigInt", None, None, None, IntValue(_))
-  implicit val doubleSchema: Schema[Any, Double]         = scalarSchema("Float", None, None, None, FloatValue(_))
-  implicit val floatSchema: Schema[Any, Float]           = scalarSchema("Float", None, None, None, FloatValue(_))
+  implicit val doubleSchema: Schema[Any, Double]         = new Schema[Any, Double] {
+    final override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeScalar("Float", None, None, None)
+    final override def resolve(value: Double): Step[Any]                         =
+      if (java.lang.Double.isFinite(value)) PureStep(FloatValue(value)) else nonFiniteFloatStep(value.toString)
+  }
+  implicit val floatSchema: Schema[Any, Float]           = new Schema[Any, Float] {
+    final override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeScalar("Float", None, None, None)
+    final override def resolve(value: Float): Step[Any]                          =
+      if (java.lang.Float.isFinite(value)) PureStep(FloatValue(value)) else nonFiniteFloatStep(value.toString)
+  }
   implicit val bigDecimalSchema: Schema[Any, BigDecimal] = scalarSchema("BigDecimal", None, None, None, FloatValue(_))
   implicit val uploadSchema: Schema[Any, Upload]         =
     scalarSchema("Upload", None, None, None, _ => StringValue("<upload>"))
+
+  private def nonFiniteFloatStep(value: String): Step[Any] =
+    Step.fail(ExecutionError(s"Float cannot represent non-finite value: $value"))
 
   implicit val base64CursorSchema: Schema[Any, Base64Cursor] =
     Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
