@@ -115,7 +115,7 @@ private[gateway] final class EntityExecutor[-R](
       val blockedPaths = PathIndex(blocked.iterator.collect {
         case location if fetch.dependencies(location.fetch.id) => location.path
       })
-      candidates.at(fetch.root, fetch.mergePath).foreach { case (path, value) =>
+      candidates.at(fetch.root, fetch.mergePath, fetch.pathConditions).foreach { case (path, value) =>
         val location = EntityLocation(fetch, path)
         if (blockedPaths.containsPrefixOf(path)) blockedAt += location
         else
@@ -177,7 +177,7 @@ private[gateway] final class EntityExecutor[-R](
     traverseOption(fetch.target.contextArguments) { argument =>
       // A nested context shadows its ancestors; keep the last match when depths are equal.
       val source = candidates
-        .at(fetch.root, argument.sourcePath)
+        .at(fetch.root, argument.sourcePath, Nil)
         .foldLeft(Option.empty[(List[PathValue], ObjectValue)]) {
           case (nearest, (path, value: ObjectValue)) if entityPath.startsWith(path) =>
             if (nearest.forall(_._1.size <= path.size)) Some(path -> value) else nearest
@@ -304,7 +304,7 @@ private[gateway] object EntityExecutor {
       if (contexts.isEmpty) fetch.lookupVariant else EntityLookup.variant(fetch, contexts)
   }
 
-  private final case class CandidatePath(root: FetchId, path: Vector[String])
+  private final case class CandidatePath(root: FetchId, path: Vector[String], conditions: List[PathCondition])
 
   private[execution] def collectEntities(
     value: ResponseValue,
@@ -312,15 +312,39 @@ private[gateway] object EntityExecutor {
     reversedPath: List[PathValue],
     collected: mutable.ListBuffer[(List[PathValue], ResponseValue)]
   ): Unit =
+    collectEntities(value, fields, reversedPath, collected, 0, Nil)
+
+  /**
+   * Collects the non-null values at `fields` below `value`, skipping objects whose runtime type does not satisfy the
+   * `conditions` at their depth, the number of names already followed. Objects without the typename are kept.
+   */
+  private def collectEntities(
+    value: ResponseValue,
+    fields: List[String],
+    reversedPath: List[PathValue],
+    collected: mutable.ListBuffer[(List[PathValue], ResponseValue)],
+    depth: Int,
+    conditions: List[PathCondition]
+  ): Unit =
     value match {
       case obj: ObjectValue if fields ne Nil                =>
-        val nested = obj.getOrNull(fields.head)
-        if (nested ne null) collectEntities(nested, fields.tail, PathValue.Key(fields.head) :: reversedPath, collected)
+        if (satisfies(obj, depth, conditions)) {
+          val nested = obj.getOrNull(fields.head)
+          if (nested ne null)
+            collectEntities(
+              nested,
+              fields.tail,
+              PathValue.Key(fields.head) :: reversedPath,
+              collected,
+              depth + 1,
+              conditions
+            )
+        }
       case ListValue(values)                                =>
         var index     = 0
         var remaining = values
         while (remaining ne Nil) {
-          collectEntities(remaining.head, fields, PathValue.Index(index) :: reversedPath, collected)
+          collectEntities(remaining.head, fields, PathValue.Index(index) :: reversedPath, collected, depth, conditions)
           index += 1
           remaining = remaining.tail
         }
@@ -328,14 +352,31 @@ private[gateway] object EntityExecutor {
       case _                                                => ()
     }
 
+  private def satisfies(obj: ObjectValue, depth: Int, conditions: List[PathCondition]): Boolean = {
+    var remaining = conditions
+    while (remaining ne Nil) {
+      val condition = remaining.head
+      if (condition.depth == depth) obj.getOrNull(condition.typenameAlias) match {
+        case StringValue(runtimeType) if !condition.types.contains(runtimeType) => return false
+        case _                                                                  => ()
+      }
+      remaining = remaining.tail
+    }
+    true
+  }
+
   private final class Candidates(roots: Map[FetchId, ResponseValue]) {
     private val collected = mutable.HashMap.empty[CandidatePath, List[(List[PathValue], ResponseValue)]]
 
-    def at(root: FetchId, path: Vector[String]): List[(List[PathValue], ResponseValue)] =
+    def at(
+      root: FetchId,
+      path: Vector[String],
+      conditions: List[PathCondition]
+    ): List[(List[PathValue], ResponseValue)] =
       collected.getOrElseUpdate(
-        CandidatePath(root, path), {
+        CandidatePath(root, path, conditions), {
           val buffer = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
-          collectEntities(roots.getOrElse(root, NullValue), path.toList, Nil, buffer)
+          collectEntities(roots.getOrElse(root, NullValue), path.toList, Nil, buffer, 0, conditions)
           buffer.toList
         }
       )

@@ -166,6 +166,59 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
   def spec = suite("AbstractOperationSpec")(
     suite("abstract selections")(
+      test("fetches entities below union members only for the fields of their own fragment") {
+        val fragments =
+          "... on ComponentA { product { a } } ... on ComponentB { product { b } } ... on ComponentC { product { c } }"
+        val cases     = List(
+          s"{ card { components { __typename ${fragments.replace("product { ", "product { id ")} } } }" ->
+            """{"card":{"components":[{"__typename":"ComponentA","product":{"id":"product-a","a":"A1"}},{"__typename":"ComponentB","product":{"id":"product-b","b":"B1"}}]}}""",
+          s"{ card { components { $fragments } } }"                                                     ->
+            """{"card":{"components":[{"product":{"a":"A1"}},{"product":{"b":"B1"}}]}}""",
+          s"{ cardC { components { __typename $fragments } } }"                                         ->
+            """{"cardC":{"components":[{"__typename":"ComponentC","product":{"c":"C1"}}]}}""",
+          "{ card { components { ... on ComponentA { product { id a } } } } }"                          ->
+            """{"card":{"components":[{"product":{"id":"product-a","a":"A1"}},{}]}}"""
+        )
+
+        for {
+          card    <- stubByRequest(request => unionCardResponse(request.query.getOrElse("")))
+          product <- stubByRequest(unionProductResponse)
+          runtime <- Gateway
+                       .compose(
+                         Subgraph.federation("card", card.endpoint, unionCardSchema),
+                         Subgraph.federation("product", product.endpoint, unionProductSchema)
+                       )
+                       .interpreter
+          results <- ZIO.foreach(cases) { case (query, _) => runtime.execute(query) }
+          sent    <- product.requests.get
+        } yield assertTrue(
+          results.forall(_.errors.isEmpty),
+          results.map(_.data.toString) == cases.map(_._2),
+          sent.nonEmpty,
+          sent.forall(request =>
+            representations(request).forall(representation =>
+              entitySelection(request).forall(selected => representation.toString.contains(s"product-$selected"))
+            )
+          )
+        )
+      },
+      test("keeps union member fetches on the subgraph that serves all of them") {
+        val query =
+          "{ card { components { ... on ComponentA { product { a } } ... on ComponentB { product { b } } } } }"
+        for {
+          card    <- stub("{}")
+          catalog <- stub("{}")
+          product <- stub("{}")
+          runtime <- Gateway
+                       .compose(
+                         Subgraph.federation("card", card.endpoint, unionCardSchema),
+                         Subgraph.federation("catalog", catalog.endpoint, unionCatalogSchema),
+                         Subgraph.federation("product", product.endpoint, unionProductSchema)
+                       )
+                       .interpreter
+          plan    <- runtime.explain(query)
+        } yield assertTrue(plan.linesIterator.count(_.startsWith("fetch product")) == 2, !plan.contains("catalog"))
+      },
       test("preserves mutually exclusive union fragments on their capable root source") {
         val response =
           """{"data":{"response":{"message":"ok","actions":[{"__typename":"Alpha","id":"a","value":"alpha"},{"__typename":"Beta","id":"b","name":"beta","details":"details"},{"__typename":"Gamma","id":"g","label":"gamma"}]}}}"""
@@ -585,6 +638,64 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       }
     )
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
+
+  private val unionCardSchema =
+    s"""
+       |${federationSchemaPreamble("@key")}
+       |type Query { card: ProductCard cardC: ProductCard }
+       |type ProductCard @key(fields: "id") { id: ID! components: [Component] }
+       |type Product @key(fields: "id") { id: ID! }
+       |union Component = ComponentA | ComponentB | ComponentC
+       |type ComponentA { a: String product: Product }
+       |type ComponentB { b: String product: Product }
+       |type ComponentC { c: String product: Product }
+       |""".stripMargin
+
+  private val unionProductSchema =
+    s"""
+       |${federationSchemaPreamble("@key", "@shareable")}
+       |type Product @key(fields: "id") { id: ID! a: String! @shareable b: String! c: String! }
+       |""".stripMargin
+
+  private val unionCatalogSchema =
+    s"""
+       |${federationSchemaPreamble("@key", "@shareable")}
+       |type Product @key(fields: "id") { id: ID! a: String! @shareable }
+       |""".stripMargin
+
+  // `card` returns a ComponentA and a ComponentB, `cardC` a ComponentC; each references the product of its kind.
+  private def unionCardResponse(query: String): String = {
+    def component(kind: String): String = {
+      val typename = if (query.contains("components{__typename ")) s""""__typename":"Component$kind",""" else ""
+      val runtime  =
+        if (query.contains("_caliban_gateway_runtime_typename"))
+          s""""_caliban_gateway_runtime_typename":"Component$kind","""
+        else ""
+      val id       = s"product-${kind.toLowerCase}"
+      val clientId = if (query.contains("product{id ")) s""""id":"$id",""" else ""
+      s"""{$typename$runtime"product":{$clientId"_caliban_gateway_key":"$id","_caliban_gateway_typename":"Product"}}"""
+    }
+    if (query.contains("cardC")) s"""{"data":{"cardC":{"components":[${component("C")}]}}}"""
+    else s"""{"data":{"card":{"components":[${component("A")},${component("B")}]}}}"""
+  }
+
+  // The kind fields (`a`, `b`, `c`) an entity request selects on Product.
+  private def entitySelection(request: GraphQLRequest): List[String] =
+    "on Product\\{([^}]*)\\}".r
+      .findFirstMatchIn(request.query.getOrElse(""))
+      .toList
+      .flatMap(_.group(1).split(" ").toList)
+      .filter(Set("a", "b", "c"))
+
+  private def unionProductResponse(request: GraphQLRequest): String = {
+    val selected = entitySelection(request)
+    val entities = representations(request).map { representation =>
+      val kind   = List("a", "b", "c").find(kind => representation.toString.contains(s"product-$kind")).getOrElse("")
+      val fields = selected.map(name => s""""$name":"${if (name == kind) kind.toUpperCase + "1" else "overfetched"}"""")
+      ("\"__typename\":\"Product\"" :: fields).mkString("{", ",", "}")
+    }
+    s"""{"data":{"_entities":${entities.mkString("[", ",", "]")}}}"""
+  }
 
   private def interfaceEntityResponse(request: GraphQLRequest): String =
     request.query match {
