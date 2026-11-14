@@ -129,7 +129,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         remoteSchema.subscriptionType.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name))).contains(List("tick"))
       )
     },
-    test("parseRemoteSchema preserves deprecated fields and arguments by default") {
+    test("parseRemoteSchema hides deprecated fields and arguments unless requested") {
       val schema =
         """
           |schema { query: Query }
@@ -142,16 +142,15 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         document     <- ZIO.fromEither(Parser.parseQuery(schema))
         remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(document))
         defaultFields = remoteSchema.queryType.fields(__DeprecatedArgs()).getOrElse(Nil)
-        allFields     = remoteSchema.queryType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
-        hiddenFields  = remoteSchema.queryType.fields(__DeprecatedArgs(Some(false))).getOrElse(Nil)
+        allFields     = remoteSchema.queryType.fields(__DeprecatedArgs(true)).getOrElse(Nil)
         legacy        = allFields.find(_.name == "legacy")
         defaultArgs   = legacy.toList.flatMap(_.args(__DeprecatedArgs()))
-        hiddenArgs    = legacy.toList.flatMap(_.args(__DeprecatedArgs(Some(false))))
+        allArgs       = legacy.toList.flatMap(_.args(__DeprecatedArgs(true)))
       } yield assertTrue(
-        defaultFields.exists(_.name == "legacy"),
-        defaultArgs.exists(_.name == "old"),
-        !hiddenFields.exists(_.name == "legacy"),
-        !hiddenArgs.exists(_.name == "old")
+        !defaultFields.exists(_.name == "legacy"),
+        allFields.exists(_.name == "legacy"),
+        !defaultArgs.exists(_.name == "old"),
+        allArgs.exists(_.name == "old")
       )
     },
     test("preserves interface-implements-interface relationships") {
@@ -192,7 +191,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
                       .flatMap(_.possibleTypes)
                       .flatMap(_.find(_.name.contains("Product")))
         visible   = product.flatMap(_.fields(__DeprecatedArgs())).getOrElse(Nil)
-        all       = product.flatMap(_.fields(__DeprecatedArgs(Some(true)))).getOrElse(Nil)
+        all       = product.flatMap(_.fields(__DeprecatedArgs(true))).getOrElse(Nil)
         legacy    = all.find(_.name == "legacy")
         url       = all.find(_.name == "url").map(_._type.innerType)
       } yield assertTrue(
