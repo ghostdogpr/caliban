@@ -300,7 +300,7 @@ object Field {
               t,
               fragment = Some(Fragment(None, resolvedDirectives)),
               targets = typeName.map(Set(_)).orElse(targets),
-              condition = subtypeNames0.orElse(condition)
+              condition = if (typeName.isEmpty) condition else subtypeNames0
             ) match {
               case Left(l)  => l.foreach(builder.addField(_, typeName))
               case Right(l) =>
