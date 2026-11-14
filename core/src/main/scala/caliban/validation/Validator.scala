@@ -852,13 +852,18 @@ object Validator {
           )
           val subscription = op.name.fold("")(n => s"'$n'")
           field.fields match {
-            case Nil         => unit
-            case head :: Nil =>
+            case _ if hasSkipOrInclude(op.selectionSet, context.fragments) =>
+              failValidation(
+                s"Subscription $subscription uses @skip or @include on its root selection set.",
+                "The root selection set of a subscription operation must not use the @skip or @include directives."
+              )
+            case Nil                                                       => unit
+            case head :: Nil                                               =>
               failWhen(head.name == "__typename")(
                 s"Subscription $subscription has a field named '__typename'.",
                 "The root field of a subscription operation must not be an introspection field."
               )
-            case _           =>
+            case _                                                         =>
               failValidation(
                 s"Subscription $subscription has more than one root field.",
                 "Subscription operations must have exactly one root field."
@@ -867,6 +872,18 @@ object Validator {
         }
       case None    => unit
     }
+
+  private def hasSkipOrInclude(selectionSet: List[Selection], fragments: Map[String, FragmentDefinition]): Boolean =
+    selectionSet.exists {
+      case f: Field          => f.directives.exists(isSkipOrInclude)
+      case f: InlineFragment => f.dirs.exists(isSkipOrInclude) || hasSkipOrInclude(f.selectionSet, fragments)
+      case f: FragmentSpread =>
+        f.directives.exists(isSkipOrInclude) ||
+        fragments.get(f.name).exists(fragment => hasSkipOrInclude(fragment.selectionSet, fragments))
+    }
+
+  private def isSkipOrInclude(directive: Directive): Boolean =
+    directive.name == "skip" || directive.name == "include"
 
   private def validateFragmentType(
     name: Option[String],

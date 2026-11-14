@@ -86,6 +86,18 @@ object ValidationSpec extends ZIOSpecDefault {
               }""")
         check(query, "Subscription 's' has a field named '__typename'.")
       },
+      test("subscription root selection set doesn't use @skip or @include") {
+        val error   = "Subscription 's' uses @skip or @include on its root selection set."
+        val queries = List(
+          """subscription s($skip: Boolean!) { deleteCharacters @skip(if: $skip) }""",
+          """subscription s { ...f } fragment f on SubscriptionIO { deleteCharacters @include(if: true) }""",
+          """subscription s { ... { deleteCharacters @skip(if: false) } }""",
+          """subscription s { ...f @include(if: true) } fragment f on SubscriptionIO { deleteCharacters }"""
+        )
+        ZIO
+          .foreach(queries)(check(_, error, Map("skip" -> BooleanValue(false))))
+          .map(_.reduce(_ && _))
+      },
       test("invalid field") {
         val query = gqldoc("""
              {
