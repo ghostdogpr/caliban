@@ -66,8 +66,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8090/api/graphql",
       wsUri = Some(uri"ws://localhost:8090/ws/graphql"),
       uploadUri = Some(uri"http://localhost:8090/upload/graphql"),
-      sseHeartbeats = true,
-      mutationOverGetStatus = 405
+      sseHeartbeats = true
     )
     suite("Quick regressions")(adapterSuite, regressionSuite).provideShared(
       apiLayer,
@@ -105,18 +104,23 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         negotiated == expected.map { case (_, mediaType) => (200, Some(mediaType)) }
       )
     },
-    test("rejects text/plain and decodes other request media types, including legacy graphql+json, as JSON") {
+    test(
+      "rejects text/plain or no media type and decodes other request media types, including legacy graphql+json, as JSON"
+    ) {
       val expected = List(
         "application/graphql+json"          -> 200,
         "text/plain;charset=UTF-8"          -> 415,
         "application/x-www-form-urlencoded" -> 200
       )
-      ZIO.foreach(expected) { case (contentType, _) => execute(postQuery(apiUri, contentType)) }.map { responses =>
-        assertTrue(
-          responses.map(_.code.code) == expected.map(_._2),
-          responses.filter(_.is200).forall(_.body.contains("\"data\""))
-        )
-      }
+      val untyped  = postQuery(apiUri)
+      for {
+        responses <- ZIO.foreach(expected) { case (contentType, _) => execute(postQuery(apiUri, contentType)) }
+        missing   <- execute(untyped.withHeaders(untyped.headers.filterNot(_.is("Content-Type"))))
+      } yield assertTrue(
+        responses.map(_.code.code) == expected.map(_._2),
+        responses.filter(_.is200).forall(_.body.contains("\"data\"")),
+        missing.code.code == 415
+      )
     },
     test("accepts a known-length JSON body within the configured limit") {
       for {
@@ -126,7 +130,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                     )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
-    test("responds with JSON for an upload route with an unacceptable response type") {
+    test("responds 406 for an upload route with an unacceptable response type") {
       for {
         response <- execute(
                       basicRequest
@@ -135,7 +139,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                         .multipartBody(uploadParts("content".getBytes))
                         .response(asStringAlways)
                     )
-      } yield assertTrue(response.is200, response.contentType.contains("application/json"))
+      } yield assertTrue(response.code.code == 406)
     },
     test("does not apply the one-megabyte JSON default to uploads") {
       val largeFile = Array.fill[Byte](1024 * 1024 + 1)('x'.toByte)
@@ -204,6 +208,31 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         reject(ZIO.succeed(GraphQLResponse(ResponseValue.ObjectValue(List("characterDeleted" -> stream)), Nil)))).map {
         case (a, b) => a && b
       }
+    },
+    test("uses 294 and full status codes for application/json clients only when configured") {
+      val gql                          = "application/graphql-response+json"
+      val json                         = "application/json"
+      val partial                      = GraphQLResponse[CalibanError](
+        ResponseValue.ObjectValue(List("name" -> Value.StringValue("Amos"))),
+        List(CalibanError.ExecutionError("failed"))
+      )
+      val invalid                      = GraphQLResponse[CalibanError](Value.NullValue, List(CalibanError.ValidationError("invalid", "")))
+      val cases                        = List(partial -> gql, partial -> json, invalid -> json)
+      def statuses(config: HttpConfig) =
+        ZIO.foreach(cases) { case (response, accept) =>
+          respond(ZIO.succeed(response), accept, config).flatMap { r =>
+            r.body.asString.map(body =>
+              (r.status.code, r.headers.get(Header.ContentType).map(_.mediaType.fullType), body.contains("\"data\""))
+            )
+          }
+        }
+      for {
+        defaults <- statuses(HttpConfig.default)
+        spec     <- statuses(HttpConfig.default.withPartialSuccessStatus(true).withJsonClientStatusCodes(true))
+      } yield assertTrue(
+        defaults == List((200, Some(gql), true), (200, Some(json), true), (200, Some(json), true)),
+        spec == List((294, Some(gql), true), (200, Some(json), true), (422, Some(gql), false))
+      )
     },
     test("negotiates each result kind separately for urql's default Accept header") {
       val accept                          =
@@ -337,17 +366,24 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private def postQuery(endpoint: sttp.model.Uri, contentType: String = "application/json") =
     basicRequest.post(endpoint).contentType(contentType).body(CharactersQuery).response(asStringAlways)
 
-  private def respond(response: UIO[GraphQLResponse[CalibanError]], accept: String) = {
+  private def respond(
+    response: UIO[GraphQLResponse[CalibanError]],
+    accept: String,
+    httpConfig: HttpConfig = HttpConfig.default
+  ) = {
     val interpreter = new GraphQLInterpreter[Any, CalibanError] {
       def check(query: String)(implicit trace: Trace)                    = ZIO.unit
       def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
     }
-    QuickAdapter(interpreter).handlers.api.runZIO(
-      Request
-        .post(URL.empty, Body.fromString(CharactersQuery))
-        .addHeader(Header.ContentType(MediaType.application.json))
-        .addHeader(Header.Custom("Accept", accept))
-    )
+    QuickAdapter(interpreter)
+      .configureHttp(httpConfig)
+      .handlers
+      .api
+      .runZIO(
+        Request
+          .post(URL.empty, Body.fromString(CharactersQuery).contentType(MediaType.application.json))
+          .addHeader(Header.Custom("Accept", accept))
+      )
   }
 
   private def execute[T](request: sttp.client4.Request[T]): Task[sttp.client4.Response[T]] =

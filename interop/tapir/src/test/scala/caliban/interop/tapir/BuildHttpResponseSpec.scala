@@ -27,7 +27,9 @@ object BuildHttpResponseSpec extends ZIOSpecDefault {
       def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
     }
     val req         = FakeServerRequest(Method.POST, uri, List(accept))
-    TapirAdapter.executeHttpRequest[Any, E, ZStream[Any, Throwable, Byte]](interpreter, GraphQLRequest(), req)
+    TapirAdapter
+      .executeHttpRequest[Any, E, ZStream[Any, Throwable, Byte]](interpreter, GraphQLRequest(), req)
+      .mapError(r => new RuntimeException(r.toString))
   }
 
   private def encoded[E](accept: MediaType, response: UIO[GraphQLResponse[E]]): Task[(MediaType, String)] =
