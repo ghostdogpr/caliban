@@ -10,7 +10,7 @@ object SelectionSpec extends ZIOSpecDefault {
     name = "id",
     arguments = Map.empty,
     directives = List.empty,
-    selectionSet = List.empty,
+    selectionSet = None,
     index = 0
   )
 
@@ -19,7 +19,7 @@ object SelectionSpec extends ZIOSpecDefault {
     name = "id",
     arguments = Map.empty,
     directives = List.empty,
-    selectionSet = List.empty,
+    selectionSet = None,
     index = 0
   )
 

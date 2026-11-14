@@ -1,7 +1,11 @@
 query {
   id
   name
+  empty {}
+  ... on SomeType {}
 }
+
+query {}
 
 mutation {
   thatThing

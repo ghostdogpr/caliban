@@ -87,7 +87,7 @@ private[gateway] object OperationPlanner {
                                 (),
                                 PlanningFailure.Rejected("Incremental delivery is not supported inside subscriptions.")
                               )
-        best               <- planRoots(subgraphFields)
+        best               <- planRoots(subgraphFields).map(withoutEmptySelections)
         typenameSelections  = collectTypenameSelections(best.roots, best.entities)
         passthroughSubgraph =
           if (defers) None else findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
@@ -230,18 +230,23 @@ private[gateway] object OperationPlanner {
       subgraphs: List[Source]
     ): Either[PlanningFailure, List[List[RootCandidate]]] =
       planRootCandidates(field, subgraph, subgraphs).flatMap { candidates =>
-        val executable = candidates.flatMap { candidate =>
-          if (hasRootWork(candidate)) candidate :: Nil
-          else if (isAbstractType(field.fieldType.innerType)) typenameFallback(field, candidate) :: Nil
-          else Nil
-        }
-        if (executable.nonEmpty) Right(executable.map(List(_)))
+        if (candidates.nonEmpty) Right(candidates.map(List(_)))
         else Left(PlanningFailure.Rejected(s"Subgraph '$subgraph' has no executable work for '${field.name}'."))
       }
 
-    private def typenameFallback(field: Field, candidate: RootCandidate): RootCandidate = {
-      val typename = privateTypename(RuntimeTypenameAliasBase, field.fieldType.innerType, responseNames(field.fields))
-      candidate.copy(downstream = candidate.downstream.copy(fields = typename :: Nil))
+    private def withoutEmptySelections(candidate: PlanCandidate): PlanCandidate = {
+      def fill(field: Field): Field = {
+        val innerType = field.fieldType.innerType
+        if (field.fields.nonEmpty) field.copy(fields = field.fields.map(fill))
+        else if (isCompositeType(innerType))
+          field.copy(fields = privateTypename(RuntimeTypenameAliasBase, innerType, Set.empty) :: Nil)
+        else field
+      }
+
+      candidate.copy(
+        roots = candidate.roots.map(fetch => fetch.copy(downstream = fetch.downstream.map(fill))),
+        waves = candidate.waves.map(_.map(fetch => fetch.copy(fields = fetch.fields.map(fill))))
+      )
     }
 
     private def planSplitRoot(
@@ -1085,7 +1090,7 @@ private[gateway] object OperationPlanner {
 
     private def addRuntimeTypename(field: Field, planned: EntityFetchState): EntityFetchState = {
       val parentType = field.fieldType.innerType
-      if (isAbstractType(parentType) && (planned.downstream.isEmpty || planned.downstream.exists(_.targets.nonEmpty))) {
+      if (isAbstractType(parentType) && planned.downstream.exists(_.targets.nonEmpty)) {
         val used = responseNames(field.fields) ++ responseNames(planned.downstream)
         planned.copy(downstream = planned.downstream :+ privateTypename(RuntimeTypenameAliasBase, parentType, used))
       } else planned

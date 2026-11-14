@@ -171,7 +171,7 @@ private[gateway] object OperationPlan {
             arguments = sortedArguments(field.arguments),
             directives =
               field.directives.map(directive => directive.copy(arguments = sortedArguments(directive.arguments))),
-            selectionSet = canonicalSelections(field.selectionSet)
+            selectionSet = field.selectionSet.map(canonicalSelections)
           )
         case fragment: Selection.InlineFragment =>
           fragment.copy(selectionSet = canonicalSelections(fragment.selectionSet))

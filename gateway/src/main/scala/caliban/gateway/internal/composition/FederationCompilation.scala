@@ -205,7 +205,7 @@ private[gateway] object FederationCompilation {
   def plainFieldSet(selections: List[Selection]): Option[List[KeyField]] =
     traverseOption(selections) {
       case Selection.Field(None, name, arguments, directives, children, _) if arguments.isEmpty && directives.isEmpty =>
-        plainFieldSet(children).map(KeyField(name, _))
+        plainFieldSet(children.getOrElse(Nil)).map(KeyField(name, _))
       case _                                                                                                          => None
     }
 

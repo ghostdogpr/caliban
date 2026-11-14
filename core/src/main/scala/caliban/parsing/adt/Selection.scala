@@ -17,7 +17,7 @@ object Selection {
     name: String,
     arguments: Map[String, InputValue],
     directives: List[Directive],
-    selectionSet: List[Selection],
+    selectionSet: Option[List[Selection]],
     index: Int
   ) extends Selection
 

@@ -114,11 +114,10 @@ object IncrementalDelivery {
           CalibanError.ValidationError("Stream directive was used on a non-list field", "")
         )
         .flatMap { _ =>
-          if (field.selectionSet.isEmpty) Right(())
-          else
-            selected.fold[Either[CalibanError.ValidationError, Unit]](Right(()))(s =>
-              validateFields(field.selectionSet, s._type.innerType)
-            )
+          (field.selectionSet, selected) match {
+            case (Some(selectionSet), Some(s)) => validateFields(selectionSet, s._type.innerType)
+            case _                             => Right(())
+          }
         }
     }
 

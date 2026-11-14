@@ -72,7 +72,7 @@ private[internal] object EntityLookup {
     arguments: Map[String, InputValue],
     selections: List[Selection]
   ): Selection.Field =
-    Selection.Field(Some(alias), field, arguments, Nil, selections, 0)
+    Selection.Field(Some(alias), field, arguments, Nil, Some(selections), 0)
 
   private def lookupRequest(selections: List[Selection]): GraphQLRequest = {
     val operation = OperationDefinition(OperationType.Query, Some(LookupOperationName), Nil, Nil, selections)
@@ -232,7 +232,7 @@ private[internal] object EntityLookup {
       value.field,
       Map.empty,
       Nil,
-      value.children.map(requiredSelection),
+      Some(value.children.map(requiredSelection)).filter(_.nonEmpty),
       0
     )
 

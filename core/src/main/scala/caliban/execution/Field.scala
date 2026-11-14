@@ -8,6 +8,7 @@ import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragmen
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
 import caliban.schema.{ RootType, Types }
+import caliban.validation.Utils.isLeafType
 import caliban.{ InputValue, Value }
 
 import scala.annotation.tailrec
@@ -150,7 +151,14 @@ case class Field(
     val directives       =
       if (schemaDirectives.isEmpty) self.directives else self.directives.filterNot(schemaDirectives.contains)
 
-    Selection.Field(alias, name, arguments, directives, selectionSet, 0)
+    Selection.Field(
+      alias,
+      name,
+      arguments,
+      directives,
+      if (isLeafType(fieldType.innerType)) None else Some(selectionSet),
+      0
+    )
   }
 
   /**
@@ -236,9 +244,7 @@ object Field {
             val definitions = if (selected eq null) Nil else selected.allArgs
 
             val fields =
-              if (selectionSet.nonEmpty)
-                loop(selectionSet, t, None, None, None).fold(identityFnList, _.map(_._1))
-              else Nil
+              selectionSet.fold(List.empty[Field])(loop(_, t, None, None, None).fold(identityFnList, _.map(_._1)))
 
             builder.addField(
               new Field(

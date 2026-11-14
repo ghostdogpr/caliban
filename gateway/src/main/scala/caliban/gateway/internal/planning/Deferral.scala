@@ -79,7 +79,7 @@ private[gateway] object Deferral {
         ): List[Selection] =
           values.map {
             case field: Selection.Field if isIncluded(field.directives)                             =>
-              val pushed = field.copy(selectionSet = objectLevel(field.selectionSet))
+              val pushed = field.copy(selectionSet = field.selectionSet.map(objectLevel))
               if (region.isEmpty) pushed else Selection.InlineFragment(condition, region, pushed :: Nil)
             case Selection.InlineFragment(typeCondition, directives, set) if isIncluded(directives) =>
               val inner = selections(set, region ::: deferred(directives), typeCondition.orElse(condition))

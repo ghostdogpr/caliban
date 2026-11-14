@@ -65,7 +65,7 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     def loop(selections: List[Selection]): Boolean =
       selections.exists { selection =>
         predicate(selection) || (selection match {
-          case Selection.Field(_, _, _, _, selectionSet, _) => loop(selectionSet)
+          case Selection.Field(_, _, _, _, selectionSet, _) => selectionSet.exists(loop)
           case Selection.InlineFragment(_, _, selectionSet) => loop(selectionSet)
           case Selection.FragmentSpread(name, _)            =>
             visited.add(name) && fragments

@@ -1,1 +1,1 @@
-"Says hello" query Hello("The name" $name:String!@someDirective){hello(name:$name,inline:{age:42})@skip(if:true){message ...on Hello{message} ...FragmentHello}} "Hello fields" fragment FragmentHello on Hello{test}
+"Says hello" query Hello("The name" $name:String!@someDirective){hello(name:$name,inline:{age:42})@skip(if:true){message ...on Hello{message} ...FragmentHello empty{} ...on World{}}} "Hello fields" fragment FragmentHello on Hello{test}
