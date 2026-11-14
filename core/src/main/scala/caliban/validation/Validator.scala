@@ -873,14 +873,20 @@ object Validator {
       case None    => unit
     }
 
-  private def hasSkipOrInclude(selectionSet: List[Selection], fragments: Map[String, FragmentDefinition]): Boolean =
-    selectionSet.exists {
-      case f: Field          => f.directives.exists(isSkipOrInclude)
-      case f: InlineFragment => f.dirs.exists(isSkipOrInclude) || hasSkipOrInclude(f.selectionSet, fragments)
-      case f: FragmentSpread =>
-        f.directives.exists(isSkipOrInclude) ||
-        fragments.get(f.name).exists(fragment => hasSkipOrInclude(fragment.selectionSet, fragments))
-    }
+  private def hasSkipOrInclude(selectionSet: List[Selection], fragments: Map[String, FragmentDefinition]): Boolean = {
+    val visited = mutable.HashSet.empty[String]
+
+    def loop(selectionSet: List[Selection]): Boolean =
+      selectionSet.exists {
+        case f: Field          => f.directives.exists(isSkipOrInclude)
+        case f: InlineFragment => f.dirs.exists(isSkipOrInclude) || loop(f.selectionSet)
+        case f: FragmentSpread =>
+          f.directives.exists(isSkipOrInclude) ||
+          (visited.add(f.name) && fragments.get(f.name).exists(fragment => loop(fragment.selectionSet)))
+      }
+
+    loop(selectionSet)
+  }
 
   private def isSkipOrInclude(directive: Directive): Boolean =
     directive.name == "skip" || directive.name == "include"
