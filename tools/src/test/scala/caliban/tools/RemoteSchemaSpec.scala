@@ -226,7 +226,8 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       val validSchema   =
         """
           |type Query { find(by: Choice!): String }
-          |input Choice @oneOf { id: ID name: String }
+          |input Choice @oneOf { id: ID name: String next: Choice }
+          |input Filter { not: Filter and: [Filter!]! value: String! }
           |""".stripMargin
       val invalidSchema =
         """
@@ -254,7 +255,13 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                                                           ->
           "Field 'User.id' is deprecated but the interface field is not",
         "type Query { user: User } interface Node { id: ID! } interface Resource implements Node { id: ID! @deprecated } type User implements Node & Resource { id: ID! }" ->
-          "Field 'Resource.id' is deprecated but the interface field is not"
+          "Field 'Resource.id' is deprecated but the interface field is not",
+        "type Query { find(a: A): String } input A { b: B! } input B { a: A! }"                                                                                            ->
+          "InputObject 'A' has an unbreakable cycle and cannot have a finite value",
+        "type Query { find(a: A): String } input A @oneOf { a: A }"                                                                                                        ->
+          "OneOf InputObject 'A' has an unbreakable cycle and cannot have a finite value",
+        "type Query { find(a: First): String } input First @oneOf { second: Second } input Second { first: First! }"                                                       ->
+          "OneOf InputObject 'First' has an unbreakable cycle and cannot have a finite value"
       )
 
       assertTrue(

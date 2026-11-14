@@ -264,7 +264,7 @@ private[caliban] object SchemaValidator {
             )
         }
 
-    t.allInputFields match {
+    (t.allInputFields match {
       case Nil                       =>
         failValidation(
           s"$inputObjectContext does not have fields",
@@ -272,8 +272,23 @@ private[caliban] object SchemaValidator {
         )
       case fields if t._isOneOfInput => validateOneOfFields(fields) *> validateFields(fields)
       case fields                    => validateFields(fields)
-    }
+    }) *> failWhen(hasUnbreakableCycle(t, Set.empty))(
+      s"$inputObjectContext has an unbreakable cycle and cannot have a finite value",
+      "An Input Object type must not reference itself through an unbroken chain of Non-Null or OneOf fields"
+    )
   }
+
+  private def hasUnbreakableCycle(t: __Type, visited: Set[String]): Boolean =
+    t.kind match {
+      case NON_NULL     => t.ofType.exists(hasUnbreakableCycle(_, visited))
+      case INPUT_OBJECT =>
+        t.name.exists(visited.contains) || {
+          val next = visited ++ t.name
+          if (t._isOneOfInput) t.allInputFields.forall(f => hasUnbreakableCycle(f._type, next))
+          else t.allInputFields.exists(f => !f._type.isNullable && hasUnbreakableCycle(f._type, next))
+        }
+      case _            => false
+    }
 
   private def validateInputValue(
     inputValue: __InputValue,
