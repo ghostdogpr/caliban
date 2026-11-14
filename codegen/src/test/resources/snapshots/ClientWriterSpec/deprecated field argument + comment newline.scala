@@ -10,7 +10,7 @@ object Client {
       @deprecated("""foo
 bar""")
       last: scala.Option[Int] = None,
-      @deprecated
+      @deprecated("No longer supported")
       origins: scala.Option[List[scala.Option[String]]] = None
     )(implicit
       encoder0: ArgEncoder[Int],

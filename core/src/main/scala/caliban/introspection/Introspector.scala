@@ -1,9 +1,10 @@
 package caliban.introspection
 
 import caliban.CalibanError.ExecutionError
+import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.{ Directives, Document, OperationType, Selection }
 import caliban.parsing.adt.Selection.Field
 import caliban.schema.Step.QueryStep
 import caliban.schema._
@@ -41,6 +42,28 @@ object Introspector extends IntrospectionDerivation {
       ),
       Set(__DirectiveLocation.SCALAR),
       _ => List(__InputValue("url", None, () => Types.string.nonNull, None)),
+      isRepeatable = false
+    ),
+    __Directive(
+      "deprecated",
+      Some(
+        "The @deprecated directive is used within the type system definition language to indicate deprecated portions of a GraphQL service's schema, such as deprecated fields on a type, arguments on a field, input fields on an input type, or values of an enum type."
+      ),
+      Set(
+        __DirectiveLocation.FIELD_DEFINITION,
+        __DirectiveLocation.ARGUMENT_DEFINITION,
+        __DirectiveLocation.INPUT_FIELD_DEFINITION,
+        __DirectiveLocation.ENUM_VALUE
+      ),
+      _ =>
+        List(
+          __InputValue(
+            "reason",
+            None,
+            () => Types.string.nonNull,
+            Some(StringValue(Directives.DefaultDeprecationReason).toInputString)
+          )
+        ),
       isRepeatable = false
     )
   )
@@ -87,7 +110,7 @@ object Introspector extends IntrospectionDerivation {
     typesMap ++= introspectionRootType.types
     typesMap.remove("__Introspection")
     typesMap.update("Boolean", Types.boolean) // because of skip and include
-    typesMap.update("String", Types.string)   // because of specifiedBy
+    typesMap.update("String", Types.string)   // because of specifiedBy and deprecated
 
     val types    = typesMap.values.toList.sortBy(_.name)
     val hasOneOf = types.exists(_._isOneOfInput)

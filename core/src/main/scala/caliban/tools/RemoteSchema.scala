@@ -348,7 +348,7 @@ object RemoteSchema {
         args = (args: __DeprecatedArgs) => filterDeprecated(definition.args.map(toInputValue), args)(_.isDeprecated),
         `type` = toType(definition.ofType),
         isDeprecated = Directives.isDeprecated(definition.directives),
-        deprecationReason = deprecationReason(definition.directives),
+        deprecationReason = Directives.deprecationReason(definition.directives),
         directives = toDirectives(definition.directives)
       )
 
@@ -358,7 +358,7 @@ object RemoteSchema {
         description = definition.description,
         `type` = toType(definition.ofType),
         isDeprecated = Directives.isDeprecated(definition.directives),
-        deprecationReason = deprecationReason(definition.directives),
+        deprecationReason = Directives.deprecationReason(definition.directives),
         defaultValue = definition.defaultValue.map(_.toInputString),
         directives = toDirectives(definition.directives)
       )
@@ -368,7 +368,7 @@ object RemoteSchema {
         name = definition.enumValue,
         description = definition.description,
         isDeprecated = Directives.isDeprecated(definition.directives),
-        deprecationReason = deprecationReason(definition.directives),
+        deprecationReason = Directives.deprecationReason(definition.directives),
         directives = toDirectives(definition.directives)
       )
 
@@ -427,10 +427,5 @@ object RemoteSchema {
       isDeprecated: A => Boolean
     ): __DeprecatedArgs => Option[List[A]] =
       args => if (definitions.nonEmpty) Some(filterDeprecated(definitions.map(convert), args)(isDeprecated)) else None
-
-    private def deprecationReason(directives: List[Directive]): Option[String] =
-      if (Directives.isDeprecated(directives))
-        Directives.deprecationReason(directives).orElse(Some("No longer supported"))
-      else None
   }
 }

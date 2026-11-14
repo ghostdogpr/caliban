@@ -3,7 +3,7 @@ package caliban.validation
 import caliban.CalibanError.ValidationError
 import caliban.InputValue
 import caliban.introspection.adt.__TypeKind._
-import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
+import caliban.introspection.adt.{ __Directive, __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -18,14 +18,18 @@ private[caliban] object SchemaValidator {
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validateSchema[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] =
+  def validateSchema[R](
+    schema: RootSchemaBuilder[R],
+    directives: List[__Directive]
+  ): Either[ValidationError, RootSchema[R]] =
     for {
       query <- schema.query.toRight(missingQueryRoot)
       _     <- validateSchema(
                  schema.additionalTypes,
                  query.opType,
                  schema.mutation.map(_.opType),
-                 schema.subscription.map(_.opType)
+                 schema.subscription.map(_.opType),
+                 directives
                )
     } yield RootSchema(query, schema.mutation, schema.subscription)
 
@@ -54,13 +58,20 @@ private[caliban] object SchemaValidator {
   }
 
   private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] =
-    validateSchema(rootType.additionalTypes, rootType.queryType, rootType.mutationType, rootType.subscriptionType)
+    validateSchema(
+      rootType.additionalTypes,
+      rootType.queryType,
+      rootType.mutationType,
+      rootType.subscriptionType,
+      rootType.additionalDirectives
+    )
 
   private def validateSchema(
     additionalTypes: List[__Type],
     query: __Type,
     mutation: Option[__Type],
-    subscription: Option[__Type]
+    subscription: Option[__Type],
+    directives: List[__Directive]
   ): Either[ValidationError, Unit] = {
     val roots = query :: mutation.toList ::: subscription.toList
     val types = Types.collectRootTypes(additionalTypes, roots).sorted
@@ -69,6 +80,15 @@ private[caliban] object SchemaValidator {
       _ <- validateAllDiscard(types)(validateType)
       _ <- validateClashingTypes(types)
       _ <- validateDirectives(types)
+      _ <- validateAllDiscard(directives)(d =>
+             validateAllDiscard(d.allArgs)(arg =>
+               validateDeprecationReason(
+                 arg.isDeprecated,
+                 arg.deprecationReason,
+                 s"InputValue '${arg.name}' of Directive '${d.name}'"
+               )
+             )
+           )
       _ <- failWhen(mutation.exists(_.kind != OBJECT))(
              "The mutation root operation is not an object type.",
              "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
@@ -120,6 +140,16 @@ private[caliban] object SchemaValidator {
         case __TypeKind.OBJECT       => validateObject(t)
         case _                       => unit
       })
+
+  private def validateDeprecationReason(
+    isDeprecated: Boolean,
+    reason: Option[String],
+    errorContext: => String
+  ): Either[ValidationError, Unit] =
+    failWhen(isDeprecated && reason.isEmpty)(
+      s"$errorContext is deprecated without a reason.",
+      "The `reason` argument of the `@deprecated` directive must be a non-null String."
+    )
 
   private def validateClashingTypes(types: List[__Type]): Either[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
@@ -188,8 +218,15 @@ private[caliban] object SchemaValidator {
 
   private def validateEnum(t: __Type): Either[ValidationError, Unit] =
     t.allEnumValues match {
-      case _ :: _ => unit
-      case Nil    =>
+      case values @ (_ :: _) =>
+        validateAllDiscard(values)(v =>
+          validateDeprecationReason(
+            v.isDeprecated,
+            v.deprecationReason,
+            s"EnumValue '${v.name}' of Enum '${t.name.getOrElse("")}'"
+          )
+        )
+      case Nil               =>
         failValidation(
           s"Enum ${t.name.getOrElse("")} doesn't contain any values",
           "An Enum type must define one or more unique enum values."
@@ -268,6 +305,7 @@ private[caliban] object SchemaValidator {
     lazy val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
+      _ <- validateDeprecationReason(inputValue.isDeprecated, inputValue.deprecationReason, fieldContext)
       _ <- checkName(inputValue.name, fieldContext)
       _ <- onlyInputType(inputValue._type, fieldContext)
     } yield ()
@@ -459,6 +497,7 @@ private[caliban] object SchemaValidator {
         lazy val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- checkName(field.name, fieldContext)
+          _ <- validateDeprecationReason(field.isDeprecated, field.deprecationReason, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
           _ <- validateAllDiscard(field.allArgs)(validateInputValue(_, fieldContext))
         } yield ()

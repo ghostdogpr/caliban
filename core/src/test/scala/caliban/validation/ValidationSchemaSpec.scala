@@ -33,7 +33,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             Types.makeEnum(
               name = Some("nonEmptyEnum"),
               description = None,
-              values = List(__EnumValue("A", None, true, None, None)),
+              values = List(__EnumValue("A", None, false, None, None)),
               origin = None
             )
           )
