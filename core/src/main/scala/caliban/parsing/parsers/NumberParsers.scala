@@ -10,7 +10,10 @@ private[caliban] trait NumberParsers extends StringParsers {
   def integerPart(implicit ev: P[Any]): P[Unit]  =
     negativeSign.? ~~ ("0" | (nonZeroDigit ~~ digit.repX))
 
-  def intValue(implicit ev: P[Any]): P[IntValue] = integerPart.!.map(IntValue.fromStringUnsafe)
+  def numberLookahead(implicit ev: P[Any]): P[Unit] = !CharIn(".0-9A-Za-z_")
+
+  def intValue(implicit ev: P[Any]): P[IntValue] =
+    (integerPart.! ~~ numberLookahead).map(IntValue.fromStringUnsafe)
 
   def sign(implicit ev: P[Any]): P[Unit]              = StringIn("-", "+")
   def exponentIndicator(implicit ev: P[Any]): P[Unit] = CharIn("eE")
@@ -18,6 +21,6 @@ private[caliban] trait NumberParsers extends StringParsers {
   def fractionalPart(implicit ev: P[Any]): P[Unit]    = "." ~~ digit.repX(1)
   def floatValue(implicit ev: P[Any]): P[FloatValue]  =
     (
-      integerPart ~~ ((fractionalPart ~~ exponentPart) | fractionalPart | exponentPart)
-    ).!.map(FloatValue.fromStringUnsafe)
+      (integerPart ~~ ((fractionalPart ~~ exponentPart) | fractionalPart | exponentPart)).! ~~ numberLookahead
+    ).map(FloatValue.fromStringUnsafe)
 }

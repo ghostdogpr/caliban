@@ -245,6 +245,28 @@ object ParserSpec extends ZIOSpecDefault {
           Parser.parseInputValue("\"raw\nnewline\"").isLeft
         )
       },
+      test("number literals followed by a dot, a digit or a name start") {
+        assertTrue(
+          Parser.parseInputValue("123abc").isLeft,
+          Parser.parseInputValue("123_").isLeft,
+          Parser.parseInputValue("1.2.3").isLeft,
+          Parser.parseInputValue("1.").isLeft,
+          Parser.parseInputValue("0x1").isLeft,
+          Parser.parseInputValue("00").isLeft,
+          Parser.parseInputValue("01").isLeft,
+          Parser.parseInputValue("1.5e").isLeft,
+          Parser.parseInputValue("1.5e3x").isLeft,
+          Parser.parseInputValue("1e3.0").isLeft,
+          Parser.parseQuery("{ dog(a: [123abc]) { name } }").isLeft,
+          Parser.parseQuery("{ dog(a: 1.2.3) { name } }").isLeft,
+          Parser.parseInputValue("123") == Right(IntValue(123)),
+          Parser.parseInputValue("-0") == Right(IntValue(0)),
+          Parser.parseInputValue("1.5e3") == Right(FloatValue(1.5e3)),
+          Parser.parseInputValue("[1 2]") == Right(ListValue(List(IntValue(1), IntValue(2)))),
+          Parser.parseInputValue("[1,2.5]") == Right(ListValue(List(IntValue(1), FloatValue(2.5)))),
+          Parser.parseInputValue("{a:1}") == Right(ObjectValue(Map("a" -> IntValue(1))))
+        )
+      },
       test("enum values whose names start with a keyword") {
         val cases = List(
           "trueStory" -> EnumValue("trueStory"),
