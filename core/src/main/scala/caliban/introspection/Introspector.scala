@@ -1,6 +1,7 @@
 package caliban.introspection
 
 import caliban.CalibanError.ExecutionError
+import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Directives, Document, OperationType, Selection }
@@ -60,7 +61,7 @@ object Introspector extends IntrospectionDerivation {
             "reason",
             None,
             () => Types.string.nonNull,
-            Some(s"\"${Directives.DefaultDeprecationReason}\"")
+            Some(StringValue(Directives.DefaultDeprecationReason).toInputString)
           )
         ),
       isRepeatable = false
