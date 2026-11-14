@@ -48,11 +48,11 @@ package object laminext {
     )(
       mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
     )(implicit ev: IsOperation[Origin], ec: ExecutionContext): EventStream[Either[CalibanClientError, B]] =
-      middleware(Fetch.post(uri))
+      middleware(Fetch.post(uri).addHeaders("Accept" -> SelectionBuilder.Accept))
         .body(self.toGraphQL(useVariables, queryName, directives, dropNullInputValues))
         .text
         .map(response =>
-          if (response.ok)
+          if (response.ok || SelectionBuilder.isGraphQLResponse(Option(response.headers.get("Content-Type"))))
             self.decode(response.data).map { case (result, errors, extensions) =>
               mapResponse(result, errors, extensions)
             }
