@@ -77,6 +77,19 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     loop(operation.selectionSet)
   }
 
+  private[caliban] def hasEmptySelectionSet(operationName: Option[String]): Boolean =
+    operationDefinition(operationName).exists(operation =>
+      operation.selectionSet.isEmpty ||
+        existsSelection(operation)(
+          {
+            case Selection.Field(_, _, _, _, selectionSet, _) => selectionSet.contains(Nil)
+            case Selection.InlineFragment(_, _, selectionSet) => selectionSet.isEmpty
+            case _: Selection.FragmentSpread                  => false
+          },
+          _.selectionSet.isEmpty
+        )
+    )
+
   private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
     def selectionHasDirective(selection: Selection): Boolean =
       selection match {

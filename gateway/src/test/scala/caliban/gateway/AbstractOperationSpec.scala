@@ -524,6 +524,24 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           sent.flatMap(_.query).forall(query => !query.contains("{}") && query.contains(s"$typename:__typename"))
         )
       },
+      test("does not forward empty fragments to a single source") {
+        val queries = List("{ item { value ... on Item {} } }", "{ item { value ...f } } fragment f on Item {}")
+        for {
+          source  <- stub("""{"data":{"item":{"value":"v"}}}""")
+          runtime <-
+            Gateway
+              .compose(
+                Subgraph.graphql("source", source.endpoint, "type Query { item: Item } type Item { value: String }")
+              )
+              .interpreter
+          results <- ZIO.foreach(queries)(runtime.execute(_))
+          sent    <- source.requests.get
+        } yield assertTrue(
+          results.forall(_.errors.isEmpty),
+          results.forall(_.data.toString == """{"item":{"value":"v"}}"""),
+          sent.flatMap(_.query) == Vector.fill(2)("query{item{value}}")
+        )
+      },
       test("retains concrete fragments when single-source execution needs runtime evidence") {
         val response =
           """{"data":{"response":{"actions":[{"_caliban_gateway_runtime_typename":"Alpha","value":"alpha"}]}}}"""
