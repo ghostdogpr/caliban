@@ -524,8 +524,12 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           sent.flatMap(_.query).forall(query => !query.contains("{}") && query.contains(s"$typename:__typename"))
         )
       },
-      test("does not forward empty fragments to a single source") {
-        val queries = List("{ item { value ... on Item {} } }", "{ item { value ...f } } fragment f on Item {}")
+      test("does not forward empty selection sets to a single source") {
+        val queries = List(
+          "{ item { value ... on Item {} } }"                -> None,
+          "{ item { value ...f } } fragment f on Item {}"    -> None,
+          "query Selected { item { value } } query Other {}" -> Some("Selected")
+        )
         for {
           source  <- stub("""{"data":{"item":{"value":"v"}}}""")
           runtime <-
@@ -534,12 +538,12 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                 Subgraph.graphql("source", source.endpoint, "type Query { item: Item } type Item { value: String }")
               )
               .interpreter
-          results <- ZIO.foreach(queries)(runtime.execute(_))
+          results <- ZIO.foreach(queries) { case (query, name) => runtime.execute(query, name) }
           sent    <- source.requests.get
         } yield assertTrue(
           results.forall(_.errors.isEmpty),
           results.forall(_.data.toString == """{"item":{"value":"v"}}"""),
-          sent.flatMap(_.query) == Vector.fill(2)("query{item{value}}")
+          sent.flatMap(_.query) == Vector("query{item{value}}", "query{item{value}}", "query Selected{item{value}}")
         )
       },
       test("retains concrete fragments when single-source execution needs runtime evidence") {

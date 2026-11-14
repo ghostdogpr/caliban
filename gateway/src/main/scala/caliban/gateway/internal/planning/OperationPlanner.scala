@@ -90,7 +90,7 @@ private[gateway] object OperationPlanner {
         best               <- planRoots(subgraphFields).map(withoutEmptySelections)
         typenameSelections  = collectTypenameSelections(best.roots, best.entities)
         passthroughSubgraph =
-          if (defers || document.hasEmptySelectionSet(execution.operationName)) None
+          if (defers || document.hasEmptySelectionSet) None
           else findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
         _                  <- Either.cond(
                                 passthroughSubgraph.nonEmpty ||
