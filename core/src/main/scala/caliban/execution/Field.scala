@@ -299,8 +299,8 @@ object Field {
               selectionSet,
               t,
               fragment = Some(Fragment(None, resolvedDirectives)),
-              targets = typeName.map(Set(_)),
-              condition = subtypeNames0
+              targets = typeName.map(Set(_)).orElse(targets),
+              condition = subtypeNames0.orElse(condition)
             ) match {
               case Left(l)  => l.foreach(builder.addField(_, typeName))
               case Right(l) =>
