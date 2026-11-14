@@ -1876,8 +1876,64 @@ object ExecutionSpec extends ZIOSpecDefault {
             List("access" -> StringValue("value"))
           )
         )
-      }
+      },
+      suite("non-finite Float values")(
+        test("nullable fields resolve to null with an error") {
+          case class Query(
+            double: Option[Double],
+            nan: Option[Double],
+            posInf: Option[Double],
+            negInf: Option[Double],
+            floatNaN: Option[Float],
+            floatInf: Option[Float]
+          )
+          val api = graphQL(
+            RootResolver(
+              Query(
+                Some(1.5),
+                Some(Double.NaN),
+                Some(Double.PositiveInfinity),
+                Some(Double.NegativeInfinity),
+                Some(Float.NaN),
+                Some(Float.PositiveInfinity)
+              )
+            )
+          )
+          for {
+            interpreter <- api.interpreter
+            result      <- interpreter.execute("{ double nan posInf negInf floatNaN floatInf }")
+          } yield assertTrue(
+            writeToString(sortErrorsByLocation(result)) ==
+              """{"data":{"double":1.5,"nan":null,"posInf":null,"negInf":null,"floatNaN":null,"floatInf":null},"errors":[""" +
+              """{"message":"Float cannot represent non-finite value: NaN","locations":[{"line":1,"column":10}],"path":["nan"]},""" +
+              """{"message":"Float cannot represent non-finite value: Infinity","locations":[{"line":1,"column":14}],"path":["posInf"]},""" +
+              """{"message":"Float cannot represent non-finite value: -Infinity","locations":[{"line":1,"column":21}],"path":["negInf"]},""" +
+              """{"message":"Float cannot represent non-finite value: NaN","locations":[{"line":1,"column":28}],"path":["floatNaN"]},""" +
+              """{"message":"Float cannot represent non-finite value: Infinity","locations":[{"line":1,"column":37}],"path":["floatInf"]}]}"""
+          )
+        },
+        test("non-null fields propagate null to the parent") {
+          case class Inner(value: Double, other: String)
+          case class Query(inner: Option[Inner], list: List[Option[Double]])
+          val api = graphQL(RootResolver(Query(Some(Inner(Double.NaN, "a")), List(Some(1.0), Some(Double.NaN)))))
+          for {
+            interpreter <- api.interpreter
+            result      <- interpreter.execute("{ inner { value other } list }")
+          } yield assertTrue(
+            writeToString(sortErrorsByLocation(result)) ==
+              """{"data":{"inner":null,"list":[1.0,null]},"errors":[""" +
+              """{"message":"Float cannot represent non-finite value: NaN","locations":[{"line":1,"column":11}],"path":["inner","value"]},""" +
+              """{"message":"Float cannot represent non-finite value: NaN","locations":[{"line":1,"column":25}],"path":["list",1]}]}"""
+          )
+        }
+      )
     )
+
+  private def sortErrorsByLocation(response: GraphQLResponse[CalibanError]): GraphQLResponse[CalibanError] =
+    response.copy(errors = response.errors.sortBy {
+      case e: ExecutionError => e.locationInfo.fold((0, 0))(l => (l.line, l.column))
+      case _                 => (0, 0)
+    })
 }
 
 // needs to be outside for Scala 2
