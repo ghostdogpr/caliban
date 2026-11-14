@@ -362,8 +362,8 @@ private[composition] object TypeComposition {
   private def resolve(references: List[__Type], candidates: Map[String, __Type]): List[__Type] =
     references.flatMap(_.name).distinct.sorted.flatMap(candidates.get)
 
-  def includeDeprecated[A](values: List[A], include: Option[Boolean])(isDeprecated: A => Boolean): List[A] =
-    if (include.getOrElse(false)) values else values.filterNot(isDeprecated)
+  def includeDeprecated[A](values: List[A], include: Boolean)(isDeprecated: A => Boolean): List[A] =
+    if (include) values else values.filterNot(isDeprecated)
 
   private def contextualArgumentDiagnostics(
     fieldPath: String,

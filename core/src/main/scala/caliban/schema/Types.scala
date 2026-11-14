@@ -36,8 +36,7 @@ object Types {
       __TypeKind.ENUM,
       name,
       description,
-      enumValues =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(values) else Some(values.filter(!_.isDeprecated)),
+      enumValues = args => if (args.includeDeprecated) Some(values) else Some(values.filter(!_.isDeprecated)),
       origin = origin,
       directives = directives
     )
@@ -54,8 +53,7 @@ object Types {
       __TypeKind.OBJECT,
       name,
       description,
-      fields =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(fields) else Some(fields.filter(!_.isDeprecated)),
+      fields = args => if (args.includeDeprecated) Some(fields) else Some(fields.filter(!_.isDeprecated)),
       interfaces = interfaces,
       directives = Some(directives),
       origin = origin
@@ -74,7 +72,7 @@ object Types {
       name,
       description,
       args =>
-        if (args.includeDeprecated.getOrElse(false)) arguments
+        if (args.includeDeprecated) arguments
         else arguments.filter(!_.isDeprecated),
       `type`,
       isDeprecated,
@@ -94,7 +92,7 @@ object Types {
       name,
       description,
       inputFields = args =>
-        if (args.includeDeprecated.getOrElse(false)) Some(fields)
+        if (args.includeDeprecated) Some(fields)
         else Some(fields.filter(!_.isDeprecated)),
       origin = origin,
       directives = directives,
@@ -129,8 +127,7 @@ object Types {
       __TypeKind.INTERFACE,
       name,
       description,
-      fields =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(fields()) else Some(fields().filter(!_.isDeprecated)),
+      fields = args => if (args.includeDeprecated) Some(fields()) else Some(fields().filter(!_.isDeprecated)),
       possibleTypes = Some(subTypes),
       origin = origin,
       directives = directives
