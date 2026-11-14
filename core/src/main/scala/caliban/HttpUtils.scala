@@ -192,7 +192,7 @@ object HttpUtils {
 
     private def parse(accept: String): List[Range] =
       accept.split(',').toList.flatMap { element =>
-        val parts           = element.split(';').toList.map(_.trim)
+        val parts           = element.split(";", -1).toList.map(_.trim)
         val mediaRange      = parts.head
         val slash           = mediaRange.indexOf('/')
         val (q, parameters) = parts.tail.map { parameter =>

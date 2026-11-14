@@ -123,20 +123,20 @@ object TapirAdapter {
         IncomingRequestHeaders
           .locally(headerValues(serverRequest))(
             GraphQLResponseContext.capture(interpreter.executeRequest(request)) { (response, outcome) =>
-              val built = buildHttpResponse[E, BS](serverRequest, encoding, response, outcome)
-              built match {
-                case (mediaType, status, _, Left(body)) if outcome == Outcome.MutationOverGet =>
-                  Left(
-                    TapirResponse(status, responseCodec.encode(body))
-                      .withHeader(HeaderNames.Allow, "POST")
-                      .withHeader(HeaderNames.ContentType, mediaType.toString)
-                  )
-                case _                                                                        => Right(built)
-              }
+              if (outcome == Outcome.MutationOverGet) Left(methodNotAllowed(response, encoding))
+              else Right(buildHttpResponse[E, BS](serverRequest, encoding, response, outcome))
             }
           )
           .absolve
     }
+
+  private def methodNotAllowed[E](response: GraphQLResponse[E], encoding: ResponseEncoding): TapirResponse = {
+    val graphQLJson = encoding == ResponseEncoding.GraphQLJson
+    val mediaType   = if (graphQLJson) GraphqlResponseJson.mediaType else MediaType.ApplicationJson
+    TapirResponse(StatusCode.MethodNotAllowed, responseCodec.encode(response.toResponseValue(!graphQLJson, None)))
+      .withHeader(HeaderNames.Allow, "POST")
+      .withHeader(HeaderNames.ContentType, mediaType.toString)
+  }
 
   private val notAcceptable =
     TapirResponse(StatusCode.NotAcceptable, "None of the media types in the Accept header are supported.")

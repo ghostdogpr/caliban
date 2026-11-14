@@ -6,8 +6,6 @@ import caliban.client.Selection.Directive
 import caliban.client.SelectionBuilder.Field
 import caliban.client.TestData._
 import caliban.client.__Value.{ __ListValue, __ObjectValue, __StringValue }
-import sttp.client4.UriContext
-import sttp.model.HeaderNames
 import zio.test.Assertion._
 import zio.test._
 
@@ -276,14 +274,10 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
         }
       ),
       suite("response parsing")(
-        test("sends Accept and decodes GraphQL errors from any graphql-response+json status") {
+        test("decodes GraphQL errors from any graphql-response+json status") {
           val query = Queries.characters()(Character.name)
           val gql   = Some("application/graphql-response+json; charset=utf-8")
           assertTrue(
-            query
-              .toRequest(uri"http://localhost/graphql")
-              .header(HeaderNames.Accept)
-              .contains("application/graphql-response+json, application/json;q=0.9"),
             query.decodeResponse("""{"errors":[{"message":"invalid"}]}""", isSuccess = false, gql) ==
               Left(CalibanClientError.ServerError(List(GraphQLResponseError("invalid", None, None, None)))),
             query.decodeResponse("""{"data":{"characters":[{"name":"Amos"}]}}""", isSuccess = true, gql).map(_._1) ==

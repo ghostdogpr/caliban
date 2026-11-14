@@ -272,22 +272,29 @@ object TapirAdapterSpec {
             for {
               invalid      <- ZIO.serviceWithZIO[Backend](run(GraphQLRequest(None)).send(_))
               unacceptable <- runHttpRequest("POST", Header.accept(MediaType.TextHtml))
-            } yield assertTrue(invalid.code.code == 400, unacceptable.code == StatusCode.NotAcceptable)
+              malformed    <- runHttpRequest("POST", Header(HeaderNames.Accept, ";"))
+            } yield assertTrue(
+              invalid.code.code == 400,
+              unacceptable.code == StatusCode.NotAcceptable,
+              malformed.code == StatusCode.NotAcceptable
+            )
           },
           test("returns 405 with an Allow header for mutations over GET methods") {
-            runHttpRequest(
-              method = Method.GET.method,
-              query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
-            ).map(r =>
-              assertTrue(
-                r.code == StatusCode.MethodNotAllowed,
-                r.header(HeaderNames.Allow).contains("POST"),
-                r.headers(HeaderNames.ContentType) == List("application/json"),
-                r.body.swap.exists {
-                  case UnexpectedStatusCode(body, _) => body.contains("Mutations are not allowed for GET requests")
-                  case _                             => false
-                }
-              )
+            val mutation = """mutation{ deleteCharacter(name: "Amos Burton") }"""
+            for {
+              json   <- runHttpRequest(method = Method.GET.method, query = mutation)
+              stream <-
+                runHttpRequest(method = Method.GET.method, acceptHeader = acceptTextEventStream, query = mutation)
+            } yield assertTrue(
+              json.code == StatusCode.MethodNotAllowed,
+              json.header(HeaderNames.Allow).contains("POST"),
+              json.headers(HeaderNames.ContentType) == List("application/json"),
+              json.body.swap.exists {
+                case UnexpectedStatusCode(body, _) => body.contains("Mutations are not allowed for GET requests")
+                case _                             => false
+              },
+              stream.code == StatusCode.MethodNotAllowed,
+              stream.header(HeaderNames.Allow).contains("POST")
             )
           },
           test("very long field values in mutations") {
