@@ -131,7 +131,7 @@ object DefaultValueSpec extends ZIOSpecDefault {
         case class Query(testDefault: TestInput => Int)
         val api      = graphQL(RootResolver(Query(i => i.intValue)))
         val expected =
-          "InputValue 'intValue' of Field 'testDefault' of Object 'Query' has invalid type 1.1"
+          "Argument 'Query.testDefault(intValue:)' has invalid type 1.1"
 
         api.interpreter.exit.map(e => assert(e)(fails(hasMessage(equalTo(expected)))))
       },

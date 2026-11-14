@@ -85,6 +85,8 @@ object Introspector extends IntrospectionDerivation {
       isRepeatable = false
     )
 
+  private[caliban] lazy val builtInDirectives: List[__Directive] = directives :+ oneOfDirective
+
   /**
    * Generates a schema for introspecting the given type.
    */

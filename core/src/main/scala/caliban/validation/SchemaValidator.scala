@@ -1,13 +1,13 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.InputValue
 import caliban.introspection.adt.__TypeKind._
 import caliban.introspection.adt.{ __Directive, __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.{ Directive, Document, Type }
+import caliban.parsing.adt.{ Directive, Document, SchemaCoordinate, Type }
+import caliban.parsing.adt.SchemaCoordinate._
 import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.validation.Utils.isObjectType
@@ -85,7 +85,7 @@ private[caliban] object SchemaValidator {
                validateDeprecationReason(
                  arg.isDeprecated,
                  arg.deprecationReason,
-                 s"InputValue '${arg.name}' of Directive '${d.name}'"
+                 s"Argument '${DirectiveArgumentCoordinate(d.name, arg.name)}'"
                )
              )
            )
@@ -167,51 +167,26 @@ private[caliban] object SchemaValidator {
   }
 
   private def validateDirectives(types: List[__Type]): Either[ValidationError, Unit] = {
-
-    def validateArguments(
-      args: Map[String, InputValue],
-      errorContext: => String
-    ): Either[ValidationError, Unit] = {
-      val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      validateAllDiscard(args.keys.toList)(argName => checkName(argName, argumentErrorContextBuilder(argName)))
-    }
-
-    def validateDirective(directive: Directive, errorContext: => String) = {
-      lazy val directiveErrorContext = s"Directive '${directive.name}' of $errorContext"
-
-      checkName(directive.name, directiveErrorContext) *>
-        validateArguments(directive.arguments, directiveErrorContext)
-    }
-
-    def validateDirectives(
-      directives: Option[List[Directive]],
-      errorContext: => String
-    ): Either[ValidationError, Unit] =
-      validateAllDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
-
-    def validateInputValueDirectives(
-      inputValues: List[__InputValue],
-      errorContext: => String
-    ): Either[ValidationError, Unit] = {
-      val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
-      validateAllDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
-    }
-
-    def validateFieldDirectives(
-      field: __Field,
-      errorContext: => String
-    ): Either[ValidationError, Unit] = {
-      lazy val fieldErrorContext = s"Field '${field.name}' of $errorContext"
-      validateDirectives(field.directives, fieldErrorContext) *>
-        validateInputValueDirectives(field.allArgs, fieldErrorContext)
-    }
+    def validateDirectives(directives: Option[List[Directive]], location: SchemaCoordinate) =
+      validateAllDiscard(directives.getOrElse(Nil)) { directive =>
+        lazy val context = s"Directive '@${directive.name}' on '$location'"
+        checkName(directive.name, context) *>
+          validateAllDiscard(directive.arguments.keys.toList)(name => checkName(name, s"Argument '$name' of $context"))
+      }
 
     validateAllDiscard(types) { t =>
-      lazy val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
+      val typeName = t.name.getOrElse("")
       for {
-        _ <- validateDirectives(t.directives, typeErrorContext)
-        _ <- validateInputValueDirectives(t.allInputFields, typeErrorContext)
-        _ <- validateAllDiscard(t.allFields)(validateFieldDirectives(_, typeErrorContext))
+        _ <- validateDirectives(t.directives, TypeCoordinate(typeName))
+        _ <- validateAllDiscard(t.allInputFields)(f =>
+               validateDirectives(f.directives, MemberCoordinate(typeName, f.name))
+             )
+        _ <- validateAllDiscard(t.allFields) { f =>
+               validateDirectives(f.directives, MemberCoordinate(typeName, f.name)) *>
+                 validateAllDiscard(f.allArgs)(a =>
+                   validateDirectives(a.directives, ArgumentCoordinate(typeName, f.name, a.name))
+                 )
+             }
       } yield ()
     }
   }
@@ -223,7 +198,7 @@ private[caliban] object SchemaValidator {
           validateDeprecationReason(
             v.isDeprecated,
             v.deprecationReason,
-            s"EnumValue '${v.name}' of Enum '${t.name.getOrElse("")}'"
+            s"Enum value '${MemberCoordinate(t.name.getOrElse(""), v.name)}'"
           )
         )
       case Nil               =>
@@ -250,7 +225,9 @@ private[caliban] object SchemaValidator {
     }
 
   private def validateInputObject(t: __Type): Either[ValidationError, Unit] = {
-    lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
+    val typeName                      = t.name.getOrElse("")
+    def fieldContext(f: __InputValue) = s"Input field '${MemberCoordinate(typeName, f.name)}'"
+    lazy val inputObjectContext       = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '$typeName'"""
 
     def noDuplicateInputValueName(
       inputValues: List[__InputValue],
@@ -271,18 +248,18 @@ private[caliban] object SchemaValidator {
     }
 
     def validateFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
-      validateAllDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
+      validateAllDiscard(fields)(f => validateInputValue(f, fieldContext(f))) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
     def validateOneOfFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
       noDuplicatedOneOfOrigin(fields) *>
         validateAllDiscard(fields) { f =>
           failWhen(f.defaultValue.isDefined)(
-            s"$inputObjectContext argument has a default value",
+            s"OneOf ${fieldContext(f)} has a default value",
             "Fields of OneOf input objects cannot have default values"
           ) *>
             failWhen(!f._type.isNullable)(
-              s"$inputObjectContext argument is not nullable",
+              s"OneOf ${fieldContext(f)} is not nullable",
               "All of OneOf input fields must be declared as nullable in the schema according to the spec"
             )
         }
@@ -300,27 +277,25 @@ private[caliban] object SchemaValidator {
 
   private def validateInputValue(
     inputValue: __InputValue,
-    errorContext: => String
-  ): Either[ValidationError, Unit] = {
-    lazy val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
+    fieldContext: => String
+  ): Either[ValidationError, Unit] =
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
       _ <- validateDeprecationReason(inputValue.isDeprecated, inputValue.deprecationReason, fieldContext)
       _ <- checkName(inputValue.name, fieldContext)
       _ <- onlyInputType(inputValue._type, fieldContext)
     } yield ()
-  }
 
   private def validateInterface(t: __Type): Either[ValidationError, Unit] = {
     lazy val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
     t.allFields match {
-      case Nil    =>
+      case Nil =>
         failValidation(
           s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
-      case fields => validateFields(fields, interfaceContext) *> validateImplementedDeprecations(t, interfaceContext)
+      case _   => validateFields(t, interfaceContext) *> validateImplementedDeprecations(t)
     }
   }
 
@@ -394,7 +369,7 @@ private[caliban] object SchemaValidator {
         }
 
         validateAllDiscard(objectFields) { objField =>
-          lazy val fieldContext = s"Field '${objField.name}'"
+          lazy val fieldContext = s"Field '${MemberCoordinate(obj.name.getOrElse(""), objField.name)}'"
 
           supertypeFields.find(_.name == objField.name) match {
             case None             => unit
@@ -417,19 +392,19 @@ private[caliban] object SchemaValidator {
               (fieldTypeIsValid, isListField(superField)) match {
                 case (_, true) if !listItemTypeIsValid =>
                   failValidation(
-                    s"$fieldContext in $objectContext is an invalid list item subtype",
+                    s"$fieldContext is an invalid list item subtype",
                     "An object list item field type must be equal to or a possible" +
                       " type of the interface list item field type."
                   )
                 case (false, false)                    =>
                   failValidation(
-                    s"$fieldContext in $objectContext is an invalid subtype",
+                    s"$fieldContext is an invalid subtype",
                     "An object field type must be equal to or a possible type of the interface field type."
                   )
                 case _ if !extraArgsAreValid           =>
                   val argNames = extraArgs.filter(_._type.kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
                   failValidation(
-                    s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
+                    s"$fieldContext with extra non-nullable arg(s) '$argNames' is invalid",
                     "Any additional field arguments must not be of a non-nullable type."
                   )
                 case _                                 => unit
@@ -445,23 +420,23 @@ private[caliban] object SchemaValidator {
     }
 
     obj.allFields match {
-      case Nil    =>
+      case Nil =>
         failValidation(
           s"$objectContext does not have fields",
           "An Object type must define one or more fields"
         )
-      case fields =>
-        validateFields(fields, objectContext) *> validateInterfaceFields(obj) *>
-          validateImplementedDeprecations(obj, objectContext)
+      case _   =>
+        validateFields(obj, objectContext) *> validateInterfaceFields(obj) *>
+          validateImplementedDeprecations(obj)
     }
   }
 
-  private def validateImplementedDeprecations(t: __Type, context: String): Either[ValidationError, Unit] = {
+  private def validateImplementedDeprecations(t: __Type): Either[ValidationError, Unit] = {
     lazy val interfaceFields = t.interfaces().toList.flatten.flatMap(_.allFields)
 
     validateAllDiscard(t.allFields.filter(_.isDeprecated)) { field =>
       failWhen(interfaceFields.exists(f => f.name == field.name && !f.isDeprecated))(
-        s"Field '${field.name}' in $context is deprecated but the interface field is not",
+        s"Field '${MemberCoordinate(t.name.getOrElse(""), field.name)}' is deprecated but the interface field is not",
         "A field must not be deprecated if the interface field it implements is not deprecated."
       )
     }
@@ -491,17 +466,21 @@ private[caliban] object SchemaValidator {
     }
   }
 
-  private def validateFields(fields: List[__Field], context: => String): Either[ValidationError, Unit] =
-    noDuplicateFieldName(fields, context) *>
-      validateAllDiscard(fields) { field =>
-        lazy val fieldContext = s"Field '${field.name}' of $context"
+  private def validateFields(t: __Type, context: => String): Either[ValidationError, Unit] = {
+    val typeName = t.name.getOrElse("")
+    noDuplicateFieldName(t.allFields, context) *>
+      validateAllDiscard(t.allFields) { field =>
+        lazy val fieldContext = s"Field '${MemberCoordinate(typeName, field.name)}'"
         for {
           _ <- checkName(field.name, fieldContext)
           _ <- validateDeprecationReason(field.isDeprecated, field.deprecationReason, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
-          _ <- validateAllDiscard(field.allArgs)(validateInputValue(_, fieldContext))
+          _ <- validateAllDiscard(field.allArgs)(arg =>
+                 validateInputValue(arg, s"Argument '${ArgumentCoordinate(typeName, field.name, arg.name)}'")
+               )
         } yield ()
       }
+  }
 
   private def noDuplicateFieldName(fields: List[__Field], errorContext: => String) = {
     val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"

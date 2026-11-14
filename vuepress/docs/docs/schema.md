@@ -762,3 +762,18 @@ val apiV1   = apiBeta.transform(Transformer.ExcludeDirectives(Beta()))
 ```
 
 You can also create your own transformers by extending the `Transformer` trait and implementing its methods.
+
+## Schema coordinates
+
+[Schema coordinates](https://spec.graphql.org/September2025/#sec-Schema-Coordinates) are a standard way to refer to a schema element, such as `Character`, `Character.name`, `Queries.character(name:)` or `@deprecated(reason:)`.
+Use `Parser.parseSchemaCoordinate` to parse one (whitespace is not allowed) and `toString` to render it.
+
+`GraphQL#resolveSchemaCoordinate` (or `RootType#resolve`) looks up the element in your schema, including built-in scalars and directives.
+It returns `None` when the element does not exist, and a `ValidationError` when its containing element does not exist (for example `Unknown.name`).
+
+```scala
+for {
+  coordinate <- Parser.parseSchemaCoordinate("Queries.character(name:)")
+  element    <- api.resolveSchemaCoordinate(coordinate)
+} yield element // Some(SchemaElement.InputValue(...))
+```

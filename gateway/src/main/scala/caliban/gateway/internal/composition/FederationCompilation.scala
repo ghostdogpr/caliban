@@ -231,7 +231,7 @@ private[gateway] object FederationCompilation {
         } ::: tpe.allInputFields.map(field => application(InputFieldCoordinate(name, field.name), field.directives)) :::
         tpe.allEnumValues.map(value => application(EnumValueCoordinate(name, value.name), value.directives))
     }
-    TypeSystemDirectiveApplication(SchemaCoordinate, schemaDirectives) :: types :::
+    TypeSystemDirectiveApplication(SchemaDefinitionCoordinate, schemaDirectives) :: types :::
       rootType.additionalDirectives.flatMap(definition =>
         definition.allArgs.map(argument =>
           application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
