@@ -10,16 +10,8 @@ private[caliban] trait NumberParsers extends StringParsers {
   def integerPart(implicit ev: P[Any]): P[Unit]  =
     negativeSign.? ~~ ("0" | (nonZeroDigit ~~ digit.repX))
 
-  def numberLookahead(implicit ev: P[Any]): P[Unit] = {
-    val index = ev.index
-    val input = ev.input
-    if (input.isReachable(index)) {
-      val c = input(index)
-      if (c == '.' || c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
-        ev.freshFailure()
-      else ev.freshSuccessUnit()
-    } else ev.freshSuccessUnit()
-  }
+  def numberLookahead(implicit ev: P[Any]): P[Unit] =
+    !CharIn(".0-9A-Za-z_")
 
   def intValue(implicit ev: P[Any]): P[IntValue] =
     (integerPart.! ~~ numberLookahead).map(IntValue.fromStringUnsafe)
