@@ -68,7 +68,7 @@ private[caliban] trait StringParsers {
 
   def hexDigit(implicit ev: P[Any]): P[Unit]         = CharIn("0-9a-fA-F")
   def escapedUnicode(implicit ev: P[Any]): P[String] =
-    ("{" ~~ hexDigit.repX(1).! ~~ "}").flatMap { hex =>
+    ("{" ~~ hexDigit.repX(1).! ~~ "}").flatMapX { hex =>
       val codePoint = BigInt(hex, 16)
       if (codePoint <= Character.MAX_CODE_POINT && !isSurrogate(codePoint.toInt))
         ev.freshSuccess(new String(Character.toChars(codePoint.toInt)))
