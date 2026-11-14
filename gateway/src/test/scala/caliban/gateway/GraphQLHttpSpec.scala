@@ -95,6 +95,17 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                  """{"errors":[{"message":"unavailable"}]}"""
                                )
         legacySuccess       <- fixed(Status.Ok, Some("application/json"), okResponse)
+        partialSuccess      <- fixed(
+                                 Status.fromInt(294),
+                                 Some("application/graphql-response+json"),
+                                 """{"data":{"value":"ok"},"errors":[{"message":"partial"}]}"""
+                               )
+        legacyPartial       <- fixed(Status.fromInt(294), Some("application/json"), okResponse)
+        invalidRequest      <- fixed(
+                                 Status.UnprocessableEntity,
+                                 Some("application/graphql-response+json"),
+                                 """{"errors":[{"message":"invalid"}]}"""
+                               )
         legacyFailure       <- fixed(Status.ServiceUnavailable, Some("application/json"), okResponse)
         textFailure         <- fixed(Status.ServiceUnavailable, Some("text/plain"), "overloaded")
         untypedFailure      <- fixed(Status.ServiceUnavailable, None, "overloaded")
@@ -133,6 +144,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                )
         graphQlResult       <- call(graphQlError, http, RemoteGraphQLConfig.default, remoteErrorMessages = true)
         legacyResult        <- call(legacySuccess, http)
+        partialResult       <- call(partialSuccess, http, remoteErrorMessages = true)
+        legacyPartialResult <- call(legacyPartial, http)
+        invalidResult       <- call(invalidRequest, http, remoteErrorMessages = true)
         statusResult        <- call(legacyFailure, http)
         textStatusResult    <- call(textFailure, http)
         untypedStatusResult <- call(untypedFailure, http)
@@ -154,6 +168,13 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       } yield assertTrue(
         graphQlResult.exists(_.errors.map(_.msg) == List("unavailable")),
         legacyResult.exists(_.data == ObjectValue(List("value" -> StringValue("ok")))),
+        partialResult.exists(response =>
+          response.data == ObjectValue(List("value" -> StringValue("ok"))) && response.errors.map(_.msg) == List(
+            "partial"
+          )
+        ),
+        legacyPartialResult.exists(_.data == ObjectValue(List("value" -> StringValue("ok")))),
+        invalidResult.exists(_.errors.map(_.msg) == List("invalid")),
         statusResult == Left(HttpFailure(503)),
         textStatusResult == Left(HttpFailure(503)),
         untypedStatusResult == Left(HttpFailure(503)),

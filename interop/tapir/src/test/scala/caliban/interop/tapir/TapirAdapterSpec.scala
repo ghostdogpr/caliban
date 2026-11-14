@@ -61,8 +61,7 @@ object TapirAdapterSpec {
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
     sseSupport: Boolean = true,
-    sseHeartbeats: Boolean = false,
-    mutationOverGetStatus: Int = 400
+    sseHeartbeats: Boolean = false
   ): Spec[TestService, Throwable] = suite(label) {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
@@ -233,27 +232,28 @@ object TapirAdapterSpec {
                   )
                 test_("GET") && test_("POST")
               },
-              test("Returns 400 status code on validation errors") {
+              test("Returns 422 status code on validation errors") {
                 def test_(method: String) =
                   for {
                     resp  <- runHttpRequest(method, acceptHeader, query = "{characters_ { name }}")
                     error <-
                       resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
                   } yield assertTrue(
-                    resp.code == StatusCode.BadRequest,
+                    resp.code == StatusCode.UnprocessableEntity,
                     resp.contentType.contains(contentT),
                     !error.toString.contains("\"data\"")
                   )
                 test_("GET") && test_("POST")
               },
-              test("Returns 400 status code on variable coercion errors") {
+              test("Returns 422 status code on variable coercion errors") {
                 def test_(method: String) =
                   for {
-                    resp  <- runHttpRequest(method, acceptHeader, query = "{character(name: 42) { name }}")
+                    resp  <-
+                      runHttpRequest(method, acceptHeader, query = "query($n: String!) {character(name: $n) { name }}")
                     error <-
                       resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
                   } yield assertTrue(
-                    resp.code == StatusCode.BadRequest,
+                    resp.code == StatusCode.UnprocessableEntity,
                     resp.contentType.contains(contentT),
                     !error.toString.contains("\"data\"")
                   )
@@ -268,18 +268,27 @@ object TapirAdapterSpec {
               )
               .map(r => assertTrue(r.code.code == 400))
           },
-          test("returns 400 status code on invalid POST requests") {
-            ZIO
-              .serviceWithZIO[Backend](
-                run(GraphQLRequest(None)).send(_)
-              )
-              .map(r => assertTrue(r.code.code == 400))
+          test("returns 400 status code on invalid POST requests and 406 on unacceptable ones") {
+            for {
+              invalid      <- ZIO.serviceWithZIO[Backend](run(GraphQLRequest(None)).send(_))
+              unacceptable <- runHttpRequest("POST", Header.accept(MediaType.TextHtml))
+            } yield assertTrue(invalid.code.code == 400, unacceptable.code == StatusCode.NotAcceptable)
           },
-          test(s"returns $mutationOverGetStatus for mutations over GET methods") {
+          test("returns 405 with an Allow header for mutations over GET methods") {
             runHttpRequest(
               method = Method.GET.method,
               query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
-            ).map(r => assertTrue(r.code.code == mutationOverGetStatus))
+            ).map(r =>
+              assertTrue(
+                r.code == StatusCode.MethodNotAllowed,
+                r.header(HeaderNames.Allow).contains("POST"),
+                r.headers(HeaderNames.ContentType) == List("application/json"),
+                r.body.swap.exists {
+                  case UnexpectedStatusCode(body, _) => body.contains("Mutations are not allowed for GET requests")
+                  case _                             => false
+                }
+              )
+            )
           },
           test("very long field values in mutations") {
             val name = "A".repeat(ReaderConfig.maxCharBufSize + 1)

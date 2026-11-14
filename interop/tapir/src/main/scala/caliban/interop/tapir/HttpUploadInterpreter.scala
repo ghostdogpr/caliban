@@ -105,7 +105,8 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
 }
 
 object HttpUploadInterpreter {
-  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E]) extends HttpUploadInterpreter[R, E] {
+  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E], statusCodes: StatusCodeConfig)
+      extends HttpUploadInterpreter[R, E] {
     def endpoint[S](
       streams: Streams[S]
     ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
@@ -115,7 +116,7 @@ object HttpUploadInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      executeHttpRequest[R, E, BS](interpreter, graphQLRequest, serverRequest)
+      executeHttpRequest[R, E, BS](interpreter, graphQLRequest, serverRequest, statusCodes)
   }
 
   private case class Intercepted[R1, R, E](
@@ -165,7 +166,13 @@ object HttpUploadInterpreter {
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E]
   ): HttpUploadInterpreter[R, E] =
-    Base(interpreter)
+    Base(interpreter, StatusCodeConfig.default)
+
+  def apply[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    statusCodes: StatusCodeConfig
+  ): HttpUploadInterpreter[R, E] =
+    Base(interpreter, statusCodes)
 
   def makeHttpUploadEndpoint[S](
     streams: Streams[S]

@@ -90,6 +90,9 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
 
   def configureHttp(config: quick.HttpConfig): QuickAdapter[R] =
     new QuickAdapter(requestHandler.configureHttp(config))
+
+  def configureStatusCodes(config: StatusCodeConfig): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.configureStatusCodes(config))
 }
 
 object QuickAdapter {
@@ -101,7 +104,8 @@ object QuickAdapter {
         interpreter,
         quick.WebSocketConfig.default,
         quick.SseConfig.default,
-        quick.HttpConfig.default
+        quick.HttpConfig.default,
+        StatusCodeConfig.default
       )
     )
 

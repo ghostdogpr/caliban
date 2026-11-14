@@ -8,7 +8,7 @@ import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import zio._
-import zio.http.{ Body, Header, Request, Server, Status, URL }
+import zio.http.{ Body, Header, MediaType, Request, Server, Status, URL }
 import zio.stream.ZStream
 import zio.test._
 
@@ -170,9 +170,10 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         remote   <- source()
         runtime  <- Gateway.compose(remote.subgraph).reloadableForTest
         adapter   = QuickAdapter[Any](runtime)
-        request   = Request
-                      .post(URL.empty, Body.fromString("""{"query":"{ added }"}"""))
-                      .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
+        request   =
+          Request
+            .post(URL.empty, Body.fromString("""{"query":"{ added }"}""").contentType(MediaType.application.json))
+            .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
         before   <- adapter.handlers.api.runZIO(request)
         _        <- remote.setSchema(changed)
         _        <- poll(runtime)
@@ -182,7 +183,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         valid    <- runtime.check("{ added }").exit
         _        <- runtime.explain("{ added }")
       } yield assertTrue(
-        before.status == Status.BadRequest,
+        before.status == Status.UnprocessableEntity,
         response.status == Status.Ok,
         body.contains("new"),
         checks == 2,

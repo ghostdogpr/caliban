@@ -7,10 +7,11 @@ private[caliban] object GraphQLResponseContext {
   sealed trait Outcome
 
   object Outcome {
-    case object Executed        extends Outcome
-    case object Subscribed      extends Outcome
-    case object RequestError    extends Outcome
-    case object MutationOverGet extends Outcome
+    case object Executed         extends Outcome
+    case object Subscribed       extends Outcome
+    case object ParsingFailed    extends Outcome
+    case object ValidationFailed extends Outcome
+    case object MutationOverGet  extends Outcome
   }
 
   sealed trait ServerFailure extends Outcome
@@ -48,7 +49,8 @@ private[caliban] object GraphQLResponseContext {
     current.set(SubscribedMark)
 
   private val requestOutcome: PartialFunction[Any, Outcome] = {
-    case HttpUtils.MutationOverGetError                                 => Outcome.MutationOverGet
-    case _: CalibanError.ParsingError | _: CalibanError.ValidationError => Outcome.RequestError
+    case HttpUtils.MutationOverGetError  => Outcome.MutationOverGet
+    case _: CalibanError.ParsingError    => Outcome.ParsingFailed
+    case _: CalibanError.ValidationError => Outcome.ValidationFailed
   }
 }

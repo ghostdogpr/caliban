@@ -65,7 +65,8 @@ sealed trait HttpInterpreter[-R, E] { self =>
 }
 
 object HttpInterpreter {
-  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E]) extends HttpInterpreter[R, E] {
+  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E], statusCodes: StatusCodeConfig)
+      extends HttpInterpreter[R, E] {
     def endpoints[S](
       streams: Streams[S]
     ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] =
@@ -76,7 +77,7 @@ object HttpInterpreter {
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] = {
       val req = if (serverRequest.method == Method.GET) graphQLRequest.asHttpGetRequest else graphQLRequest
-      executeHttpRequest[R, E, BS](interpreter, req, serverRequest)
+      executeHttpRequest[R, E, BS](interpreter, req, serverRequest, statusCodes)
     }
   }
 
@@ -127,7 +128,10 @@ object HttpInterpreter {
   }
 
   def apply[R, E](interpreter: GraphQLInterpreter[R, E]): HttpInterpreter[R, E] =
-    Base(interpreter)
+    Base(interpreter, StatusCodeConfig.default)
+
+  def apply[R, E](interpreter: GraphQLInterpreter[R, E], statusCodes: StatusCodeConfig): HttpInterpreter[R, E] =
+    Base(interpreter, statusCodes)
 
   private[tapir] def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
     for {

@@ -9,7 +9,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core._
 
 import sttp.client4._
 import sttp.client4.jsoniter._
-import sttp.model.Uri
+import sttp.model.{ HeaderNames, Uri }
 import scala.collection.immutable.{ Map => SMap }
 import scala.util.control.NonFatal
 import scala.math.max
@@ -157,12 +157,13 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B]] =
     basicRequest
       .post(uri)
+      .header(HeaderNames.Accept, SelectionBuilder.Accept)
       .body(asJson(toGraphQL(useVariables, queryName, directives, dropNullInputValues)))
-      .mapResponse(
-        _.left
-          .map(CommunicationError(_))
-          .flatMap(decode(_).map { case (result, errors, extensions) => mapResponse(result, errors, extensions) })
-      )
+      .response(asStringAlways.mapWithMetadata { (body, metadata) =>
+        if (metadata.isSuccess || SelectionBuilder.isGraphQLResponse(metadata.contentType))
+          decode(body).map { case (result, errors, extensions) => mapResponse(result, errors, extensions) }
+        else Left(CommunicationError(body))
+      })
 
   /**
    * Maps a tupled result to a type `Res` using a  function `f` with 2 parameters
@@ -348,6 +349,11 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 }
 
 object SelectionBuilder {
+
+  private[client] val Accept = "application/graphql-response+json, application/json;q=0.9"
+
+  private[client] def isGraphQLResponse(contentType: Option[String]): Boolean =
+    contentType.exists(_.takeWhile(_ != ';').trim.equalsIgnoreCase("application/graphql-response+json"))
 
   val __typename: SelectionBuilder[Any, String]                                                        = Field("__typename", Scalar[String]())
   def pure[A](a: A): SelectionBuilder[Any, A]                                                          = Pure(a)
