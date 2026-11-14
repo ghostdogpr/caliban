@@ -129,7 +129,7 @@ object HttpUtils {
       fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) => cacheHeader }
     }.flatten
 
-  @deprecated("Kept for bin-compatibility only", "3.2.2")
+  @deprecated("Kept for bin-compatibility only", "3.3.0")
   final class AcceptsGqlEncodings(header0: Option[String]) {
     private val isEmpty     = header0.isEmpty
     private val length      = if (isEmpty) 0 else header0.get.length
