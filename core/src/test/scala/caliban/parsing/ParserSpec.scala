@@ -222,6 +222,7 @@ object ParserSpec extends ZIOSpecDefault {
         assertTrue(
           Parser.parseInputValue(str(bs + "u0041")) == Right(StringValue("A")),
           Parser.parseInputValue(str(bs + "u{41}")) == Right(StringValue("A")),
+          Parser.parseInputValue(str(bs + "u{41}  " + bs + "u{41}, b")) == Right(StringValue("A  A, b")),
           Parser.parseInputValue(str(bs + "u{1F600}")) == Right(StringValue(emoji)),
           Parser.parseInputValue(str(bs + "u{00000041}")) == Right(StringValue("A")),
           Parser.parseInputValue(str(bs + "uD83D" + bs + "uDE00")) == Right(StringValue(emoji)),
