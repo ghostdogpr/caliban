@@ -78,6 +78,7 @@ private[caliban] object SchemaValidator {
     for {
       _ <- validateDistinctRootTypes(roots)
       _ <- validateAllDiscard(types)(validateType)
+      _ <- validateFiniteInputObjects(types)
       _ <- validateClashingTypes(types)
       _ <- validateDirectives(types)
       _ <- validateAllDiscard(directives)(d =>
@@ -227,7 +228,7 @@ private[caliban] object SchemaValidator {
   private def validateInputObject(t: __Type): Either[ValidationError, Unit] = {
     val typeName                      = t.name.getOrElse("")
     def fieldContext(f: __InputValue) = s"Input field '${MemberCoordinate(typeName, f.name)}'"
-    lazy val inputObjectContext       = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '$typeName'"""
+    lazy val inputObjectContext       = inputObjectName(t)
 
     def noDuplicateInputValueName(
       inputValues: List[__InputValue],
@@ -264,7 +265,7 @@ private[caliban] object SchemaValidator {
             )
         }
 
-    (t.allInputFields match {
+    t.allInputFields match {
       case Nil                       =>
         failValidation(
           s"$inputObjectContext does not have fields",
@@ -272,23 +273,39 @@ private[caliban] object SchemaValidator {
         )
       case fields if t._isOneOfInput => validateOneOfFields(fields) *> validateFields(fields)
       case fields                    => validateFields(fields)
-    }) *> failWhen(hasUnbreakableCycle(t, Set.empty))(
-      s"$inputObjectContext has an unbreakable cycle and cannot have a finite value",
-      "An Input Object type must not reference itself through an unbroken chain of Non-Null or OneOf fields"
-    )
+    }
   }
 
-  private def hasUnbreakableCycle(t: __Type, visited: Set[String]): Boolean =
-    t.kind match {
-      case NON_NULL     => t.ofType.exists(hasUnbreakableCycle(_, visited))
-      case INPUT_OBJECT =>
-        t.name.exists(visited.contains) || {
-          val next = visited ++ t.name
-          if (t._isOneOfInput) t.allInputFields.forall(f => hasUnbreakableCycle(f._type, next))
-          else t.allInputFields.exists(f => !f._type.isNullable && hasUnbreakableCycle(f._type, next))
-        }
-      case _            => false
+  private def inputObjectName(t: __Type): String =
+    s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
+
+  private def validateFiniteInputObjects(types: List[__Type]): Either[ValidationError, Unit] = {
+    def hasFiniteValue(finite: Set[String])(t: __Type): Boolean = {
+      def isFinite(f: __Type): Boolean = f.kind match {
+        case NON_NULL     => f.ofType.exists(isFinite)
+        case INPUT_OBJECT => f.name.exists(finite.contains)
+        case _            => true
+      }
+      if (t._isOneOfInput) t.allInputFields.exists(f => isFinite(f._type))
+      else t.allInputFields.forall(f => f._type.isNullable || isFinite(f._type))
     }
+
+    @scala.annotation.tailrec
+    def infinite(finite: Set[String], pending: List[__Type]): List[__Type] =
+      pending.partition(hasFiniteValue(finite)) match {
+        case (Nil, rest)  => rest
+        case (more, rest) => infinite(finite ++ more.flatMap(_.name), rest)
+      }
+
+    infinite(Set.empty, types.filter(_.kind == INPUT_OBJECT)) match {
+      case Nil    => unit
+      case t :: _ =>
+        failValidation(
+          s"${inputObjectName(t)} has an unbreakable cycle and cannot have a finite value",
+          "An Input Object type must not reference itself through an unbroken chain of Non-Null or OneOf fields"
+        )
+    }
+  }
 
   private def validateInputValue(
     inputValue: __InputValue,

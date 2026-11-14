@@ -222,13 +222,16 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         })
       }
     },
-    test("preserves and validates OneOf input objects") {
+    test("preserves and validates OneOf and recursive input objects") {
+      val shared        = (0 until 30).map(i => s"input A$i { left: A${i + 1}! right: A${i + 1}! }").mkString("\n")
       val validSchema   =
-        """
-          |type Query { find(by: Choice!): String }
-          |input Choice @oneOf { id: ID name: String next: Choice }
-          |input Filter { not: Filter and: [Filter!]! value: String! }
-          |""".stripMargin
+        s"""
+           |type Query { find(by: Choice!, filter: Filter, a: A0): String }
+           |input Choice @oneOf { id: ID name: String next: Choice }
+           |input Filter { not: Filter and: [Filter!]! value: String! }
+           |$shared
+           |input A30 { value: String }
+           |""".stripMargin
       val invalidSchema =
         """
           |type Query { find(by: Choice!): String }
