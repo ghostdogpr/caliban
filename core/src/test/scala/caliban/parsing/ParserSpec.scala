@@ -227,7 +227,16 @@ object ParserSpec extends ZIOSpecDefault {
           Parser.parseInputValue(str(bs + "uD83D" + bs + "uDE00")) == Right(StringValue(emoji)),
           Parser.parseInputValue(str(bs + "u{110000}")).isLeft,
           Parser.parseInputValue(str(bs + "u{D800}")).isLeft,
-          Parser.parseInputValue(str(bs + "u{DEAD}")).isLeft
+          Parser.parseInputValue(str(bs + "u{DEAD}")).isLeft,
+          Parser.parseInputValue(str("a" + bs + "uD83D" + bs + "uDE00b")) == Right(StringValue("a" + emoji + "b")),
+          Parser.parseInputValue(str(bs + "uD800")).isLeft,
+          Parser.parseInputValue(str(bs + "uD800x")).isLeft,
+          Parser.parseInputValue(str(bs + "uDE00")).isLeft,
+          Parser.parseInputValue(str(bs + "uDE00" + bs + "uD83D")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "uD83D")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "u0041")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "u{DE00}")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "n")).isLeft
         )
       },
       test("string literals mixing character runs and escapes") {
