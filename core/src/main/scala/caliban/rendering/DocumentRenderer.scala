@@ -209,7 +209,8 @@ object DocumentRenderer extends Renderer[Document] {
     new Renderer[OperationDefinition] {
       override def unsafeRender(definition: OperationDefinition, indent: Option[Int], writer: StringBuilder): Unit =
         definition match {
-          case OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet) =>
+          case OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet, description) =>
+            descriptionRenderer.unsafeRender(description, indent, writer)
             operationTypeRenderer.unsafeRender(operationType, indent, writer)
             name.foreach { n =>
               writer append ' '
@@ -244,12 +245,14 @@ object DocumentRenderer extends Renderer[Document] {
 
   private lazy val variableDefinition: Renderer[VariableDefinition] = new Renderer[VariableDefinition] {
     override def unsafeRender(definition: VariableDefinition, indent: Option[Int], writer: StringBuilder): Unit = {
+      descriptionRenderer.unsafeRender(definition.description, None, writer)
       writer append '$'
       writer append definition.name
       writer append ':'
       spaceOrEmpty(indent, writer)
       typeRenderer.unsafeRender(definition.variableType, indent, writer)
       defaultValueRenderer.unsafeRender(definition.defaultValue, indent, writer)
+      directivesRenderer.unsafeRender(definition.directives, indent, writer)
     }
   }
 
@@ -464,9 +467,10 @@ object DocumentRenderer extends Renderer[Document] {
   private lazy val fragmentRenderer: Renderer[FragmentDefinition] = new Renderer[FragmentDefinition] {
     override def unsafeRender(value: FragmentDefinition, indent: Option[Int], writer: StringBuilder): Unit =
       value match {
-        case FragmentDefinition(name, typeCondition, directives, selectionSet) =>
+        case FragmentDefinition(name, typeCondition, directives, selectionSet, description) =>
           newlineOrSpace(indent, writer)
           newlineOrEmpty(indent, writer)
+          descriptionRenderer.unsafeRender(description, indent, writer)
           writer append "fragment "
           writer append name
           writer append " on "

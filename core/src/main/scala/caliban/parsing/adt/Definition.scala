@@ -18,14 +18,16 @@ object Definition {
       name: Option[String],
       variableDefinitions: List[VariableDefinition],
       directives: List[Directive],
-      selectionSet: List[Selection]
+      selectionSet: List[Selection],
+      description: Option[String] = None
     ) extends ExecutableDefinition
 
     final case class FragmentDefinition(
       name: String,
       typeCondition: NamedType,
       directives: List[Directive],
-      selectionSet: List[Selection]
+      selectionSet: List[Selection],
+      description: Option[String] = None
     ) extends ExecutableDefinition
   }
 
