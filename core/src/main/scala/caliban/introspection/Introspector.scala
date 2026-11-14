@@ -114,9 +114,9 @@ object Introspector extends IntrospectionDerivation {
 
   private[caliban] def isIntrospection(document: Document): Boolean =
     document.definitions.forall {
-      case OperationDefinition(_, _, _, _, selectionSet) =>
+      case OperationDefinition(_, _, _, _, selectionSet, _) =>
         selectionSet.nonEmpty && selectionSet.forall(isIntrospectionField)
-      case _                                             => true
+      case _                                                => true
     }
 
   private[caliban] def hasIntrospection(document: Document, operationName: Option[String]): Boolean =

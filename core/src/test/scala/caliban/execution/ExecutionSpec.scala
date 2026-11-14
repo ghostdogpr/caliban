@@ -163,10 +163,16 @@ object ExecutionSpec extends ZIOSpecDefault {
       test("variable") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
-             query test($name: String!){
+             "Gets a character"
+             query test("The name" $name: String!){
                amos: character(name: $name) {
-                 name
+                 ...CharacterName
                }
+             }
+
+             "Character name"
+             fragment CharacterName on Character {
+               name
              }""")
 
         interpreter.flatMap(_.execute(query, None, Map("name" -> StringValue("Amos Burton")))).map { response =>

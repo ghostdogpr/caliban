@@ -35,8 +35,8 @@ object Parsers extends SelectionParsers {
     ("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
 
   def variableDefinition(implicit ev: P[Any]): P[VariableDefinition] =
-    (variableValue ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map { case (v, t, default, dirs) =>
-      VariableDefinition(v.name, t, default, dirs)
+    (stringValue.? ~ variableValue ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map {
+      case (description, v, t, default, dirs) => VariableDefinition(v.name, t, default, dirs, description.map(_.value))
     }
   def defaultValue(implicit ev: P[Any]): P[InputValue]               = "=" ~/ value
 
@@ -48,14 +48,22 @@ object Parsers extends SelectionParsers {
     }
 
   def operationDefinition(implicit ev: P[Any]): P[OperationDefinition] =
-    (operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
-      case (operationType, name, variableDefinitions, directives, selection) =>
-        OperationDefinition(operationType, name, variableDefinitions.getOrElse(Nil), directives, selection)
+    (stringValue.? ~ operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
+      case (description, operationType, name, variableDefinitions, directives, selection) =>
+        OperationDefinition(
+          operationType,
+          name,
+          variableDefinitions.getOrElse(Nil),
+          directives,
+          selection,
+          description.map(_.value)
+        )
     } | selectionSet.map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
 
   def fragmentDefinition(implicit ev: P[Any]): P[FragmentDefinition] =
-    ("fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
-      case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
+    (stringValue.? ~ "fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
+      case (description, name, typeCondition, dirs, sel) =>
+        FragmentDefinition(name, typeCondition, dirs, sel, description.map(_.value))
     }
 
   def objectTypeDefinition(implicit ev: P[Any]): P[ObjectTypeDefinition] =

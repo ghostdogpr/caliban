@@ -879,7 +879,11 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this"),
       // includeDeprecated is now Boolean! = false, as required by the September 2025 spec
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.Definition#ExecutableDefinition#*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.Definition$ExecutableDefinition$*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.VariableDefinition.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.VariableDefinition$")
     )
   )
 

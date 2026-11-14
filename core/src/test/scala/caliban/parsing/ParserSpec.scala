@@ -302,7 +302,8 @@ object ParserSpec extends ZIOSpecDefault {
         }
       },
       test("variables") {
-        val query = """query getZuckProfile($devicePicSize: Int = 60) {
+        val query = """"Fetches a profile"
+                      |query getZuckProfile("Picture size" $devicePicSize: Int = 60) {
                       |  user(id: 4) {
                       |    id
                       |    name
@@ -315,20 +316,27 @@ object ParserSpec extends ZIOSpecDefault {
               simpleQuery(
                 name = Some("getZuckProfile"),
                 variableDefinitions = List(
-                  VariableDefinition("devicePicSize", NamedType("Int", nonNull = false), Some(IntValue(60)), Nil)
+                  VariableDefinition(
+                    "devicePicSize",
+                    NamedType("Int", nonNull = false),
+                    Some(IntValue(60)),
+                    Nil,
+                    Some("Picture size")
+                  )
                 ),
                 selectionSet = List(
                   simpleField(
                     "user",
                     arguments = Map("id" -> IntValue(4)),
                     selectionSet = List(
-                      simpleField("id", index = 69),
-                      simpleField("name", index = 76),
-                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 85)
+                      simpleField("id", index = 104),
+                      simpleField("name", index = 111),
+                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 120)
                     ),
-                    index = 51
+                    index = 86
                   )
                 ),
+                description = Some("Fetches a profile"),
                 sourceMapper = SourceMapper(query)
               )
           )
@@ -392,6 +400,7 @@ object ParserSpec extends ZIOSpecDefault {
                       |  }
                       |}
                       |
+                      |"Fields of a friend"
                       |fragment friendFields on User {
                       |  id
                       |  name
@@ -434,10 +443,11 @@ object ParserSpec extends ZIOSpecDefault {
                     NamedType("User", nonNull = false),
                     Nil,
                     List(
-                      simpleField("id", index = 191),
-                      simpleField("name", index = 196),
-                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 203)
-                    )
+                      simpleField("id", index = 212),
+                      simpleField("name", index = 217),
+                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 224)
+                    ),
+                    Some("Fields of a friend")
                   )
                 ),
                 SourceMapper(query)
@@ -583,7 +593,7 @@ object ParserSpec extends ZIOSpecDefault {
           isLeft(
             isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4)))))
           )
-        )
+        ) && assertTrue(Parser.parseQuery(""""no description on shorthand" { hero }""").isLeft)
       },
       test("type") {
         val gqltype =
@@ -1405,9 +1415,13 @@ object ParserSpec extends ZIOSpecDefault {
     variableDefinitions: List[VariableDefinition] = Nil,
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil,
-    sourceMapper: SourceMapper = SourceMapper.empty
+    sourceMapper: SourceMapper = SourceMapper.empty,
+    description: Option[String] = None
   ): Document =
-    Document(List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet)), sourceMapper)
+    Document(
+      List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet, description)),
+      sourceMapper
+    )
 
   def simpleField(
     name: String,

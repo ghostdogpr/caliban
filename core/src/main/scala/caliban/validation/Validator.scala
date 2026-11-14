@@ -460,7 +460,7 @@ object Validator {
 
   def validateDocumentFields(context: Context): Either[ValidationError, Unit] =
     validateAllDiscard(context.document.definitions) {
-      case OperationDefinition(opType, _, _, _, selectionSet) =>
+      case OperationDefinition(opType, _, _, _, selectionSet, _) =>
         opType match {
           case OperationType.Query        =>
             validateSelectionSet(context, selectionSet, context.rootType.queryType)
@@ -473,9 +473,9 @@ object Validator {
               failValidation("Subscription operations are not supported on this schema.", "")
             )(validateSelectionSet(context, selectionSet, _))
         }
-      case _: FragmentDefinition                              => unit
-      case _: TypeSystemDefinition                            => unit
-      case _: TypeSystemExtension                             => unit
+      case _: FragmentDefinition                                 => unit
+      case _: TypeSystemDefinition                               => unit
+      case _: TypeSystemExtension                                => unit
     }
 
   private def containsFragments(selectionSet: List[Selection]): Boolean =
