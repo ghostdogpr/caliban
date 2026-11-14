@@ -240,18 +240,20 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
     },
     test("rejects invalid schema documents with a precise error") {
       val cases = List(
-        "schema { query: String } type Foo { id: ID }"                                                                                      -> "The query root type 'String' must be an object type.",
-        "schema { query: Query } extend schema { query: RootQuery } type Query { value: String } type RootQuery { value: String }"          ->
+        "schema { query: String } type Foo { id: ID }"                                                                                                                     -> "The query root type 'String' must be an object type.",
+        "schema { query: Query } extend schema { query: RootQuery } type Query { value: String } type RootQuery { value: String }"                                         ->
           "Conflicting query root types are declared: 'Query', 'RootQuery'.",
-        "schema { mutation: Mutation } type Query { value: String } type Mutation { update: Boolean }"                                      ->
+        "schema { mutation: Mutation } type Query { value: String } type Mutation { update: Boolean }"                                                                     ->
           "The query root operation is missing.",
-        "schema { mutation: Mutation } type Mutation { update: Missing } type Duplicate { value: String } type Duplicate { value: String }" ->
+        "schema { mutation: Mutation } type Mutation { update: Missing } type Duplicate { value: String } type Duplicate { value: String }"                                ->
           "The query root operation is missing.",
-        "type Mutation { update: Boolean }"                                                                                                 -> "The query root operation is missing.",
-        "schema { query: Query } schema { query: Query } type Query { value: String }"                                                      -> "Schema is defined multiple times.",
-        "schema { query: Root mutation: Root } type Root { value: String }"                                                                 -> "Root operation type 'Root' is used more than once.",
-        "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                            ->
-          "Field 'id' in Object 'User' is deprecated but the interface field is not"
+        "type Mutation { update: Boolean }"                                                                                                                                -> "The query root operation is missing.",
+        "schema { query: Query } schema { query: Query } type Query { value: String }"                                                                                     -> "Schema is defined multiple times.",
+        "schema { query: Root mutation: Root } type Root { value: String }"                                                                                                -> "Root operation type 'Root' is used more than once.",
+        "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                                                           ->
+          "Field 'id' in Object 'User' is deprecated but the interface field is not",
+        "type Query { user: User } interface Node { id: ID! } interface Resource implements Node { id: ID! @deprecated } type User implements Node & Resource { id: ID! }" ->
+          "Field 'id' in Interface 'Resource' is deprecated but the interface field is not"
       )
 
       assertTrue(

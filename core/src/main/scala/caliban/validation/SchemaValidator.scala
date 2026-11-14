@@ -282,7 +282,7 @@ private[caliban] object SchemaValidator {
           s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
-      case fields => validateFields(fields, interfaceContext)
+      case fields => validateFields(fields, interfaceContext) *> validateImplementedDeprecations(t, interfaceContext)
     }
   }
 
@@ -376,9 +376,6 @@ private[caliban] object SchemaValidator {
 
               def extraArgsAreValid = !extraArgs.exists(_._type.kind == __TypeKind.NON_NULL)
 
-              def deprecationIsValid =
-                !objField.isDeprecated || !supertypeFields.exists(f => f.name == objField.name && !f.isDeprecated)
-
               (fieldTypeIsValid, isListField(superField)) match {
                 case (_, true) if !listItemTypeIsValid =>
                   failValidation(
@@ -396,11 +393,6 @@ private[caliban] object SchemaValidator {
                   failValidation(
                     s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
                     "Any additional field arguments must not be of a non-nullable type."
-                  )
-                case _ if !deprecationIsValid          =>
-                  failValidation(
-                    s"$fieldContext in $objectContext is deprecated but the interface field is not",
-                    "An object field must not be deprecated if the interface field is not deprecated."
                   )
                 case _                                 => unit
               }
@@ -420,7 +412,20 @@ private[caliban] object SchemaValidator {
           s"$objectContext does not have fields",
           "An Object type must define one or more fields"
         )
-      case fields => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
+      case fields =>
+        validateFields(fields, objectContext) *> validateInterfaceFields(obj) *>
+          validateImplementedDeprecations(obj, objectContext)
+    }
+  }
+
+  private def validateImplementedDeprecations(t: __Type, context: String): Either[ValidationError, Unit] = {
+    lazy val interfaceFields = t.interfaces().toList.flatten.flatMap(_.allFields)
+
+    validateAllDiscard(t.allFields.filter(_.isDeprecated)) { field =>
+      failWhen(interfaceFields.exists(f => f.name == field.name && !f.isDeprecated))(
+        s"Field '${field.name}' in $context is deprecated but the interface field is not",
+        "A field must not be deprecated if the interface field it implements is not deprecated."
+      )
     }
   }
 
