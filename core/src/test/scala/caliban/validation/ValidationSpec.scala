@@ -9,7 +9,7 @@ import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue }
 import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput }
 import caliban.schema.{ ArgBuilder, Schema, Types }
-import zio.{ IO, UIO, ZIO }
+import zio.{ durationInt, IO, UIO, ZIO }
 import zio.test.Assertion._
 import zio.test._
 
@@ -86,6 +86,26 @@ object ValidationSpec extends ZIOSpecDefault {
               }""")
         check(query, "Subscription 's' has a field named '__typename'.")
       },
+      test("subscription root selection set doesn't use @skip or @include") {
+        val error   = "Subscription 's' uses @skip or @include on its root selection set."
+        val queries = List(
+          """subscription s($skip: Boolean!) { deleteCharacters @skip(if: $skip) }""",
+          """subscription s { ...f } fragment f on SubscriptionIO { deleteCharacters @include(if: true) }""",
+          """subscription s { ... { deleteCharacters @skip(if: false) } }""",
+          """subscription s { ...f @include(if: true) } fragment f on SubscriptionIO { deleteCharacters }"""
+        )
+        ZIO
+          .foreach(queries)(check(_, error, Map("skip" -> BooleanValue(false))))
+          .map(_.reduce(_ && _))
+      },
+      test("subscription root selection set check visits shared fragments once") {
+        val depth     = 30
+        val fragments = (0 until depth).map(i => s"fragment f$i on SubscriptionIO { ...f${i + 1} ...f${i + 1} }")
+        val query     =
+          (s"subscription s { ...f0 }" +: fragments :+ s"fragment f$depth on SubscriptionIO { deleteCharacters }")
+            .mkString("\n")
+        execute(query).map(assert(_)(isNone))
+      } @@ TestAspect.timeout(10.seconds),
       test("invalid field") {
         val query = gqldoc("""
              {
