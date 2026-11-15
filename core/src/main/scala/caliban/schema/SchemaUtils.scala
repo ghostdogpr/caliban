@@ -27,26 +27,37 @@ private[schema] object SchemaUtils {
       )
     )
 
+  private final class DerivedInterfaces(val excluded: Set[String], f: () => Option[List[__Type]])
+      extends (() => Option[List[__Type]]) {
+    def apply(): Option[List[__Type]] = f()
+  }
+
   def withParentInterfaces(t: __Type, excluded: Set[String], parents: => List[Schema[_, _]]): __Type =
-    t.copy(interfaces = () => {
-      def hasExcludedField(i: __Type) =
-        excluded.nonEmpty && i.possibleTypes.toList.flatten
-          .map(_.allFields.map(_.name).toSet)
-          .reduceOption(_ & _)
-          .exists(_.exists(excluded))
+    t.copy(interfaces = new DerivedInterfaces(excluded, () => parentInterfaces(excluded, parents)))
 
-      @scala.annotation.tailrec
-      def ancestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
-        case Nil                                       => acc.reverse
-        case h :: rest if acc.exists(_.name == h.name) => ancestors(rest, acc)
-        case h :: rest                                 => ancestors(rest ++ h.interfaces().getOrElse(Nil), h :: acc)
+  private def parentInterfaces(excluded: Set[String], parents: List[Schema[_, _]]): Option[List[__Type]] = {
+    def hasExcludedField(i: __Type) = {
+      val conflicting = i.interfaces match {
+        case d: DerivedInterfaces => excluded -- d.excluded
+        case _                    => excluded
       }
+      conflicting.nonEmpty && i.possibleTypes.toList.flatten
+        .map(_.allFields.map(_.name).toSet)
+        .reduceOption(_ & _)
+        .exists(_.exists(conflicting))
+    }
 
-      Some(
-        ancestors(parents.map(_.toType_()), Nil)
-          .filter(i => i.kind == __TypeKind.INTERFACE && !hasExcludedField(i))
-      ).filter(_.nonEmpty)
-    })
+    @scala.annotation.tailrec
+    def ancestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
+      case Nil                                       => acc.reverse
+      case h :: rest if acc.exists(_.name == h.name) => ancestors(rest, acc)
+      case h :: rest                                 => ancestors(rest ++ h.interfaces().getOrElse(Nil), h :: acc)
+    }
+
+    Some(
+      ancestors(parents.map(_.toType_()), Nil).filter(i => i.kind == __TypeKind.INTERFACE && !hasExcludedField(i))
+    ).filter(_.nonEmpty)
+  }
 
   def isEmptyUnionObject(t: __Type): Boolean =
     t.fields(__DeprecatedArgs.include).contains(Nil)
