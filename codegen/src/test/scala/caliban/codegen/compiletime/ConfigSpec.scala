@@ -20,7 +20,8 @@ object ConfigSpec extends ZIOSpecDefault {
       extensibleEnums = true,
       supportIsRepeatable = true,
       excludeDeprecated = true,
-      supportDeprecatedArgs = true
+      supportDeprecatedArgs = true,
+      supportDeprecatedDirectives = true
     )
 
   private val toCalibanCommonSettingsSpec =
@@ -47,7 +48,8 @@ object ConfigSpec extends ZIOSpecDefault {
               addDerives = None,
               envForDerives = None,
               excludeDeprecated = Some(true),
-              supportDeprecatedArgs = Some(true)
+              supportDeprecatedArgs = Some(true),
+              supportDeprecatedDirectives = Some(true)
             )
         )
       )
@@ -71,7 +73,8 @@ object ConfigSpec extends ZIOSpecDefault {
                |  extensibleEnums = false,
                |  supportIsRepeatable = true,
                |  excludeDeprecated = false,
-               |  supportDeprecatedArgs = true
+               |  supportDeprecatedArgs = true,
+               |  supportDeprecatedDirectives = false
                |)
             """.stripMargin.trim
         )
@@ -92,7 +95,8 @@ object ConfigSpec extends ZIOSpecDefault {
                |  extensibleEnums = true,
                |  supportIsRepeatable = true,
                |  excludeDeprecated = true,
-               |  supportDeprecatedArgs = true
+               |  supportDeprecatedArgs = true,
+               |  supportDeprecatedDirectives = true
                |)
             """.stripMargin.trim
         )

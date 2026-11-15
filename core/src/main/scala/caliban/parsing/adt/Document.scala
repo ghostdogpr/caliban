@@ -65,7 +65,7 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     def loop(selections: List[Selection]): Boolean =
       selections.exists { selection =>
         predicate(selection) || (selection match {
-          case Selection.Field(_, _, _, _, selectionSet, _) => loop(selectionSet)
+          case Selection.Field(_, _, _, _, selectionSet, _) => selectionSet.exists(loop)
           case Selection.InlineFragment(_, _, selectionSet) => loop(selectionSet)
           case Selection.FragmentSpread(name, _)            =>
             visited.add(name) && fragments
@@ -76,6 +76,21 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
 
     loop(operation.selectionSet)
   }
+
+  private[caliban] def hasEmptySelectionSet: Boolean = {
+    def hasEmpty(selections: List[Selection]): Boolean =
+      selections.isEmpty || selections.exists {
+        case Selection.Field(_, _, _, _, selectionSet, _) => selectionSet.exists(hasEmpty)
+        case Selection.InlineFragment(_, _, selectionSet) => hasEmpty(selectionSet)
+        case _: Selection.FragmentSpread                  => false
+      }
+    operationDefinitions.exists(operation => hasEmpty(operation.selectionSet)) ||
+    fragmentDefinitions.exists(fragment => hasEmpty(fragment.selectionSet))
+  }
+
+  private[caliban] def hasExecutableDescription: Boolean =
+    fragmentDefinitions.exists(_.description.nonEmpty) ||
+      operationDefinitions.exists(o => o.description.nonEmpty || o.variableDefinitions.exists(_.description.nonEmpty))
 
   private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
     def selectionHasDirective(selection: Selection): Boolean =

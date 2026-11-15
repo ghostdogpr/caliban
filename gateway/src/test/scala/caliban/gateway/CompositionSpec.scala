@@ -792,15 +792,29 @@ object CompositionSpec extends ZIOSpecDefault {
           "type Query { product: Product } type Product @key(fields: \"missing\") { id: ID! }",
           "@key"
         )
+        val empty     = schema(
+          "type Query { item: Item } type Item @key(fields: \"id org {}\") { id: ID! org: Org } type Org { id: ID! }",
+          "@key"
+        )
+        val requires  = schema(
+          "type Query { thing: Thing } type Thing @key(fields: \"id\") { id: ID! group: Group @external total: Int @requires(fields: \"group {}\") } type Group { id: ID! }",
+          "@key",
+          "@external",
+          "@requires"
+        )
 
         compositionDiagnostics(
           Gateway.compose(
             Subgraph.federation("malformed", unreachableEndpoint, malformed),
-            Subgraph.federation("unknown", unreachableEndpoint, unknown)
+            Subgraph.federation("unknown", unreachableEndpoint, unknown),
+            Subgraph.federation("empty", unreachableEndpoint, empty),
+            Subgraph.federation("requires", unreachableEndpoint, requires)
           )
         ).map { diagnostics =>
           assertTrue(
-            diagnostics.count(_.contains("Invalid @key field set")) == 2,
+            diagnostics.count(_.contains("Invalid @key field set")) == 3,
+            diagnostics.exists(message => message.startsWith("[empty]")),
+            diagnostics.exists(message => message.startsWith("[requires] Invalid @requires field set")),
             diagnostics.exists(message => message.startsWith("[malformed]") && message.contains("could not be parsed")),
             diagnostics.exists(message => message.startsWith("[unknown]") && message.contains("does not exist"))
           )
@@ -1579,27 +1593,27 @@ object CompositionSpec extends ZIOSpecDefault {
           hiddenEnum.left.exists(_.exists(_.contains("State.BLOCKED")))
         )
       },
-      test("retains an otherwise-unused ID referenced by a directive definition") {
+      test("retains an otherwise-unused ID and the directives of a directive definition") {
         val result = compose(
           CompositionInput(
             "id-metadata",
             directiveSchema(
               "type Query { value: String @audit(id: \"1\") }",
-              "directive @audit(id: ID) on FIELD_DEFINITION"
-            )
+              "directive @audit(id: ID) @meta @internal @deprecated(reason: \"Use @label\") on FIELD_DEFINITION\ndirective @meta on DIRECTIVE_DEFINITION\ndirective @internal on DIRECTIVE_DEFINITION",
+              "@compose(name: \"@audit\") @compose(name: \"@meta\")"
+            ).replace("import: [\"@audit\"]", "import: [\"@audit\", \"@meta\"]")
           )
         )
+        val audit  = result.toOption.flatMap(_.rootType.additionalDirectives.find(_.name == "audit"))
 
         assertTrue(
           result.isRight,
           result.exists(_.rootType.types.contains("ID")),
-          result.exists(
-            _.rootType.additionalDirectives
-              .find(_.name == "audit")
-              .exists(
-                _.allArgs.exists(argument => argument.name == "id" && argument._type.innerType.name.contains("ID"))
-              )
-          )
+          audit.exists(
+            _.allArgs.exists(argument => argument.name == "id" && argument._type.innerType.name.contains("ID"))
+          ),
+          audit.flatMap(_.deprecationReason).contains("Use @label"),
+          audit.toList.flatMap(audit => directives(audit.directives)).map(_._1) == List("meta")
         )
       },
       test("removes @inaccessible arguments from composed directive definitions") {

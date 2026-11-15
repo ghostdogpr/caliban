@@ -154,7 +154,7 @@ object Renderer {
           case '\t' => writer.append("\\t")
           case '"'  => writer.append("\\\"")
           case c    =>
-            if (c < ' ') {
+            if (c.isControl) {
               writer.append("\\u00")
               writer.append(Character.forDigit((c >> 4) & 0xf, 16))
               writer.append(Character.forDigit(c & 0xf, 16))

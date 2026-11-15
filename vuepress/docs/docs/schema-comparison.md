@@ -6,7 +6,7 @@ The object `caliban.tools.SchemaComparison` exposes a `compare` function that co
 - `fromString`: pass a string containing your schema in the GraphQL IDL
 - `fromIntrospection`: pass the URL of a GraphQL server supporting introspection
 
-The output of `compare` is a `Task[List[SchemaComparisonChange]]`, with `SchemaComparisonChange` being a sealed trait representing the various kinds of changes. `SchemaComparisonChange#breaking` indicates if the change is breaking, such as removing a field or a type. `SchemaComparisonChange#toString` will return a nice description of the change.
+The output of `compare` is a `Task[List[SchemaComparisonChange]]`, with `SchemaComparisonChange` being a sealed trait representing the various kinds of changes. `SchemaComparisonChange#breaking` indicates if the change is breaking, such as removing a field or a type. `SchemaComparisonChange#toString` will return a nice description of the change, and `SchemaComparisonChange#coordinate` returns the [schema coordinate](schema.md#schema-coordinates) of the changed element (`None` for changes to the schema definition).
 
 The following example will compare the schema obtained by Caliban with a schema defined in a string and print the differences.
 

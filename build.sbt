@@ -884,7 +884,41 @@ lazy val enableMimaSettingsJVM =
         "caliban.interop.jsoniter.GraphQLResponseJsoniter$GraphQLResponseDTO*"
       ),
       // private implementation class; construction is handled by QuickAdapter
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this"),
+      // opt-in status codes of the GraphQL over HTTP spec added to HttpConfig
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.copy"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.this"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.apply"),
+      // Accept header parsing replaced by HttpUtils.ResponseEncoding
+      ProblemFilters.exclude[MissingClassProblem]("caliban.HttpUtils$AcceptsGqlEncodings"),
+      // includeDeprecated is now Boolean! = false, as required by the September 2025 spec
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.Definition#ExecutableDefinition#*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.Definition$ExecutableDefinition$*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.VariableDefinition.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.VariableDefinition$"),
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
+      // directives on directive definitions, as required by the September 2026 spec
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__Directive.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__Directive$"),
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__Schema.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__Schema.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.parsing.adt.Definition#TypeSystemDefinition#DirectiveDefinition.*"
+      ),
+      ProblemFilters.exclude[MissingTypesProblem](
+        "caliban.parsing.adt.Definition$TypeSystemDefinition$DirectiveDefinition$"
+      ),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.codegen.CalibanCommonSettings.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.codegen.Options.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.codegen.Options$"),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.codegen.compiletime.Config#ClientGenerationSettings.*"
+      ),
+      // Schema derivation's split now takes the parent interfaces of a sealed trait
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.schema.*.split")
     )
   )
 

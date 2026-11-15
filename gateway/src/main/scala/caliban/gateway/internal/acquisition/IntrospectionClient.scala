@@ -1,6 +1,6 @@
 package caliban.gateway.internal.acquisition
 
-import caliban.{ GraphQLRequest, InputValue }
+import caliban.GraphQLRequest
 import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SubgraphAcquisitionError }
 import caliban.gateway.SchemaAcquisitionError.InvalidResponse
 import caliban.gateway.SubgraphAcquisitionError.IntrospectionErrors
@@ -13,7 +13,6 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.parsers.Parsers
 import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
-import caliban.Value.StringValue
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
 
@@ -24,7 +23,13 @@ private[gateway] object IntrospectionClient {
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
-    fetchData[SubgraphAcquisitionError](endpoint, Request, config, http, RedirectScope.AnyOrigin)(
+    fetchData[SubgraphAcquisitionError](
+      endpoint,
+      GraphQLRequest(query = Some(query(config.deprecatedDirectives)), operationName = Some(OperationName)),
+      config,
+      http,
+      RedirectScope.AnyOrigin
+    )(
       !_.isRedirection,
       IntrospectionErrors(_)
     )
@@ -104,7 +109,8 @@ private[gateway] object IntrospectionClient {
       locations   <- obj("locations").list(directiveLocation)
       args        <- obj("args").listOrNil(inputValue(maxDepth))
       repeatable  <- obj("isRepeatable").booleanOrFalse
-    } yield DirectiveDefinition(description, name, args, repeatable, locations.toSet)
+      deprecation <- deprecationDirectives(obj)
+    } yield DirectiveDefinition(description, name, args, repeatable, locations.toSet, deprecation)
 
   private def typeRef(json: Json): Either[InvalidResponse, Type] =
     for {
@@ -126,15 +132,7 @@ private[gateway] object IntrospectionClient {
     for {
       deprecated <- obj("isDeprecated").booleanOrFalse
       reason     <- obj("deprecationReason").optional(_.string)
-    } yield
-      if (!deprecated) Nil
-      else
-        List(
-          Directive(
-            Directives.DeprecatedDirective,
-            reason.fold(Map.empty[String, InputValue])(value => Map("reason" -> StringValue(value)))
-          )
-        )
+    } yield Directives.deprecation(deprecated, reason)
 
   private def directiveLocation(json: Json): Either[InvalidResponse, DirectiveLocation] =
     json.string.flatMap { name =>
@@ -147,19 +145,19 @@ private[gateway] object IntrospectionClient {
   private final val OperationName = "__CalibanGatewayIntrospection"
 
   // Shared with test fixtures that generate introspection responses.
-  val Query: String =
+  def query(deprecatedDirectives: Boolean): String =
     s"""query $OperationName {
        |  __schema {
        |    queryType { name }
        |    mutationType { name }
        |    subscriptionType { name }
        |    types { ...FullType }
-       |    directives {
+       |    directives${if (deprecatedDirectives) "(includeDeprecated: true)" else ""} {
        |      name
        |      description
        |      locations
        |      args(includeDeprecated: true) { ...InputValue }
-       |      isRepeatable
+       |      isRepeatable${if (deprecatedDirectives) " isDeprecated deprecationReason" else ""}
        |    }
        |  }
        |}
@@ -229,6 +227,4 @@ private[gateway] object IntrospectionClient {
        |    }
        |  }
        |}""".stripMargin
-
-  private val Request = GraphQLRequest(query = Some(Query), operationName = Some(OperationName))
 }

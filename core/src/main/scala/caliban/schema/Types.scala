@@ -25,6 +25,9 @@ object Types {
   val float: __Type   = makeScalar("Float")
   val double: __Type  = makeScalar("Double")
 
+  private[caliban] val builtInScalars: Map[String, __Type] =
+    Map("Int" -> int, "Float" -> float, "String" -> string, "Boolean" -> boolean, "ID" -> makeScalar("ID"))
+
   def makeEnum(
     name: Option[String],
     description: Option[String],
@@ -36,8 +39,7 @@ object Types {
       __TypeKind.ENUM,
       name,
       description,
-      enumValues =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(values) else Some(values.filter(!_.isDeprecated)),
+      enumValues = args => Some(args.filter(values)(_.isDeprecated)),
       origin = origin,
       directives = directives
     )
@@ -54,8 +56,7 @@ object Types {
       __TypeKind.OBJECT,
       name,
       description,
-      fields =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(fields) else Some(fields.filter(!_.isDeprecated)),
+      fields = args => Some(args.filter(fields)(_.isDeprecated)),
       interfaces = interfaces,
       directives = Some(directives),
       origin = origin
@@ -73,9 +74,7 @@ object Types {
     __Field(
       name,
       description,
-      args =>
-        if (args.includeDeprecated.getOrElse(false)) arguments
-        else arguments.filter(!_.isDeprecated),
+      _.filter(arguments)(_.isDeprecated),
       `type`,
       isDeprecated,
       deprecationReason,
@@ -93,9 +92,7 @@ object Types {
       __TypeKind.INPUT_OBJECT,
       name,
       description,
-      inputFields = args =>
-        if (args.includeDeprecated.getOrElse(false)) Some(fields)
-        else Some(fields.filter(!_.isDeprecated)),
+      inputFields = args => Some(args.filter(fields)(_.isDeprecated)),
       origin = origin,
       directives = directives,
       isOneOf = Some(Directives.isOneOf(directives.getOrElse(Nil)))
@@ -129,8 +126,8 @@ object Types {
       __TypeKind.INTERFACE,
       name,
       description,
-      fields =
-        args => if (args.includeDeprecated.getOrElse(false)) Some(fields()) else Some(fields().filter(!_.isDeprecated)),
+      fields = args => Some(args.filter(fields())(_.isDeprecated)),
+      interfaces = () => Some(Nil),
       possibleTypes = Some(subTypes),
       origin = origin,
       directives = directives
@@ -192,11 +189,11 @@ object Types {
    */
   def unify(l: List[__Field]): Option[__Type] =
     l.headOption.flatMap { first =>
-      val args                            = first.allArgs.map(_._type)
+      val args                            = first.allArgs
       def _unify(f2: __Field)(t1: __Type) =
         if (
           args.length == f2.allArgs.length &&
-          args.zip(f2.allArgs.map(_._type)).forall(v => same(v._1, v._2))
+          args.forall(a => f2.allArgs.exists(b => a.name == b.name && same(a._type, b._type)))
         )
           unify(t1, f2._type)
         else None
@@ -230,23 +227,28 @@ object Types {
   /**
    * Finds the closest type reachable from both `t1` and `t2` via their `interfaces()` chain
    * (including each type itself, so that a direct implementer/interface pair returns the
-   * interface). BFS order is used so the closest match wins; a `visited` set guards against
-   * cyclic interface graphs.
+   * interface). BFS order is used so the closest match wins.
    *
    * Used by [[unify]] as a fallback when two types differ but covariantly narrow a shared interface
    * field (per https://spec.graphql.org/October2021/#IsValidImplementationFieldType()).
    */
   private def commonInterface(t1: __Type, t2: __Type): Option[__Type] = {
+    val a2 = withAncestors(List(t2))
+    withAncestors(List(t1)).find(i1 => a2.exists(same(i1, _)))
+  }
+
+  /**
+   * Returns `types` followed by every type reachable through their `interfaces()` chain, in BFS order and without
+   * duplicates, so cyclic interface graphs terminate.
+   */
+  private[caliban] def withAncestors(types: List[__Type]): List[__Type] = {
     @tailrec
-    def selfAndAncestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
-      case Nil       => acc.reverse
-      case h :: rest =>
-        if (acc.exists(same(_, h))) selfAndAncestors(rest, acc)
-        else selfAndAncestors(rest ::: h.interfaces().toList.flatten, h :: acc)
+    def loop(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
+      case Nil                                 => acc.reverse
+      case h :: rest if acc.exists(same(_, h)) => loop(rest, acc)
+      case h :: rest                           => loop(rest ::: h.interfaces().toList.flatten, h :: acc)
     }
-    val a1                                                                     = selfAndAncestors(List(t1), Nil)
-    val a2                                                                     = selfAndAncestors(List(t2), Nil)
-    a1.find(i1 => a2.exists(i2 => same(i1, i2)))
+    loop(types, Nil)
   }
 
   def extractCommonDescription(l: List[__Field]): Option[String] =

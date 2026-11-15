@@ -1,8 +1,7 @@
 package caliban.introspection.adt
 
-import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.EnumValueDefinition
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.GQLExcluded
 
 case class __EnumValue(
@@ -16,13 +15,6 @@ case class __EnumValue(
     EnumValueDefinition(
       description,
       name,
-      (if (isDeprecated)
-         List(
-           Directive(
-             "deprecated",
-             List(deprecationReason.map(reason => "reason" -> StringValue(reason))).flatten.toMap
-           )
-         )
-       else Nil) ++ directives.getOrElse(Nil)
+      Directives.deprecation(isDeprecated, deprecationReason) ++ directives.getOrElse(Nil)
     )
 }

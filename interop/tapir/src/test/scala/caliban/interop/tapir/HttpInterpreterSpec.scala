@@ -85,7 +85,7 @@ object HttpInterpreterSpec extends ZIOSpecDefault {
                              .as(GraphQLResponse(Value.NullValue, Nil))
                          )
                        )
-      } yield assertTrue(rewritten == StatusCode.BadRequest, unavailable == StatusCode.ServiceUnavailable)
+      } yield assertTrue(rewritten == StatusCode.UnprocessableEntity, unavailable == StatusCode.ServiceUnavailable)
     },
     test("materializes incoming headers only when requested and only once") {
       var evaluations = 0

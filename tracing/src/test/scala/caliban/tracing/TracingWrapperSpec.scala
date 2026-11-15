@@ -6,7 +6,10 @@ import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio._
 import zio.query._
+import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.test._
+
+import scala.jdk.CollectionConverters._
 
 object TracingWrapperSpec extends ZIOSpecDefault {
   val randomSleep: ZIO[Any, Nothing, Unit] = Random.nextIntBetween(0, 500).flatMap(t => ZIO.sleep(t.millis))
@@ -61,8 +64,15 @@ object TracingWrapperSpec extends ZIOSpecDefault {
   ) @@ TracingWrapper.traced
 
   def spec = suite("TracingWrapperSpec")(
-    test("traces the batched steps") {
-      val query = gqldoc("""{
+    test("traces the batched steps, continuing the incoming trace unless a span is active") {
+      val traceId  = "4bf92f3577b34da6a3ce929b0e0e4736"
+      val parentId = "00f067aa0ba902b7"
+      val headers  = List(
+        "TraceParent" -> s"00-$traceId-$parentId-01",
+        "tracestate"  -> "vendor1=first",
+        "TraceState"  -> "vendor2=second"
+      )
+      val query    = gqldoc("""{
             person(name: "Carol") {
                 name
                 age
@@ -74,12 +84,26 @@ object TracingWrapperSpec extends ZIOSpecDefault {
         }""")
       for {
         interpreter <- api.interpreter
-        fiber       <- interpreter.execute(query).fork
+        fiber       <- IncomingRequestHeaders.locally(headers)(interpreter.execute(query)).fork
         _           <- TestClock.adjust(30.seconds)
         res         <- fiber.join
-        spans       <- TracingMock.getFinishedSpans.map(_.map(_.getName()))
+        spans       <- TracingMock.getFinishedSpans
+        tracing     <- ZIO.service[Tracing]
+        _           <-
+          tracing.span("outer")(IncomingRequestHeaders.locally(headers)(interpreter.execute(gqldoc("{ __typename }"))))
+        nested      <- TracingMock.getFinishedSpans.map(_.drop(spans.length))
       } yield assertTrue(res.errors.isEmpty) &&
-        assertTrue(spans == List("age", "age", "age", "age", "name", "friends", "person", "query"))
+        assertTrue(
+          spans.map(_.getName()) == List("age", "age", "age", "age", "name", "friends", "person", "query"),
+          spans.forall(_.getTraceId == traceId),
+          spans.last.getParentSpanId == parentId,
+          spans.last.getParentSpanContext.getTraceState.asMap == Map(
+            "vendor1" -> "first",
+            "vendor2" -> "second"
+          ).asJava,
+          nested.map(_.getName()) == List("query", "outer"),
+          nested.head.getParentSpanId == nested.last.getSpanId
+        )
     }.provide(
       TracingMock.layer
     )

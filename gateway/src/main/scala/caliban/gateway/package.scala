@@ -143,5 +143,10 @@ package object gateway {
     parseSelectionSet(s"{ $value }")
 
   private[gateway] def parseSelectionSet(query: String): Option[List[Selection]] =
-    Parser.parseQuery(query).toOption.flatMap(_.operationDefinition(None)).map(_.selectionSet).filter(_.nonEmpty)
+    Parser
+      .parseQuery(query)
+      .toOption
+      .filterNot(_.hasEmptySelectionSet)
+      .flatMap(_.operationDefinition(None))
+      .map(_.selectionSet)
 }

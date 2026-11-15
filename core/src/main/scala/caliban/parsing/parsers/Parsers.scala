@@ -35,8 +35,8 @@ object Parsers extends SelectionParsers {
     ("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
 
   def variableDefinition(implicit ev: P[Any]): P[VariableDefinition] =
-    (variableValue ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map { case (v, t, default, dirs) =>
-      VariableDefinition(v.name, t, default, dirs)
+    (stringValue.? ~ variableValue ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map {
+      case (description, v, t, default, dirs) => VariableDefinition(v.name, t, default, dirs, description.map(_.value))
     }
   def defaultValue(implicit ev: P[Any]): P[InputValue]               = "=" ~/ value
 
@@ -48,14 +48,22 @@ object Parsers extends SelectionParsers {
     }
 
   def operationDefinition(implicit ev: P[Any]): P[OperationDefinition] =
-    (operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
-      case (operationType, name, variableDefinitions, directives, selection) =>
-        OperationDefinition(operationType, name, variableDefinitions.getOrElse(Nil), directives, selection)
+    (stringValue.? ~ operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
+      case (description, operationType, name, variableDefinitions, directives, selection) =>
+        OperationDefinition(
+          operationType,
+          name,
+          variableDefinitions.getOrElse(Nil),
+          directives,
+          selection,
+          description.map(_.value)
+        )
     } | selectionSet.map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
 
   def fragmentDefinition(implicit ev: P[Any]): P[FragmentDefinition] =
-    ("fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
-      case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
+    (stringValue.? ~ "fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
+      case (description, name, typeCondition, dirs, sel) =>
+        FragmentDefinition(name, typeCondition, dirs, sel, description.map(_.value))
     }
 
   def objectTypeDefinition(implicit ev: P[Any]): P[ObjectTypeDefinition] =
@@ -286,7 +294,8 @@ object Parsers extends SelectionParsers {
         "ENUM_VALUE",
         "INPUT_OBJECT",
         "INPUT_FIELD_DEFINITION",
-        "VARIABLE_DEFINITION"
+        "VARIABLE_DEFINITION",
+        "DIRECTIVE_DEFINITION"
       ).!
     ).map {
       case "QUERY"                  => ExecutableDirectiveLocation.QUERY
@@ -308,19 +317,26 @@ object Parsers extends SelectionParsers {
       case "INPUT_OBJECT"           => TypeSystemDirectiveLocation.INPUT_OBJECT
       case "INPUT_FIELD_DEFINITION" => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
       case "VARIABLE_DEFINITION"    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
+      case "DIRECTIVE_DEFINITION"   => TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION
     }
 
   def directiveDefinition(implicit ev: P[Any]): P[DirectiveDefinition] =
     (
-      stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "repeatable".!.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
-    ).map { case (description, name, args, repeatable, firstLoc, otherLoc) =>
+      stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ directives.? ~ "repeatable".!.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
+    ).map { case (description, name, args, directives, repeatable, firstLoc, otherLoc) =>
       DirectiveDefinition(
         description.map(_.value),
         name,
         args.getOrElse(Nil),
         repeatable.isDefined,
-        otherLoc.toSet + firstLoc
+        otherLoc.toSet + firstLoc,
+        directives.getOrElse(Nil)
       )
+    }
+
+  def directiveExtension(implicit ev: P[Any]): P[DirectiveExtension] =
+    ("extend directive @" ~/ name ~ directive.rep(1)).map { case (name, directives) =>
+      DirectiveExtension(name, directives.toList)
     }
 
   def typeDefinition(implicit ev: P[Any]): P[TypeDefinition] =
@@ -346,11 +362,27 @@ object Parsers extends SelectionParsers {
       scalarTypeExtension
 
   def typeSystemExtension(implicit ev: P[Any]): P[TypeSystemExtension] =
-    schemaExtension | typeExtension
+    schemaExtension | typeExtension | directiveExtension
 
   def definition(implicit ev: P[Any]): P[Definition] =
     executableDefinition | typeSystemDefinition | typeSystemExtension
 
   def document(implicit ev: P[Any]): P[ParsedDocument] =
     ((Start ~ executableDefinition.rep ~ End) | (Start ~ definition.rep ~ End)).map(seq => ParsedDocument(seq.toList))
+
+  private def coordinateArgument(implicit ev: P[Any]): P[String] = "(" ~~ name ~~ ":" ~~ ")"
+
+  def schemaCoordinate(implicit ev: P[Any]): P[SchemaCoordinate] =
+    Start ~~ (
+      ("@" ~~ name ~~ coordinateArgument.?).map {
+        case (directive, None)           => SchemaCoordinate.DirectiveCoordinate(directive)
+        case (directive, Some(argument)) => SchemaCoordinate.DirectiveArgumentCoordinate(directive, argument)
+      } |
+        (name ~~ ("." ~~ name ~~ coordinateArgument.?).?).map {
+          case (typeName, None)                          => SchemaCoordinate.TypeCoordinate(typeName)
+          case (typeName, Some((member, None)))          => SchemaCoordinate.MemberCoordinate(typeName, member)
+          case (typeName, Some((field, Some(argument)))) =>
+            SchemaCoordinate.ArgumentCoordinate(typeName, field, argument)
+        }
+    ) ~~ End
 }

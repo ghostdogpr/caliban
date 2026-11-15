@@ -46,6 +46,7 @@ object DocumentRenderer extends Renderer[Document] {
     case te: TypeExtension.InputObjectTypeExtension => (4, te.name)
     case te: TypeExtension.InterfaceTypeExtension   => (5, te.name)
     case te: TypeExtension.ObjectTypeExtension      => (6, te.name)
+    case te: TypeSystemExtension.DirectiveExtension => (7, te.name)
   }
 
   private implicit val directiveLocationOrdering: Ordering[DirectiveLocation] = Ordering.by {
@@ -68,6 +69,7 @@ object DocumentRenderer extends Renderer[Document] {
     case TypeSystemDirectiveLocation.INPUT_OBJECT           => 16
     case TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION => 17
     case TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => 18
+    case TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION   => 19
 
   }
 
@@ -90,7 +92,7 @@ object DocumentRenderer extends Renderer[Document] {
   private[caliban] lazy val directivesRenderer: Renderer[List[Directive]] =
     directiveRenderer
       .list(Renderer.spaceOrEmpty, omitFirst = false)
-      .contramap(_.filter(_.isIntrospectable).sortBy(_.name))
+      .contramap(_.filter(_.isIntrospectable))
 
   private[caliban] lazy val descriptionRenderer: Renderer[Option[String]] =
     new Renderer[Option[String]] {
@@ -98,17 +100,17 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(description: Option[String], indent: Option[Int], writer: StringBuilder): Unit =
         description.foreach {
-          case value if value.isBlank                                           => ()
-          case value if value.contains('\n') && value.forall(isBlockStringChar) =>
+          case value if value.isBlank                   => ()
+          case value if isPrintableAsBlockString(value) =>
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
             writer append tripleQuote
-            newlineOrEmpty(indent, writer)
+            if (indent.isDefined || hasCommonIndent(value)) writer append '\n'
             valueEscaped()
-            if (value.last == '"') writer append '\n' else newlineOrEmpty(indent, writer)
+            if (value.last == '"' || value.last == '\\') writer append '\n' else newlineOrEmpty(indent, writer)
             writer append tripleQuote
             newlineOrSpace(indent, writer)
-          case value                                                            =>
+          case value                                    =>
             pad(indent, writer)
             writer append '"'
             Renderer.escapedString.unsafeRender(value, indent, writer)
@@ -163,7 +165,7 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(value: DirectiveDefinition, indent: Option[Int], writer: StringBuilder): Unit =
         value match {
-          case DirectiveDefinition(description, name, args, isRepeatable, locations) =>
+          case DirectiveDefinition(description, name, args, isRepeatable, locations, directives) =>
             descriptionRenderer.unsafeRender(description, indent, writer)
             writer append "directive @"
             writer append name
@@ -172,6 +174,7 @@ object DocumentRenderer extends Renderer[Document] {
               inputRenderer.unsafeRender(args, indent, writer)
               writer append ')'
             }
+            directivesRenderer.unsafeRender(directives, indent, writer)
             if (isRepeatable) writer append " repeatable"
             writer append " on "
             locationsRenderer.unsafeRender(locations, indent, writer)
@@ -200,6 +203,7 @@ object DocumentRenderer extends Renderer[Document] {
               case TypeSystemDirectiveLocation.INPUT_OBJECT           => writer append "INPUT_OBJECT"
               case TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION => writer append "INPUT_FIELD_DEFINITION"
               case TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => writer append "VARIABLE_DEFINITION"
+              case TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION   => writer append "DIRECTIVE_DEFINITION"
             }
         }
 
@@ -209,7 +213,8 @@ object DocumentRenderer extends Renderer[Document] {
     new Renderer[OperationDefinition] {
       override def unsafeRender(definition: OperationDefinition, indent: Option[Int], writer: StringBuilder): Unit =
         definition match {
-          case OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet) =>
+          case OperationDefinition(operationType, name, variableDefinitions, directives, selectionSet, description) =>
+            descriptionRenderer.unsafeRender(description, indent, writer)
             operationTypeRenderer.unsafeRender(operationType, indent, writer)
             name.foreach { n =>
               writer append ' '
@@ -244,28 +249,31 @@ object DocumentRenderer extends Renderer[Document] {
 
   private lazy val variableDefinition: Renderer[VariableDefinition] = new Renderer[VariableDefinition] {
     override def unsafeRender(definition: VariableDefinition, indent: Option[Int], writer: StringBuilder): Unit = {
+      descriptionRenderer.unsafeRender(definition.description, None, writer)
       writer append '$'
       writer append definition.name
       writer append ':'
       spaceOrEmpty(indent, writer)
       typeRenderer.unsafeRender(definition.variableType, indent, writer)
       defaultValueRenderer.unsafeRender(definition.defaultValue, indent, writer)
+      directivesRenderer.unsafeRender(definition.directives, indent, writer)
     }
   }
 
   private[caliban] lazy val selectionsRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
     private val inner = selectionRenderer.list(Renderer.newlineOrSpace)
 
-    override def unsafeRender(selections: List[Selection], indent: Option[Int], writer: StringBuilder): Unit =
+    override def unsafeRender(selections: List[Selection], indent: Option[Int], writer: StringBuilder): Unit = {
+      spaceOrEmpty(indent, writer)
+      writer append '{'
       if (selections.nonEmpty) {
-        spaceOrEmpty(indent, writer)
-        writer append '{'
         newlineOrEmpty(indent, writer)
         inner.unsafeRender(selections, increment(indent), writer)
         newlineOrEmpty(indent, writer)
         pad(indent, writer)
-        writer append '}'
       }
+      writer append '}'
+    }
   }
 
   private lazy val selectionRenderer: Renderer[Selection] = new Renderer[Selection] {
@@ -285,7 +293,7 @@ object DocumentRenderer extends Renderer[Document] {
           builder append name
           inputArgumentsRenderer.unsafeRender(arguments, indent, builder)
           directivesRenderer.unsafeRender(directives, indent, builder)
-          selectionsRenderer.unsafeRender(selectionSet, indent, builder)
+          selectionSet.foreach(selectionsRenderer.unsafeRender(_, indent, builder))
         case Selection.FragmentSpread(name, directives)                           =>
           builder append "..."
           builder append name
@@ -298,9 +306,7 @@ object DocumentRenderer extends Renderer[Document] {
             builder append t.name
           }
           directivesRenderer.unsafeRender(dirs, indent, builder)
-          if (selectionSet.nonEmpty) {
-            selectionsRenderer.unsafeRender(selectionSet, indent, builder)
-          }
+          selectionsRenderer.unsafeRender(selectionSet, indent, builder)
       }
     }
   }
@@ -457,6 +463,7 @@ object DocumentRenderer extends Renderer[Document] {
         case t: TypeExtension.ScalarTypeExtension      => scalarExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.ObjectTypeExtension      => objectTypeExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.UnionTypeExtension       => unionTypeExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeSystemExtension.DirectiveExtension => directiveExtensionRenderer.unsafeRender(t, indent, writer)
       }
 
   }
@@ -464,9 +471,10 @@ object DocumentRenderer extends Renderer[Document] {
   private lazy val fragmentRenderer: Renderer[FragmentDefinition] = new Renderer[FragmentDefinition] {
     override def unsafeRender(value: FragmentDefinition, indent: Option[Int], writer: StringBuilder): Unit =
       value match {
-        case FragmentDefinition(name, typeCondition, directives, selectionSet) =>
+        case FragmentDefinition(name, typeCondition, directives, selectionSet, description) =>
           newlineOrSpace(indent, writer)
           newlineOrEmpty(indent, writer)
+          descriptionRenderer.unsafeRender(description, indent, writer)
           writer append "fragment "
           writer append name
           writer append " on "
@@ -566,6 +574,16 @@ object DocumentRenderer extends Renderer[Document] {
           write
         )
       }
+    }
+
+  private lazy val directiveExtensionRenderer: Renderer[TypeSystemExtension.DirectiveExtension] =
+    new Renderer[TypeSystemExtension.DirectiveExtension] with scalarOps {
+      override def unsafeRender(
+        extension: TypeSystemExtension.DirectiveExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit =
+        unsafeRenderImpl("extend directive", s"@${extension.name}", None, extension.directives, indent, write)
     }
 
   private lazy val scalarRenderer: Renderer[ScalarTypeDefinition] = new Renderer[ScalarTypeDefinition] with scalarOps {
@@ -930,8 +948,17 @@ object DocumentRenderer extends Renderer[Document] {
   private def spaceOrEmpty(indentation: Option[Int], writer: StringBuilder): Unit =
     if (indentation.isDefined) writer append ' '
 
-  private def isBlockStringChar(c: Char): Boolean =
-    c >= ' ' || c == '\t' || c == '\n' || c == '\r'
+  private def isPrintableAsBlockString(value: String): Boolean =
+    value.contains('\n') && value.forall(c => !c.isControl || c == '\t' || c == '\n' || c == '\r') &&
+      !value.split("\r\n|\r|\n").forall(line => line.forall(c => c == ' ' || c == '\t') || isIndented(line))
+
+  private def hasCommonIndent(value: String): Boolean = {
+    val lines = value.split("\r\n|\r|\n").toList.drop(1).filter(_.exists(c => c != ' ' && c != '\t'))
+    lines.nonEmpty && lines.forall(isIndented)
+  }
+
+  private def isIndented(line: String): Boolean =
+    line.nonEmpty && (line.charAt(0) == ' ' || line.charAt(0) == '\t')
 
   private def newlineOrEmpty(indent: Option[Int], writer: StringBuilder): Unit =
     if (indent.isDefined) writer append '\n'

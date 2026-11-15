@@ -9,7 +9,7 @@ import caliban.gateway.internal.composition.ComposedGraph.ContextName
 import caliban.gateway.internal.composition.DirectiveComposition._
 import caliban.gateway.internal.composition.FederationCompilation.FederationDirective
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
-import caliban.parsing.adt.{ Definition, Directive, Document, Selection, Type }
+import caliban.parsing.adt.{ Definition, Directive, Document, SchemaCoordinate, Selection, Type }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
@@ -284,7 +284,7 @@ private[gateway] final class SchemaMapping private (
         field.copy(
           name = clientField(parentType, field.name),
           arguments = arguments,
-          selectionSet = field.selectionSet.map(transformFieldSetSelection(childType, _))
+          selectionSet = field.selectionSet.map(_.map(transformFieldSetSelection(childType, _)))
         )
       case fragment: Selection.InlineFragment =>
         val nextType = fragment.typeCondition.map(_.name).getOrElse(parentType)
@@ -446,7 +446,7 @@ private[gateway] object SchemaMapping {
 
   private[gateway] final case class FieldTarget(typeName: String, fieldName: String) extends Target("Field", "Fields") {
     val currentName = fieldName
-    val reference   = s"'$typeName.$fieldName'"
+    val reference   = s"'${SchemaCoordinate.MemberCoordinate(typeName, fieldName)}'"
 
     def renamed(name: String): Target               = FieldTarget(typeName, name)
     def exists(context: ValidationContext): Boolean =
@@ -460,7 +460,7 @@ private[gateway] object SchemaMapping {
   private[gateway] final case class ArgumentTarget(typeName: String, fieldName: String, argumentName: String)
       extends Target("Argument", "Arguments") {
     val currentName = argumentName
-    val reference   = s"'$typeName.$fieldName($argumentName:)'"
+    val reference   = s"'${SchemaCoordinate.ArgumentCoordinate(typeName, fieldName, argumentName)}'"
 
     override protected def input(context: ValidationContext): Option[__InputValue] =
       context.types
@@ -476,7 +476,7 @@ private[gateway] object SchemaMapping {
   private[gateway] final case class InputFieldTarget(typeName: String, fieldName: String)
       extends Target("Input field", "Input fields") {
     val currentName = fieldName
-    val reference   = s"'$typeName.$fieldName'"
+    val reference   = s"'${SchemaCoordinate.MemberCoordinate(typeName, fieldName)}'"
 
     override protected def input(context: ValidationContext): Option[__InputValue] =
       context.types.get(typeName).flatMap(inputFieldDefinition(_, fieldName))

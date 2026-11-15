@@ -5,7 +5,7 @@ object Client {
 
   final case class CharacterInput(
     name: String,
-    @deprecated
+    @deprecated("No longer supported")
     nickname: scala.Option[String] = None,
     @deprecated("no longer used")
     address: scala.Option[String] = None

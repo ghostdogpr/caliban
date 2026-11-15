@@ -1,7 +1,7 @@
 directive @mydirective(input: MyDirectiveInput!) on SCHEMA
-directive @key(fields: String!) on OBJECT | INTERFACE
-directive @shareable on UNION
-directive @tag on OBJECT | FIELD_DEFINITION | INTERFACE | UNION | ENUM | INPUT_OBJECT
+directive @key(fields: String!) @tag on OBJECT | INTERFACE
+directive @shareable @deprecated(reason: "Use @tag instead") on UNION
+directive @tag on OBJECT | FIELD_DEFINITION | INTERFACE | UNION | ENUM | INPUT_OBJECT | DIRECTIVE_DEFINITION
 
 schema @mydirective(input: {name: "test"}) {
   query: Query

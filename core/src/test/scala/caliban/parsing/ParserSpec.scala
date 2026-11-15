@@ -9,7 +9,7 @@ import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition,
 import caliban.parsing.adt.Definition.TypeSystemDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
+import caliban.parsing.adt.Definition.TypeSystemExtension.{ DirectiveExtension, SchemaExtension }
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -222,12 +222,22 @@ object ParserSpec extends ZIOSpecDefault {
         assertTrue(
           Parser.parseInputValue(str(bs + "u0041")) == Right(StringValue("A")),
           Parser.parseInputValue(str(bs + "u{41}")) == Right(StringValue("A")),
+          Parser.parseInputValue(str(bs + "u{41}  " + bs + "u{41}, b")) == Right(StringValue("A  A, b")),
           Parser.parseInputValue(str(bs + "u{1F600}")) == Right(StringValue(emoji)),
           Parser.parseInputValue(str(bs + "u{00000041}")) == Right(StringValue("A")),
           Parser.parseInputValue(str(bs + "uD83D" + bs + "uDE00")) == Right(StringValue(emoji)),
           Parser.parseInputValue(str(bs + "u{110000}")).isLeft,
           Parser.parseInputValue(str(bs + "u{D800}")).isLeft,
-          Parser.parseInputValue(str(bs + "u{DEAD}")).isLeft
+          Parser.parseInputValue(str(bs + "u{DEAD}")).isLeft,
+          Parser.parseInputValue(str("a" + bs + "uD83D" + bs + "uDE00b")) == Right(StringValue("a" + emoji + "b")),
+          Parser.parseInputValue(str(bs + "uD800")).isLeft,
+          Parser.parseInputValue(str(bs + "uD800x")).isLeft,
+          Parser.parseInputValue(str(bs + "uDE00")).isLeft,
+          Parser.parseInputValue(str(bs + "uDE00" + bs + "uD83D")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "uD83D")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "u0041")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "u{DE00}")).isLeft,
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "n")).isLeft
         )
       },
       test("string literals mixing character runs and escapes") {
@@ -243,6 +253,28 @@ object ParserSpec extends ZIOSpecDefault {
           Parser.parseInputValue(str("run " + bs + "u0041 run")) == Right(StringValue("run A run")),
           Parser.parseInputValue(str("with\ttab")) == Right(StringValue("with\ttab")),
           Parser.parseInputValue("\"raw\nnewline\"").isLeft
+        )
+      },
+      test("number literals followed by a dot, a digit or a name start") {
+        assertTrue(
+          Parser.parseInputValue("123abc").isLeft,
+          Parser.parseInputValue("123_").isLeft,
+          Parser.parseInputValue("1.2.3").isLeft,
+          Parser.parseInputValue("1.").isLeft,
+          Parser.parseInputValue("0x1").isLeft,
+          Parser.parseInputValue("00").isLeft,
+          Parser.parseInputValue("01").isLeft,
+          Parser.parseInputValue("1.5e").isLeft,
+          Parser.parseInputValue("1.5e3x").isLeft,
+          Parser.parseInputValue("1e3.0").isLeft,
+          Parser.parseQuery("{ dog(a: [123abc]) { name } }").isLeft,
+          Parser.parseQuery("{ dog(a: 1.2.3) { name } }").isLeft,
+          Parser.parseInputValue("123") == Right(IntValue(123)),
+          Parser.parseInputValue("-0") == Right(IntValue(0)),
+          Parser.parseInputValue("1.5e3") == Right(FloatValue(1.5e3)),
+          Parser.parseInputValue("[1 2]") == Right(ListValue(List(IntValue(1), IntValue(2)))),
+          Parser.parseInputValue("[1,2.5]") == Right(ListValue(List(IntValue(1), FloatValue(2.5)))),
+          Parser.parseInputValue("{a:1}") == Right(ObjectValue(Map("a" -> IntValue(1))))
         )
       },
       test("enum values whose names start with a keyword") {
@@ -271,7 +303,8 @@ object ParserSpec extends ZIOSpecDefault {
         }
       },
       test("variables") {
-        val query = """query getZuckProfile($devicePicSize: Int = 60) {
+        val query = """"Fetches a profile"
+                      |query getZuckProfile("Picture size" $devicePicSize: Int = 60) {
                       |  user(id: 4) {
                       |    id
                       |    name
@@ -284,20 +317,27 @@ object ParserSpec extends ZIOSpecDefault {
               simpleQuery(
                 name = Some("getZuckProfile"),
                 variableDefinitions = List(
-                  VariableDefinition("devicePicSize", NamedType("Int", nonNull = false), Some(IntValue(60)), Nil)
+                  VariableDefinition(
+                    "devicePicSize",
+                    NamedType("Int", nonNull = false),
+                    Some(IntValue(60)),
+                    Nil,
+                    Some("Picture size")
+                  )
                 ),
                 selectionSet = List(
                   simpleField(
                     "user",
                     arguments = Map("id" -> IntValue(4)),
                     selectionSet = List(
-                      simpleField("id", index = 69),
-                      simpleField("name", index = 76),
-                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 85)
+                      simpleField("id", index = 104),
+                      simpleField("name", index = 111),
+                      simpleField("profilePic", arguments = Map("size" -> VariableValue("devicePicSize")), index = 120)
                     ),
-                    index = 51
+                    index = 86
                   )
                 ),
+                description = Some("Fetches a profile"),
                 sourceMapper = SourceMapper(query)
               )
           )
@@ -361,6 +401,7 @@ object ParserSpec extends ZIOSpecDefault {
                       |  }
                       |}
                       |
+                      |"Fields of a friend"
                       |fragment friendFields on User {
                       |  id
                       |  name
@@ -403,10 +444,11 @@ object ParserSpec extends ZIOSpecDefault {
                     NamedType("User", nonNull = false),
                     Nil,
                     List(
-                      simpleField("id", index = 191),
-                      simpleField("name", index = 196),
-                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 203)
-                    )
+                      simpleField("id", index = 212),
+                      simpleField("name", index = 217),
+                      simpleField("profilePic", arguments = Map("size" -> IntValue(50)), index = 224)
+                    ),
+                    Some("Fields of a friend")
                   )
                 ),
                 SourceMapper(query)
@@ -552,7 +594,7 @@ object ParserSpec extends ZIOSpecDefault {
           isLeft(
             isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4)))))
           )
-        )
+        ) && assertTrue(Parser.parseQuery(""""no description on shorthand" { hero }""").isLeft)
       },
       test("type") {
         val gqltype =
@@ -1325,7 +1367,8 @@ object ParserSpec extends ZIOSpecDefault {
         }
       },
       test("parse repeatable directives") {
-        val gqlInputExtension = "directive @test repeatable on FIELD_DEFINITION"
+        val gqlInputExtension =
+          "directive @test @deprecated repeatable on FIELD_DEFINITION | DIRECTIVE_DEFINITION extend directive @test @foo"
         Parser.parseQuery(gqlInputExtension).map { doc =>
           assertTrue(
             doc == Document(
@@ -1336,9 +1379,12 @@ object ParserSpec extends ZIOSpecDefault {
                   List.empty,
                   isRepeatable = true,
                   Set(
-                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
-                  )
-                )
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION,
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION
+                  ),
+                  List(Directive("deprecated", index = 16))
+                ),
+                DirectiveExtension("test", List(Directive("foo", index = 105)))
               ),
               sourceMapper = SourceMapper.apply(gqlInputExtension)
             )
@@ -1374,9 +1420,13 @@ object ParserSpec extends ZIOSpecDefault {
     variableDefinitions: List[VariableDefinition] = Nil,
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil,
-    sourceMapper: SourceMapper = SourceMapper.empty
+    sourceMapper: SourceMapper = SourceMapper.empty,
+    description: Option[String] = None
   ): Document =
-    Document(List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet)), sourceMapper)
+    Document(
+      List(OperationDefinition(Query, name, variableDefinitions, directives, selectionSet, description)),
+      sourceMapper
+    )
 
   def simpleField(
     name: String,
@@ -1385,5 +1435,5 @@ object ParserSpec extends ZIOSpecDefault {
     directives: List[Directive] = Nil,
     selectionSet: List[Selection] = Nil,
     index: Int = 0
-  ): Field = Field(alias, name, arguments, directives, selectionSet, index)
+  ): Field = Field(alias, name, arguments, directives, Some(selectionSet).filter(_.nonEmpty), index)
 }

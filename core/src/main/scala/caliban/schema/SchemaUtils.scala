@@ -2,7 +2,8 @@ package caliban.schema
 
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ EnumValue, NullValue, StringValue }
-import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
+import caliban.schema.Annotations.GQLInterface
 import caliban.schema.Step.MetadataFunctionStep
 import caliban.parsing.adt.Directive
 
@@ -26,6 +27,47 @@ private[schema] object SchemaUtils {
         )
       )
     )
+
+  def mkInterface(
+    name: String,
+    description: Option[String],
+    impl: List[__Type],
+    annotations: Seq[Any],
+    origin: String,
+    directives: List[Directive],
+    parents: => List[Schema[_, _]]
+  ): __Type = {
+    val excl         = annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
+    val commonFields = () =>
+      impl
+        .flatMap(_.allFields)
+        .groupBy(_.name)
+        .collect {
+          case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
+            val deprecated = list.find(_.isDeprecated)
+            Types
+              .unify(list)
+              .flatMap(t =>
+                list.headOption.map(
+                  _.copy(
+                    description = Types.extractCommonDescription(list),
+                    `type` = () => t,
+                    isDeprecated = deprecated.isDefined,
+                    deprecationReason = deprecated.flatMap(_.deprecationReason)
+                  )
+                )
+              )
+        }
+        .flatten
+        .toList
+        .sortBy(_.name)
+
+    Types
+      .makeInterface(Some(name), description, commonFields, impl, Some(origin), Some(directives))
+      .copy(interfaces =
+        () => Some(Types.withAncestors(parents.map(_.toType_())).filter(_.kind == __TypeKind.INTERFACE))
+      )
+  }
 
   def isEmptyUnionObject(t: __Type): Boolean =
     t.fields(__DeprecatedArgs.include).contains(Nil)

@@ -54,6 +54,12 @@ val route = AkkaHttpAdapter.default().makeHttpService(authInterpreter)
 
 Want to use something else? Check [make your own adapter section](#make-your-own-adapter)!
 
+### Status codes
+
+All adapters follow the [GraphQL over HTTP spec](https://http-spec.graphql.org/September2026/) for status codes. The status depends on the media type negotiated from the `Accept` header. Responses in `application/graphql-response+json` or `multipart/mixed` use `400` when the document can't be parsed and `422` when it fails validation or its variables can't be coerced. Responses in `application/json` (the type for clients that send no `Accept` header, send `*/*` or prefer `application/json`) or `text/event-stream` use `200` with the errors in the body. Every client gets `405` with an `Allow` header for a mutation over `GET`, `406` when the `Accept` header allows neither a supported media type nor `application/json`, and `400` for a subscription when the `Accept` header doesn't allow `text/event-stream`. The `QuickAdapter` also rejects a `POST` without a `Content-Type` with `415`.
+
+Two recommendations of the spec are opt-in in the `QuickAdapter`, through [`HttpConfig`](#customization), because some clients and infrastructure don't expect them. The tapir-based adapters always use `200` in these cases.
+
 Make sure to check the [examples](examples.md) to see the adapters in action.
 
 ## Make your own adapter
@@ -127,7 +133,9 @@ The `QuickAdapter` exposes the following methods that allow you to customize the
 
 - `configure` which takes a `Configurator[R]` [similar to the tapir-based adapters](adapters.md#built-in-tapir-adapters)
 - `configureSse` which takes an `SseConfig` where you can configure if and how often SSE based subscriptions should heartbeat.
-- `configureHttp` which takes an `HttpConfig` where you can change the body size limits: 1 MB for JSON and GraphQL requests, 16 MB for multipart uploads and 16 MB for JSON responses by default.
+- `configureHttp` which takes an `HttpConfig` where you can change the body size limits: 1 MB for JSON and GraphQL requests, 16 MB for multipart uploads and 16 MB for JSON responses by default. It also opts in to two [status codes](#status-codes) of the GraphQL over HTTP spec:
+  - `partialSuccessStatus` replies `294 Partial Success` instead of `200` when an `application/graphql-response+json` result contains both data and errors.
+  - `jsonClientStatusCodes` gives clients that only accept `application/json` the same 4xx status codes as `application/graphql-response+json` clients, instead of `200`. Their non-2xx responses are then the same as for those clients, including `Content-Type: application/graphql-response+json`.
 - `handlers` which returns a `QuickHandlers[R]` which contains individual handlers to manually construct routes.
   Note that this handler is only for the api routes. To construct the graphiql handler use `caliban.GraphiQLHandler.handler`.
 

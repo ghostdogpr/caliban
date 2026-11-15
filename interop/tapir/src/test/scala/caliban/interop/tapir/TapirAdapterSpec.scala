@@ -12,7 +12,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.client4.ResponseException.{ DeserializationException, UnexpectedStatusCode }
 import sttp.client4.httpclient.zio.HttpClientZioBackend
 import sttp.client4.impl.zio.ZioServerSentEvents
-import sttp.client4.{ BasicBodyPart, ResponseException, WebSocketRequest, WebSocketStreamBackend }
+import sttp.client4.{ basicRequest, BasicBodyPart, ResponseException, WebSocketRequest, WebSocketStreamBackend }
 import sttp.model._
 import sttp.model.sse.ServerSentEvent
 import sttp.tapir.client.sttp4.ws.WebSocketSttpClientInterpreter
@@ -61,8 +61,7 @@ object TapirAdapterSpec {
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
     sseSupport: Boolean = true,
-    sseHeartbeats: Boolean = false,
-    mutationOverGetStatus: Int = 400
+    sseHeartbeats: Boolean = false
   ): Spec[TestService, Throwable] = suite(label) {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
@@ -233,27 +232,28 @@ object TapirAdapterSpec {
                   )
                 test_("GET") && test_("POST")
               },
-              test("Returns 400 status code on validation errors") {
+              test("Returns 422 status code on validation errors") {
                 def test_(method: String) =
                   for {
                     resp  <- runHttpRequest(method, acceptHeader, query = "{characters_ { name }}")
                     error <-
                       resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
                   } yield assertTrue(
-                    resp.code == StatusCode.BadRequest,
+                    resp.code == StatusCode.UnprocessableEntity,
                     resp.contentType.contains(contentT),
                     !error.toString.contains("\"data\"")
                   )
                 test_("GET") && test_("POST")
               },
-              test("Returns 400 status code on variable coercion errors") {
+              test("Returns 422 status code on variable coercion errors") {
                 def test_(method: String) =
                   for {
-                    resp  <- runHttpRequest(method, acceptHeader, query = "{character(name: 42) { name }}")
+                    resp  <-
+                      runHttpRequest(method, acceptHeader, query = "query($n: String!) {character(name: $n) { name }}")
                     error <-
                       resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
                   } yield assertTrue(
-                    resp.code == StatusCode.BadRequest,
+                    resp.code == StatusCode.UnprocessableEntity,
                     resp.contentType.contains(contentT),
                     !error.toString.contains("\"data\"")
                   )
@@ -261,25 +261,64 @@ object TapirAdapterSpec {
               }
             )
           },
-          test("returns 400 status code on invalid GET requests") {
-            ZIO
-              .serviceWithZIO[Backend](
-                runGet(GraphQLRequest(None)).send(_)
-              )
-              .map(r => assertTrue(r.code.code == 400))
+          test("returns 400 status code on invalid GET requests and ignores empty optional parameters") {
+            val empty =
+              Map("query" -> "{ characters { name } }", "operationName" -> "", "variables" -> "", "extensions" -> "")
+            for {
+              invalid <- ZIO.serviceWithZIO[Backend](runGet(GraphQLRequest(None)).send(_))
+              valid   <- ZIO.serviceWithZIO[Backend](basicRequest.get(httpUri.addParams(empty)).send(_))
+            } yield assertTrue(invalid.code.code == 400, valid.code.code == 200)
           },
-          test("returns 400 status code on invalid POST requests") {
-            ZIO
-              .serviceWithZIO[Backend](
-                run(GraphQLRequest(None)).send(_)
-              )
-              .map(r => assertTrue(r.code.code == 400))
+          test("returns 400 status code on invalid POST requests and 406 on unacceptable ones") {
+            for {
+              invalid      <- ZIO.serviceWithZIO[Backend](run(GraphQLRequest(None)).send(_))
+              unacceptable <- runHttpRequest("POST", Header.accept(MediaType.TextHtml))
+              malformed    <- runHttpRequest("POST", Header(HeaderNames.Accept, ";"))
+              refusedJson  <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/json;q=0"))
+              emptyParam   <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/graphql-response+json;"))
+              invalidQ     <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/json;q=abc"))
+              numericQ     <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/json;q=-0"))
+            } yield assertTrue(
+              invalid.code.code == 400,
+              unacceptable.code == StatusCode.NotAcceptable,
+              malformed.code == StatusCode.NotAcceptable,
+              refusedJson.code == StatusCode.NotAcceptable,
+              emptyParam.code == StatusCode.Ok,
+              emptyParam.contentType.contains("application/graphql-response+json"),
+              invalidQ.code == StatusCode.Ok,
+              numericQ.code == StatusCode.Ok
+            )
           },
-          test(s"returns $mutationOverGetStatus for mutations over GET methods") {
-            runHttpRequest(
-              method = Method.GET.method,
-              query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
-            ).map(r => assertTrue(r.code.code == mutationOverGetStatus))
+          test("returns 405 with an Allow header for mutations over GET methods") {
+            val mutation = """mutation{ deleteCharacter(name: "Amos Burton") }"""
+            for {
+              json      <- runHttpRequest(method = Method.GET.method, query = mutation)
+              stream    <-
+                runHttpRequest(method = Method.GET.method, acceptHeader = acceptTextEventStream, query = mutation)
+              multipart <-
+                runHttpRequest(
+                  Method.GET.method,
+                  Header(HeaderNames.Accept, "multipart/mixed, application/json;q=0.5"),
+                  mutation
+                )
+            } yield assertTrue(
+              json.code == StatusCode.MethodNotAllowed,
+              json.header(HeaderNames.Allow).contains("POST"),
+              json.headers(HeaderNames.ContentType) == List("application/json"),
+              json.body.swap.exists {
+                case UnexpectedStatusCode(body, _) => body.contains("Mutations are not allowed for GET requests")
+                case _                             => false
+              },
+              stream.code == StatusCode.MethodNotAllowed,
+              stream.header(HeaderNames.Allow).contains("POST"),
+              stream.contentType.contains("text/event-stream"),
+              multipart.code == StatusCode.MethodNotAllowed,
+              multipart.body.swap.exists {
+                case UnexpectedStatusCode(body, _) =>
+                  body.contains("Mutations are not allowed for GET requests") && !body.contains("\"data\"")
+                case _                             => false
+              }
+            )
           },
           test("very long field values in mutations") {
             val name = "A".repeat(ReaderConfig.maxCharBufSize + 1)

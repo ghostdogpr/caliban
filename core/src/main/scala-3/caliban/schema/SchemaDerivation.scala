@@ -102,7 +102,8 @@ trait CommonSchemaDerivation {
         new SumSchema[R, A](
           recurseSum[R, A, m.MirroredElemLabels, m.MirroredElemTypes](),
           MagnoliaMacro.typeInfo[A],
-          MagnoliaMacro.anns[A]
+          MagnoliaMacro.anns[A],
+          Macros.parentInterfaces[R, A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>

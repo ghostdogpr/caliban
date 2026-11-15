@@ -12,7 +12,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
 }
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.{ Definition, Directive }
-import caliban.rendering.{ DocumentRenderer, ValueRenderer }
+import caliban.rendering.{ DocumentRenderer, Renderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
@@ -40,6 +40,8 @@ object RenderingSpec extends ZIOSpecDefault {
   def fixDefinitions(definitions: List[Definition]): List[Definition] =
     definitions.map {
       case t: TypeSystemDefinition.SchemaDefinition                         =>
+        t.copy(directives = fixDirectives(t.directives))
+      case t: TypeSystemDefinition.DirectiveDefinition                      =>
         t.copy(directives = fixDirectives(t.directives))
       case t: TypeDefinition.ObjectTypeDefinition                           =>
         t.copy(directives = fixDirectives(t.directives), fields = fixFields(t.fields))
@@ -166,9 +168,9 @@ object RenderingSpec extends ZIOSpecDefault {
       test("only introspectable directives are rendered") {
         val all              = List(
           Directive("d0", isIntrospectable = false),
-          Directive("d1"),
-          Directive("d2", isIntrospectable = false),
           Directive("d3"),
+          Directive("d2", isIntrospectable = false),
+          Directive("d1"),
           Directive("d4"),
           Directive("d5", isIntrospectable = false),
           Directive("d6", isIntrospectable = false)
@@ -176,7 +178,7 @@ object RenderingSpec extends ZIOSpecDefault {
         val filtered         = all.filter(_.isIntrospectable)
         val renderedAll      = DocumentRenderer.directivesRenderer.render(all)
         val renderedFiltered = DocumentRenderer.directivesRenderer.render(filtered)
-        assertTrue(renderedAll == renderedFiltered, renderedAll == " @d1 @d3 @d4")
+        assertTrue(renderedAll == renderedFiltered, renderedAll == " @d3 @d1 @d4")
       },
       test(
         "it should escape \", \\, backspace, linefeed, carriage-return and tab inside a normally quoted description string"
@@ -216,19 +218,38 @@ object RenderingSpec extends ZIOSpecDefault {
           .flatMap(_.definitions.collectFirst { case d: TypeDefinition.ScalarTypeDefinition => d.description }.flatten)
         assertTrue(parsedDescription.contains(description))
       },
+      test("it should round-trip multiline variable descriptions") {
+        val descriptions = List("a\n  b", "a\nb\\", "  a\n  b", "\ta\n\tb")
+        val roundTripped = descriptions.map { description =>
+          val query = s"""query ($$v: Int, "${Renderer.escapedString.render(description)}" $$w: Int) { f }"""
+          Parser
+            .parseQuery(query)
+            .map(doc => Parser.parseQuery(DocumentRenderer.render(doc)))
+            .toOption
+            .flatMap(_.toOption)
+            .flatMap(_.operationDefinitions.headOption)
+            .flatMap(_.variableDefinitions.lift(1))
+            .flatMap(_.description)
+        }
+        assertTrue(roundTripped == descriptions.map(Some(_)))
+      },
       test("it should round-trip a multiline description containing control characters") {
-        val description       = "line1\nvalue\f"
-        val testType          = __Type(
-          __TypeKind.SCALAR,
-          name = Some("TestType"),
-          description = Some(description)
-        )
-        val rendered          = DocumentRenderer.typesRenderer.renderCompact(List(testType))
-        val parsedDescription = Parser
-          .parseQuery(rendered)
-          .toOption
-          .flatMap(_.definitions.collectFirst { case d: TypeDefinition.ScalarTypeDefinition => d.description }.flatten)
-        assertTrue(parsedDescription.contains(description))
+        def roundTrip(description: String) = {
+          val testType          = __Type(
+            __TypeKind.SCALAR,
+            name = Some("TestType"),
+            description = Some(description)
+          )
+          val rendered          = DocumentRenderer.typesRenderer.renderCompact(List(testType))
+          val parsedDescription = Parser
+            .parseQuery(rendered)
+            .toOption
+            .flatMap(_.definitions.collectFirst { case d: TypeDefinition.ScalarTypeDefinition =>
+              d.description
+            }.flatten)
+          parsedDescription.contains(description) && !rendered.contains('\u0085')
+        }
+        assertTrue(roundTrip("line1\nvalue\f"), roundTrip("line1\nvalue\u0085"))
       },
       test("it should render single line descriptions") {
         val api = graphQL(resolver)
@@ -266,6 +287,7 @@ object RenderingSpec extends ZIOSpecDefault {
           Value.StringValue("a\\b").toString == """"a\\b"""",
           Value.StringValue("line1\rline2").toString == """"line1\rline2"""",
           Value.StringValue("back\bform\fquote\"").toString == """"back\bform\fquote\""""",
+          Value.StringValue("next\u0085line").toString == "\"next\\u0085line\"",
           Value.EnumValue("hello\tworld").toString == """"hello\tworld"""",
           Value.EnumValue("a\\b").toString == """"a\\b"""",
           Value.EnumValue("line1\rline2").toString == """"line1\rline2"""",

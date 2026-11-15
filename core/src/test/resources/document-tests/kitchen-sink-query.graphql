@@ -1,7 +1,11 @@
 query {
   id
   name
+  empty {}
+  ... on SomeType {}
 }
+
+query {}
 
 mutation {
   thatThing
@@ -11,7 +15,8 @@ mutation {
   }
 }
 
-mutation WithArgs($args: InputType!) {
+"Mutation with arguments"
+mutation WithArgs("The input" $args: InputType! @someDirective) {
   thatThingWithArgs(input: $args) {
     id @include(if: false)
     name
@@ -29,6 +34,10 @@ subscription {
   }
 }
 
+"""
+Fields of
+SomeType
+"""
 fragment SomeTypeFragment on SomeType {
   someField
 }

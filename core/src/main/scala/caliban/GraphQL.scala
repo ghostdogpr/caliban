@@ -5,7 +5,7 @@ import caliban.execution.{ isIntrospectionField, ExecutionRequest, Executor, Fea
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
-import caliban.parsing.adt.{ Directive, Document, OperationType }
+import caliban.parsing.adt.{ Directive, Document, OperationType, SchemaCoordinate }
 import caliban.parsing.SourceMapper
 import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema._
@@ -30,8 +30,7 @@ trait GraphQL[-R] { self =>
   protected val features: Set[Feature]
   protected val transformer: Transformer[R]
 
-  private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] =
-    SchemaValidator.validateSchema(schemaBuilder)
+  private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] = validated.map(_._1)
 
   /**
    * Returns this GraphQL rendered as a string in the GraphQL SDL format.
@@ -73,6 +72,24 @@ trait GraphQL[-R] { self =>
       SourceMapper.empty
     )
 
+  final def resolveSchemaCoordinate(coordinate: SchemaCoordinate): Either[ValidationError, Option[SchemaElement]] =
+    validated.flatMap { case (_, rootType) => rootType.resolve(coordinate) }
+
+  private lazy val validated: Either[ValidationError, (RootSchema[R], RootType)] =
+    schemaBuilder.query.toRight(SchemaValidator.missingQueryRoot).flatMap { query =>
+      val rootType = RootType(
+        query.opType,
+        schemaBuilder.mutation.map(_.opType),
+        schemaBuilder.subscription.map(_.opType),
+        schemaBuilder.additionalTypes,
+        additionalDirectives,
+        schemaBuilder.schemaDescription
+      )
+      SchemaValidator
+        .validateRootType(rootType)
+        .map(_ => (RootSchema(query, schemaBuilder.mutation, schemaBuilder.subscription), rootType))
+    }
+
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
    * adding some middleware around the query execution.
@@ -100,18 +117,8 @@ trait GraphQL[-R] { self =>
    * @see [[interpreterUnsafe]] of an unsafe variant that will throw validation errors
    */
   final lazy val interpreterEither: Either[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    validateRootSchema.map { schema =>
+    validated.map { case (schema, rootType) =>
       new GraphQLInterpreter[R, CalibanError] {
-        private val rootType =
-          RootType(
-            schema.query.opType,
-            schema.mutation.map(_.opType),
-            schema.subscription.map(_.opType),
-            schemaBuilder.additionalTypes,
-            additionalDirectives,
-            schemaBuilder.schemaDescription
-          )
-
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
         private lazy val rootTypeWithIntrospection: RootType    = Introspector.withIntrospection(rootType)
@@ -209,7 +216,8 @@ trait GraphQL[-R] { self =>
       override protected val schemaBuilder: RootSchemaBuilder[R1]    = self.schemaBuilder |+| that.schemaBuilder
       override protected val wrappers: List[Wrapper[R1]]             = self.wrappers ++ that.wrappers
       override protected val additionalDirectives: List[__Directive] =
-        self.additionalDirectives ++ that.additionalDirectives
+        self.additionalDirectives.filterNot(d => that.additionalDirectives.exists(_.name == d.name)) ++
+          that.additionalDirectives
       override protected val features: Set[Feature]                  = self.features ++ that.features
       override protected val transformer: Transformer[R1]            = self.transformer |+| that.transformer
     }
@@ -275,7 +283,8 @@ trait GraphQL[-R] { self =>
   final def withAdditionalDirectives(directives: List[__Directive]): GraphQL[R] = new GraphQL[R] {
     override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
-    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives ++ directives
+    override protected val additionalDirectives: List[__Directive] =
+      self.additionalDirectives.filterNot(d => directives.exists(_.name == d.name)) ++ directives
     override protected val features: Set[Feature]                  = self.features
     override protected val transformer: Transformer[R]             = self.transformer
   }

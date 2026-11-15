@@ -4,7 +4,7 @@ import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client4.httpclient.zio.HttpClientZioBackend
-import sttp.client4.{ asStringAlways, basicRequest, multipart, UriContext }
+import sttp.client4.{ asStringAlways, basicRequest, multipart, DuplicateHeaderBehavior, UriContext }
 import zio._
 import zio.http._
 import zio.stream.{ ZPipeline, ZStream }
@@ -63,8 +63,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8090/api/graphql",
       wsUri = Some(uri"ws://localhost:8090/ws/graphql"),
       uploadUri = Some(uri"http://localhost:8090/upload/graphql"),
-      sseHeartbeats = true,
-      mutationOverGetStatus = 405
+      sseHeartbeats = true
     )
     suite("Quick regressions")(adapterSuite, regressionSuite).provideShared(
       apiLayer,
@@ -86,14 +85,22 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         "application/json; charset=utf-8"                      -> json,
         "application/json; charset=UTF8"                       -> json,
         "application/json; charset=iso-8859-1"                 -> json,
-        "application/json; profile=custom"                     -> json
+        "application/json; profile=custom"                     -> json,
+        "application/json;q=.0"                                -> json,
+        "application/json;q=\"0\""                             -> json
       )
       for {
         absent     <- execute(postQuery(apiUri))
         negotiated <- ZIO.foreach(expected) { case (accept, _) =>
                         execute(postQuery(apiUri).header("Accept", accept)).map(r => (r.code.code, r.contentType))
                       }
+        split      <- execute(
+                        postQuery(apiUri)
+                          .header("Accept", "text/html")
+                          .header("Accept", json, DuplicateHeaderBehavior.Add)
+                      )
       } yield assertTrue(
+        split.is200,
         absent.is200,
         absent.contentType.contains(json),
         absent.body.contains("\"data\""),
@@ -102,18 +109,24 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         negotiated == expected.map { case (_, mediaType) => (200, Some(mediaType)) }
       )
     },
-    test("rejects text/plain and decodes other request media types, including legacy graphql+json, as JSON") {
+    test(
+      "rejects text/plain or no media type and decodes other request media types, including legacy graphql+json, as JSON"
+    ) {
       val expected = List(
         "application/graphql+json"          -> 200,
         "text/plain;charset=UTF-8"          -> 415,
-        "application/x-www-form-urlencoded" -> 200
+        "application/x-www-form-urlencoded" -> 200,
+        "Application/JSON"                  -> 200
       )
-      ZIO.foreach(expected) { case (contentType, _) => execute(postQuery(apiUri, contentType)) }.map { responses =>
-        assertTrue(
-          responses.map(_.code.code) == expected.map(_._2),
-          responses.filter(_.is200).forall(_.body.contains("\"data\""))
-        )
-      }
+      val untyped  = postQuery(apiUri)
+      for {
+        responses <- ZIO.foreach(expected) { case (contentType, _) => execute(postQuery(apiUri, contentType)) }
+        missing   <- execute(untyped.withHeaders(untyped.headers.filterNot(_.is("Content-Type"))))
+      } yield assertTrue(
+        responses.map(_.code.code) == expected.map(_._2),
+        responses.filter(_.is200).forall(_.body.contains("\"data\"")),
+        missing.code.code == 415
+      )
     },
     test("accepts a known-length JSON body within the configured limit") {
       for {
@@ -123,7 +136,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                     )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
-    test("responds with JSON for an upload route with an unacceptable response type") {
+    test("responds 406 for an upload route with an unacceptable response type") {
       for {
         response <- execute(
                       basicRequest
@@ -132,7 +145,20 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                         .multipartBody(uploadParts("content".getBytes))
                         .response(asStringAlways)
                     )
-      } yield assertTrue(response.is200, response.contentType.contains("application/json"))
+      } yield assertTrue(response.code.code == 406)
+    },
+    test("decodes an upload whose media type is only in the Content-Type header") {
+      val boundary = Boundary("caliban")
+      val form     = Form(FormField.simpleField("operations", CharactersQuery), FormField.simpleField("map", "{}"))
+      for {
+        bytes    <- Body.fromMultipartForm(form, boundary).asChunk
+        response <- respond(
+                      ZIO.succeed(GraphQLResponse(Value.StringValue("ok"), Nil)),
+                      "application/json",
+                      body = Body.fromChunk(bytes),
+                      contentType = Header.ContentType(MediaType.multipart.`form-data`, Some(boundary))
+                    )
+      } yield assertTrue(response.status == Status.Ok)
     },
     test("does not apply the one-megabyte JSON default to uploads") {
       val largeFile = Array.fill[Byte](1024 * 1024 + 1)('x'.toByte)
@@ -162,12 +188,16 @@ object QuickAdapterSpec extends ZIOSpecDefault {
     },
     test("returns an observable error, or an SSE error event, when response encoding exceeds its limit") {
       for {
-        json <- execute(postQuery(smallResponseUri))
-        sse  <- execute(postQuery(smallResponseUri).header("Accept", "text/event-stream"))
+        json   <- execute(postQuery(smallResponseUri))
+        strict <- execute(postQuery(smallResponseUri).header("Accept", "application/graphql-response+json"))
+        sse    <- execute(postQuery(smallResponseUri).header("Accept", "text/event-stream"))
       } yield assertTrue(
         json.code.code == 500,
         json.contentType.contains("application/json"),
-        json.body.contains("exceeds the configured limit"),
+        json.body.contains("\"data\":null") && json.body.contains("exceeds the configured limit"),
+        strict.code.code == 500,
+        strict.contentType.contains("application/graphql-response+json"),
+        !strict.body.contains("\"data\"") && strict.body.contains("exceeds the configured limit"),
         sse.code.code == 200,
         sse.body.contains("event: next"),
         sse.body.contains("exceeds the configured limit")
@@ -201,6 +231,38 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         reject(ZIO.succeed(GraphQLResponse(ResponseValue.ObjectValue(List("characterDeleted" -> stream)), Nil)))).map {
         case (a, b) => a && b
       }
+    },
+    test("uses 294 and full status codes for application/json clients only when configured") {
+      val gql                          = "application/graphql-response+json"
+      val json                         = "application/json"
+      val partial                      = GraphQLResponse[CalibanError](
+        ResponseValue.ObjectValue(List("name" -> Value.StringValue("Amos"))),
+        List(CalibanError.ExecutionError("failed"))
+      )
+      val invalid                      = GraphQLResponse[CalibanError](Value.NullValue, List(CalibanError.ValidationError("invalid", "")))
+      val cases                        = List(partial -> gql, partial -> json, invalid -> json)
+      def statuses(config: HttpConfig) =
+        ZIO.foreach(cases) { case (response, accept) =>
+          respond(ZIO.succeed(response), accept, config).flatMap { r =>
+            r.body.asString.map(body =>
+              (r.status.code, r.headers.get(Header.ContentType).map(_.mediaType.fullType), body.contains("\"data\""))
+            )
+          }
+        }
+      for {
+        defaults <- statuses(HttpConfig.default)
+        spec     <- statuses(HttpConfig.default.withPartialSuccessStatus(true).withJsonClientStatusCodes(true))
+        tooLarge <- respond(
+                      ZIO.succeed(partial),
+                      json,
+                      HttpConfig.default.withJsonClientStatusCodes(true).withMaxResponseBodyBytes(1)
+                    )
+      } yield assertTrue(
+        defaults == List((200, Some(gql), true), (200, Some(json), true), (200, Some(json), true)),
+        spec == List((294, Some(gql), true), (200, Some(json), true), (422, Some(gql), false)),
+        tooLarge.status.code == 500,
+        tooLarge.headers.get(Header.ContentType).map(_.mediaType.fullType).contains(gql)
+      )
     },
     test("negotiates each result kind separately for urql's default Accept header") {
       val accept                          =
@@ -334,17 +396,27 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private def postQuery(endpoint: sttp.model.Uri, contentType: String = "application/json") =
     basicRequest.post(endpoint).contentType(contentType).body(CharactersQuery).response(asStringAlways)
 
-  private def respond(response: UIO[GraphQLResponse[CalibanError]], accept: String) = {
+  private def respond(
+    response: UIO[GraphQLResponse[CalibanError]],
+    accept: String,
+    httpConfig: HttpConfig = HttpConfig.default,
+    body: Body = Body.fromString(CharactersQuery),
+    contentType: Header.ContentType = Header.ContentType(MediaType.application.json)
+  ) = {
     val interpreter = new GraphQLInterpreter[Any, CalibanError] {
       def check(query: String)(implicit trace: Trace)                    = ZIO.unit
       def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
     }
-    QuickAdapter(interpreter).handlers.api.runZIO(
-      Request
-        .post(URL.empty, Body.fromString(CharactersQuery))
-        .addHeader(Header.ContentType(MediaType.application.json))
-        .addHeader(Header.Custom("Accept", accept))
-    )
+    QuickAdapter(interpreter)
+      .configureHttp(httpConfig)
+      .handlers
+      .api
+      .runZIO(
+        Request
+          .post(URL.empty, body)
+          .addHeader(contentType)
+          .addHeader(Header.Custom("Accept", accept))
+      )
   }
 
   private def execute[T](request: sttp.client4.Request[T]): Task[sttp.client4.Response[T]] =

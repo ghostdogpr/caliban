@@ -393,7 +393,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         response <- runtime.execute("subscription { event @skip(if: true) }")
       } yield assertTrue(
         response.data == Value.NullValue,
-        response.errors.map(_.msg) == List("Subscriptions require exactly one non-introspection root field.")
+        response.errors.map(_.msg) == List("Subscription  uses @skip or @include on its root selection set.")
       )
     },
     test("two subscriptions on one socket hold and release independent slots") {

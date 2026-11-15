@@ -4,7 +4,7 @@ import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.Streams
-import sttp.model._
+import sttp.model.{ headers => _, _ }
 import sttp.shared.Identity
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
@@ -175,7 +175,7 @@ object HttpUploadInterpreter {
       .in(extractFromRequest(identity))
       .out(header[MediaType](HeaderNames.ContentType))
       .out(statusCode)
-      .out(header[Option[String]](HeaderNames.CacheControl))
+      .out(headers)
       .out(outputBody(streams))
       .errorOut(errorBody)
 }

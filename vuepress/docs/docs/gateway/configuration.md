@@ -61,6 +61,7 @@ Change acquisition settings on `RemoteGraphQLConfig.Acquisition` and execution s
 | `withRetries` | No retries configured here | 0 retries; 100 ms backoff when enabled |
 | `withInFlightQueryDeduplication` | Not applicable | Enabled |
 | `withHeaders` | No headers | No headers |
+| `withDeprecatedDirectives` | Disabled; enable for subgraphs that introspect deprecated directives | Not applicable |
 | `forwardIncomingHeaders` | Not applicable | No client headers forwarded |
 
 `Supergraph.http` and `SupergraphUplinkConfig.withAcquisition` take the same acquisition settings for supergraph downloads. Every acquisition request sends its headers to the original URL only, never to a redirect target. No acquisition follows a redirect from https to http. The Apollo Uplink follows only redirects to the same origin, because its request body carries the API key. Queries, mutations, and subscriptions never follow redirects. Use [subscription settings](subscriptions.md) for connection timeouts and buffering.

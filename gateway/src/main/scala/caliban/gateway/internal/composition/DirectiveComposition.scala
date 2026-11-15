@@ -6,7 +6,7 @@ import caliban.Value._
 import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph.Source
 import caliban.introspection.adt._
-import caliban.parsing.adt.{ Directive, Document }
+import caliban.parsing.adt.{ Directive, Document, SchemaCoordinate }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 import caliban.validation.{ Context, Validator }
@@ -120,42 +120,48 @@ private[gateway] object DirectiveComposition {
    * The location distinguishes elements with the same display name, such as output and input fields.
    */
   sealed trait Coordinate {
-    def display: String
     def location: __DirectiveLocation
+    def coordinate: Option[SchemaCoordinate]
+    final def display: String = coordinate.fold("schema")(_.toString)
   }
 
-  case object SchemaCoordinate extends Coordinate {
-    val display  = "schema"
-    val location = __DirectiveLocation.SCHEMA
+  case object SchemaDefinitionCoordinate extends Coordinate {
+    val location   = __DirectiveLocation.SCHEMA
+    val coordinate = None
   }
 
   final case class TypeCoordinate(typeName: String, location: __DirectiveLocation) extends Coordinate {
-    val display = typeName
+    val coordinate = Some(SchemaCoordinate.TypeCoordinate(typeName))
   }
 
   final case class FieldCoordinate(typeName: String, fieldName: String) extends Coordinate {
-    def display  = s"$typeName.$fieldName"
-    val location = __DirectiveLocation.FIELD_DEFINITION
+    val location   = __DirectiveLocation.FIELD_DEFINITION
+    val coordinate = Some(SchemaCoordinate.MemberCoordinate(typeName, fieldName))
   }
 
   final case class ArgumentCoordinate(typeName: String, fieldName: String, argumentName: String) extends Coordinate {
-    def display  = s"$typeName.$fieldName($argumentName:)"
-    val location = __DirectiveLocation.ARGUMENT_DEFINITION
+    val location   = __DirectiveLocation.ARGUMENT_DEFINITION
+    val coordinate = Some(SchemaCoordinate.ArgumentCoordinate(typeName, fieldName, argumentName))
   }
 
   final case class InputFieldCoordinate(typeName: String, fieldName: String) extends Coordinate {
-    def display  = s"$typeName.$fieldName"
-    val location = __DirectiveLocation.INPUT_FIELD_DEFINITION
+    val location   = __DirectiveLocation.INPUT_FIELD_DEFINITION
+    val coordinate = Some(SchemaCoordinate.MemberCoordinate(typeName, fieldName))
   }
 
   final case class EnumValueCoordinate(typeName: String, valueName: String) extends Coordinate {
-    def display  = s"$typeName.$valueName"
-    val location = __DirectiveLocation.ENUM_VALUE
+    val location   = __DirectiveLocation.ENUM_VALUE
+    val coordinate = Some(SchemaCoordinate.MemberCoordinate(typeName, valueName))
+  }
+
+  final case class DirectiveDefinitionCoordinate(directiveName: String) extends Coordinate {
+    val location   = __DirectiveLocation.DIRECTIVE_DEFINITION
+    val coordinate = Some(SchemaCoordinate.DirectiveCoordinate(directiveName))
   }
 
   final case class DirectiveArgumentCoordinate(directiveName: String, argumentName: String) extends Coordinate {
-    def display  = s"@$directiveName($argumentName:)"
-    val location = __DirectiveLocation.ARGUMENT_DEFINITION
+    val location   = __DirectiveLocation.ARGUMENT_DEFINITION
+    val coordinate = Some(SchemaCoordinate.DirectiveArgumentCoordinate(directiveName, argumentName))
   }
 
   final class ComposedDirectives private[DirectiveComposition] (
@@ -179,8 +185,9 @@ private[gateway] object DirectiveComposition {
     def definitions(rewrite: __Type => __Type): List[__Directive] =
       selectedDefinitions.distinctBy(_.key).map { selected =>
         val definition = selected.definition
-        definition.copy(args =
-          includeDeprecated =>
+        definition.copy(
+          directives = attach(definition.directives, DirectiveDefinitionCoordinate(definition.name)),
+          args = includeDeprecated =>
             definition
               .args(includeDeprecated)
               .map(argument =>
@@ -339,6 +346,8 @@ private[gateway] object DirectiveComposition {
       coordinate match {
         case TypeCoordinate(name, __DirectiveLocation.OBJECT) if subgraph.isInterfaceObject(name) =>
           Some(TypeCoordinate(name, __DirectiveLocation.INTERFACE))
+        case DirectiveDefinitionCoordinate(directive)                                             =>
+          selectedDefinition(composedNames, directive).map { case (_, name) => DirectiveDefinitionCoordinate(name) }
         case DirectiveArgumentCoordinate(directive, argument)                                     =>
           selectedDefinition(composedNames, directive).map { case (_, name) =>
             DirectiveArgumentCoordinate(name, argument)
@@ -465,25 +474,7 @@ private[gateway] object DirectiveComposition {
     BigDecimal(value.bigDecimal.stripTrailingZeros)
 
   private def coordinateExists(rootType: RootType, coordinate: Coordinate): Boolean =
-    coordinate match {
-      case SchemaCoordinate                                         => true
-      case TypeCoordinate(typeName, _)                              => rootType.types.contains(typeName)
-      case FieldCoordinate(typeName, fieldName)                     =>
-        rootType.types.get(typeName).flatMap(fieldDefinition(_, fieldName)).nonEmpty
-      case ArgumentCoordinate(typeName, fieldName, argumentName)    =>
-        rootType.types
-          .get(typeName)
-          .flatMap(fieldDefinition(_, fieldName))
-          .exists(_.allArgs.exists(_.name == argumentName))
-      case InputFieldCoordinate(typeName, fieldName)                =>
-        rootType.types.get(typeName).flatMap(inputFieldDefinition(_, fieldName)).nonEmpty
-      case EnumValueCoordinate(typeName, valueName)                 =>
-        rootType.types.get(typeName).exists(_.allEnumValues.exists(_.name == valueName))
-      case DirectiveArgumentCoordinate(directiveName, argumentName) =>
-        rootType.additionalDirectives
-          .find(_.name == directiveName)
-          .exists(_.allArgs.exists(_.name == argumentName))
-    }
+    coordinate.coordinate.forall(rootType.resolve(_).exists(_.nonEmpty))
 
   def typeLocation(kind: __TypeKind): __DirectiveLocation =
     kind match {
@@ -507,14 +498,22 @@ private[gateway] object DirectiveComposition {
   private final case class DefinitionSignature(
     repeatable: Boolean,
     locations: Set[__DirectiveLocation],
-    arguments: Map[String, (InputSignature, Boolean, Option[String])]
+    arguments: Map[String, (InputSignature, Boolean, Option[String])],
+    isDeprecated: Boolean,
+    deprecationReason: Option[String]
   )
 
   private def definitionSignature(definition: __Directive): DefinitionSignature = {
     val arguments = definition.allArgs.map { argument =>
       argument.name -> ((inputSignature(argument), argument.isDeprecated, argument.deprecationReason))
     }
-    DefinitionSignature(definition.isRepeatable, definition.locations, arguments.toMap)
+    DefinitionSignature(
+      definition.isRepeatable,
+      definition.locations,
+      arguments.toMap,
+      definition.isDeprecated,
+      definition.deprecationReason
+    )
   }
 
   private def importedName(value: InputValue): Option[ImportedName] =

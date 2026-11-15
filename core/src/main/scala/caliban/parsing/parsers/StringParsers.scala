@@ -58,7 +58,7 @@ private[caliban] trait StringParsers {
   def sourceCharacter(implicit ev: P[Any]): P[Unit]                      = CharIn("\u0009\u000A\u000D\u0020-\uFFFF")
   def sourceCharacterWithoutLineTerminator(implicit ev: P[Any]): P[Unit] = CharIn("\u0009\u0020-\uFFFF")
   def name(implicit ev: P[Any]): P[String]                               =
-    CharsWhileIn("_0-9A-Za-z", 1).!.flatMap { s =>
+    CharsWhileIn("_0-9A-Za-z", 1).!.flatMapX { s =>
       // Less efficient in case of an error, but more efficient in case of success (happy path)
       if (s.charAt(0) <= '9') ev.freshFailure()
       else ev.freshSuccess(s)
@@ -68,12 +68,18 @@ private[caliban] trait StringParsers {
 
   def hexDigit(implicit ev: P[Any]): P[Unit]         = CharIn("0-9a-fA-F")
   def escapedUnicode(implicit ev: P[Any]): P[String] =
-    ("{" ~~ hexDigit.repX(1).! ~~ "}").flatMap { hex =>
+    ("{" ~~ hexDigit.repX(1).! ~~ "}").flatMapX { hex =>
       val codePoint = BigInt(hex, 16)
       if (codePoint <= Character.MAX_CODE_POINT && !isSurrogate(codePoint.toInt))
         ev.freshSuccess(new String(Character.toChars(codePoint.toInt)))
       else ev.freshFailure()
-    } | (hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
+    } | codeUnit.filter(!_.isLowSurrogate).flatMapX { c =>
+      if (c.isHighSurrogate) ("\\u" ~~ codeUnit.filter(_.isLowSurrogate)).map(low => s"$c$low")
+      else ev.freshSuccess(c.toString)
+    }
+
+  private def codeUnit(implicit ev: P[Any]): P[Char] =
+    (hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar)
 
   private def isSurrogate(codePoint: Int): Boolean =
     codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE

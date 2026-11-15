@@ -205,7 +205,7 @@ private[gateway] object FederationCompilation {
   def plainFieldSet(selections: List[Selection]): Option[List[KeyField]] =
     traverseOption(selections) {
       case Selection.Field(None, name, arguments, directives, children, _) if arguments.isEmpty && directives.isEmpty =>
-        plainFieldSet(children).map(KeyField(name, _))
+        plainFieldSet(children.getOrElse(Nil)).map(KeyField(name, _))
       case _                                                                                                          => None
     }
 
@@ -231,11 +231,12 @@ private[gateway] object FederationCompilation {
         } ::: tpe.allInputFields.map(field => application(InputFieldCoordinate(name, field.name), field.directives)) :::
         tpe.allEnumValues.map(value => application(EnumValueCoordinate(name, value.name), value.directives))
     }
-    TypeSystemDirectiveApplication(SchemaCoordinate, schemaDirectives) :: types :::
+    TypeSystemDirectiveApplication(SchemaDefinitionCoordinate, schemaDirectives) :: types :::
       rootType.additionalDirectives.flatMap(definition =>
-        definition.allArgs.map(argument =>
-          application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
-        )
+        application(DirectiveDefinitionCoordinate(definition.name), definition.directives) ::
+          definition.allArgs.map(argument =>
+            application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
+          )
       )
   }
 }

@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.GraphQLResponseContext.{ markRequestError, markServerError, ServerFailure }
+import caliban.GraphQLResponseContext.{ markRejected, markRequestError, markServerError, ServerFailure }
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.PhaseHooks.{ Event, Outcome }
@@ -44,7 +44,8 @@ private[gateway] final class OperationPreparation[-R] private (
     request: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Failure, Event.Resolution] =
     runHook(hooks.resolution, Event.Resolution(request), ResolutionFailure) {
-      case PhaseHooks.Rejection(message, code) => CalibanError.ExecutionError(message, extensions = errorCode(code))
+      case PhaseHooks.Rejection(message, code) =>
+        ResolutionRejected(CalibanError.ExecutionError(message, extensions = errorCode(code)))
     }
 
   private def authorize(operation: ExecutableOperation)(implicit trace: Trace): ZIO[R, Failure, Unit] =
@@ -55,7 +56,7 @@ private[gateway] final class OperationPreparation[-R] private (
           hooks.authorization.map(authorize => (event: Event.Authorization) => authorize(event).as(event)),
           Event.Authorization(operation.request, operation.document, operation.executionRequest, requirements),
           AuthorizationFailure
-        ) { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }.unit
+        ) { case PhaseHooks.Denial(reason) => Rejected(CalibanError.ValidationError(reason, "")) }.unit
     }
 
   private def prepareResolved(
@@ -281,8 +282,9 @@ private[gateway] object OperationPreparation {
       .map(new OperationPreparation(rootType, planner, security, _, costLimit, hooks))
 
   sealed abstract class Failure(val outcome: Outcome, val mark: UIO[Unit]) { def error: CalibanError }
-  final case class Rejected(error: CalibanError) extends Failure(Outcome.RequestError, markRequestError(error))
-  final case class Internal(error: CalibanError) extends Failure(Outcome.InternalError, InternalMark)
+  final case class Rejected(error: CalibanError)           extends Failure(Outcome.RequestError, markRequestError(error))
+  final case class ResolutionRejected(error: CalibanError) extends Failure(Outcome.RequestError, markRejected)
+  final case class Internal(error: CalibanError)           extends Failure(Outcome.InternalError, InternalMark)
 
   private val InternalMark = markServerError(ServerFailure.Internal)
 
@@ -292,7 +294,7 @@ private[gateway] object OperationPreparation {
   private val UnsupportedPolicyFailure       = "Operation selects fields guarded by unsupported @policy directives."
 
   private def runHook[R, Ev](steps: List[Ev => ZIO[R, Throwable, Ev]], event: Ev, failureMessage: String)(
-    rejection: PartialFunction[Throwable, CalibanError]
+    rejection: PartialFunction[Throwable, Failure]
   )(implicit trace: Trace): ZIO[R, Failure, Ev] =
     if (steps.isEmpty) Exit.succeed(event)
     else
@@ -303,7 +305,7 @@ private[gateway] object OperationPreparation {
             Internal(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
           cause.interruptOption.fold[Cause[Failure]](Cause.fail(cause.failures match {
             case failure :: Nil if cause.defects.isEmpty =>
-              rejection.andThen(Rejected(_)).applyOrElse(failure, (_: Throwable) => internal)
+              rejection.applyOrElse(failure, (_: Throwable) => internal)
             case _                                       => internal
           }))(Cause.interrupt(_))
         }

@@ -5,7 +5,7 @@ import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldObject
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
-import caliban.Value.StringValue
+import caliban.Value.{ IntValue, StringValue }
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
@@ -205,7 +205,7 @@ object TestUtils {
     val Test = __Directive(
       name = "test",
       description = Some("Test directive"),
-      locations = Set(__DirectiveLocation.FIELD_DEFINITION),
+      locations = Set(__DirectiveLocation.FIELD_DEFINITION, __DirectiveLocation.DIRECTIVE_DEFINITION),
       args = _ => List(__InputValue("foo", None, () => Types.int, None)),
       isRepeatable = false
     )
@@ -215,7 +215,10 @@ object TestUtils {
       description = Some("Repeatable test directive"),
       locations = Set(__DirectiveLocation.FIELD_DEFINITION),
       args = _ => List(__InputValue("bar", None, () => Types.int, None)),
-      isRepeatable = true
+      isRepeatable = true,
+      isDeprecated = true,
+      deprecationReason = Some("Use @test"),
+      directives = Some(List(Directive("test", Map("foo" -> IntValue(1)))))
     )
   }
 
@@ -502,6 +505,22 @@ object TestUtils {
       case class FieldWithArgObject2(fieldWithArg: FieldArg => String) extends WithFieldWithArg
       case class TestFieldWithArgObject(obj: WithFieldWithArg)
       val resolverFieldWithArg = RootResolver(TestFieldWithArgObject(FieldWithArgObject1(_ => "a")))
+
+      case class FirstArg(first: Option[Int])
+      case class LimitArg(limit: Option[Int])
+      @GQLInterface
+      sealed trait WithRenamedArg
+      case class RenamedArgObject1(name: String, field: FirstArg => String) extends WithRenamedArg
+      case class RenamedArgObject2(name: String, field: LimitArg => String) extends WithRenamedArg
+      case class FirstLastArgs(first: Option[Int], last: Option[Int])
+      case class LastFirstArgs(last: Option[Int], first: Option[Int])
+      @GQLInterface
+      sealed trait WithReorderedArgs
+      case class ReorderedArgsObject1(lookup: FirstLastArgs => String)      extends WithReorderedArgs
+      case class ReorderedArgsObject2(lookup: LastFirstArgs => String)      extends WithReorderedArgs
+      case class TestRenamedArgObject(obj: WithRenamedArg, reordered: WithReorderedArgs)
+      val resolverRenamedArg =
+        RootResolver(TestRenamedArgObject(RenamedArgObject1("a", _ => "a"), ReorderedArgsObject1(_ => "a")))
 
       val nullableExtraArgsObject = __Type(
         name = Some("NullableExtraArgsObject"),

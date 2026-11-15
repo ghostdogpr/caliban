@@ -11,19 +11,19 @@ import scala.annotation.threadUnsafe
 final private class SumSchema[R, A](
   _members: => (List[(String, __Type, List[Any])], List[Schema[R, Any]]),
   info: TypeInfo,
-  annotations: List[Any]
+  annotations: List[Any],
+  parents: => List[Schema[R, ?]]
 )(ordinal: A => Int)
     extends Schema[R, A] {
 
   @threadUnsafe
-  private lazy val (subTypes, schemas, emptyUnionObjectIdxs) = {
+  private lazy val (subTypes, schemas) = {
     val (m, s) = _members
-    (
-      m.sortBy(_._1),
-      s.toArray,
-      s.map(s0 => SchemaUtils.isEmptyUnionObject(s0.toType_())).toArray[Boolean]
-    )
+    (m.sortBy(_._1), s.toArray)
   }
+
+  @threadUnsafe
+  private lazy val emptyUnionObjectIdxs = schemas.map(s0 => SchemaUtils.isEmptyUnionObject(s0.toType_()))
 
   private var containsEmptyUnionObjects = false
   private val isOneOfInput              = annotations.contains(GQLOneOfInput())
@@ -47,7 +47,15 @@ final private class SumSchema[R, A](
       )
     } else {
       val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-      mkInterface(annotations, info, impl)
+      SchemaUtils.mkInterface(
+        getName(annotations, info),
+        getDescription(annotations),
+        impl,
+        annotations,
+        info.full,
+        getDirectives(annotations),
+        parents
+      )
     }
   }
 

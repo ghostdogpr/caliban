@@ -63,6 +63,7 @@ object IntrospectionClient {
     case object INPUT_OBJECT           extends __DirectiveLocation
     case object INPUT_FIELD_DEFINITION extends __DirectiveLocation
     case object VARIABLE_DEFINITION    extends __DirectiveLocation
+    case object DIRECTIVE_DEFINITION   extends __DirectiveLocation
 
     implicit val decoder: ScalarDecoder[__DirectiveLocation] = {
       case __StringValue("QUERY")                  => Right(__DirectiveLocation.QUERY)
@@ -84,6 +85,7 @@ object IntrospectionClient {
       case __StringValue("INPUT_OBJECT")           => Right(__DirectiveLocation.INPUT_OBJECT)
       case __StringValue("INPUT_FIELD_DEFINITION") => Right(__DirectiveLocation.INPUT_FIELD_DEFINITION)
       case __StringValue("VARIABLE_DEFINITION")    => Right(__DirectiveLocation.VARIABLE_DEFINITION)
+      case __StringValue("DIRECTIVE_DEFINITION")   => Right(__DirectiveLocation.DIRECTIVE_DEFINITION)
       case other                                   => Left(DecodingError(s"Can't build __DirectiveLocation from input $other"))
     }
     implicit val encoder: ArgEncoder[__DirectiveLocation]    = {
@@ -106,6 +108,7 @@ object IntrospectionClient {
       case __DirectiveLocation.INPUT_OBJECT           => EnumValue("INPUT_OBJECT")
       case __DirectiveLocation.INPUT_FIELD_DEFINITION => EnumValue("INPUT_FIELD_DEFINITION")
       case __DirectiveLocation.VARIABLE_DEFINITION    => EnumValue("VARIABLE_DEFINITION")
+      case __DirectiveLocation.DIRECTIVE_DEFINITION   => EnumValue("DIRECTIVE_DEFINITION")
     }
   }
 
@@ -121,7 +124,15 @@ object IntrospectionClient {
     def subscriptionType[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__Schema, Option[A]] =
       Field("subscriptionType", OptionOf(Obj(innerSelection)))
     def directives[A](innerSelection: SelectionBuilder[__Directive, A]): SelectionBuilder[__Schema, List[A]]    =
-      Field("directives", ListOf(Obj(innerSelection)))
+      directives(None)(innerSelection)
+    def directives[A](
+      includeDeprecated: Option[Boolean]
+    )(innerSelection: SelectionBuilder[__Directive, A]): SelectionBuilder[__Schema, List[A]] =
+      Field(
+        "directives",
+        ListOf(Obj(innerSelection)),
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
+      )
   }
 
   type __Type
@@ -213,8 +224,19 @@ object IntrospectionClient {
     def description: SelectionBuilder[__Directive, Option[String]]                                         = Field("description", OptionOf(Scalar()))
     def locations: SelectionBuilder[__Directive, List[__DirectiveLocation]]                                = Field("locations", ListOf(Scalar()))
     def args[A](innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Directive, List[A]] =
-      Field("args", ListOf(Obj(innerSelection)))
+      args(None)(innerSelection)
+    def args[A](
+      includeDeprecated: Option[Boolean]
+    )(innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Directive, List[A]] =
+      Field(
+        "args",
+        ListOf(Obj(innerSelection)),
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
+      )
     def isRepeatable: SelectionBuilder[__Directive, Boolean]                                               = Field("isRepeatable", Scalar())
+    def isDeprecated: SelectionBuilder[__Directive, Boolean]                                               = Field("isDeprecated", Scalar())
+    def deprecationReason: SelectionBuilder[__Directive, Option[String]]                                   =
+      Field("deprecationReason", OptionOf(Scalar()))
   }
 
   type Query = RootQuery

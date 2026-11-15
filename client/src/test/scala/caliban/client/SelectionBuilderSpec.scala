@@ -274,6 +274,18 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
         }
       ),
       suite("response parsing")(
+        test("decodes GraphQL errors from any graphql-response+json status") {
+          val query = Queries.characters()(Character.name)
+          val gql   = Some("application/graphql-response+json; charset=utf-8")
+          assertTrue(
+            query.decodeResponse("""{"errors":[{"message":"invalid"}]}""", isSuccess = false, gql) ==
+              Left(CalibanClientError.ServerError(List(GraphQLResponseError("invalid", None, None, None)))),
+            query.decodeResponse("""{"data":{"characters":[{"name":"Amos"}]}}""", isSuccess = true, gql).map(_._1) ==
+              Right(List("Amos")),
+            query.decodeResponse("Bad Gateway", isSuccess = false, None) ==
+              Left(CalibanClientError.CommunicationError("Bad Gateway"))
+          )
+        },
         test("simple object") {
           val query    =
             Queries.characters() {

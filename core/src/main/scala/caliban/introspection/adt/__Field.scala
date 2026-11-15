@@ -1,9 +1,8 @@
 package caliban.introspection.adt
 
 import caliban.Scala3Annotations.threadUnsafe
-import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, InputValueDefinition }
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.GQLExcluded
 
 case class __Field(
@@ -18,17 +17,14 @@ case class __Field(
   @transient @threadUnsafe
   final override lazy val hashCode: Int = caliban.Hash.caseClassHash(this)
 
-  def toFieldDefinition: FieldDefinition = {
-    val allDirectives = (if (isDeprecated)
-                           List(
-                             Directive(
-                               "deprecated",
-                               List(deprecationReason.map(reason => "reason" -> StringValue(reason))).flatten.toMap
-                             )
-                           )
-                         else Nil) ++ directives.getOrElse(Nil)
-    FieldDefinition(description, name, allArgs.map(_.toInputValueDefinition), _type.toType(), allDirectives)
-  }
+  def toFieldDefinition: FieldDefinition =
+    FieldDefinition(
+      description,
+      name,
+      allArgs.map(_.toInputValueDefinition),
+      _type.toType(),
+      Directives.deprecation(isDeprecated, deprecationReason) ++ directives.getOrElse(Nil)
+    )
 
   def toInputValueDefinition: InputValueDefinition =
     InputValueDefinition(description, name, _type.toType(), None, directives.getOrElse(Nil))

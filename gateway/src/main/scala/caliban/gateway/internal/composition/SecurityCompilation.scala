@@ -86,7 +86,7 @@ private[composition] object SecurityCompilation {
               fieldApplications(parentType, field.name) ::: outputType.toList.flatMap(typeApplications)
             )
             (s"$parentType.${field.name}" -> required) ::
-              outputType.toList.flatMap(requiredProfiles(source, field.selectionSet, _))
+              outputType.toList.flatMap(requiredProfiles(source, field.selectionSet.getOrElse(Nil), _))
           }
         case fragment: Selection.InlineFragment =>
           val selectedType = fragment.typeCondition.fold(parentType)(_.name)

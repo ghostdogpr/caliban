@@ -1,7 +1,5 @@
 package caliban.tools
 
-import caliban.InputValue
-import caliban.Value.StringValue
 import caliban.client.IntrospectionClient._
 import caliban.client.Operations.RootQuery
 import caliban.client.{ CalibanClientError, SelectionBuilder }
@@ -11,7 +9,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Directive, Document, Type }
+import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 import sttp.client4._
 import sttp.model.Uri
 import zio.{ RIO, Task, ZIO }
@@ -39,23 +37,13 @@ object IntrospectionClient {
   private def sendRequest[T](req: Request[Either[CalibanClientError, T]]): RIO[Backend[Task], T] =
     ZIO.serviceWithZIO[Backend[Task]](_.send(req)).map(_.body).absolve
 
-  private def directives(isDeprecated: Boolean, deprecationReason: Option[String]): List[Directive] =
-    if (isDeprecated)
-      List(
-        Directive(
-          "deprecated",
-          deprecationReason.fold(Map.empty[String, InputValue])(reason => Map("reason" -> StringValue(reason)))
-        )
-      )
-    else Nil
-
   private def mapEnumValue(
     name: String,
     description: Option[String],
     isDeprecated: Boolean,
     deprecationReason: Option[String]
   ): EnumValueDefinition =
-    EnumValueDefinition(description, name, directives(isDeprecated, deprecationReason))
+    EnumValueDefinition(description, name, Directives.deprecation(isDeprecated, deprecationReason))
 
   private def mapInputValue(
     name: String,
@@ -66,7 +54,7 @@ object IntrospectionClient {
     deprecationReason: Option[String]
   ): InputValueDefinition = {
     val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
-    InputValueDefinition(description, name, `type`, default, directives(isDeprecated, deprecationReason))
+    InputValueDefinition(description, name, `type`, default, Directives.deprecation(isDeprecated, deprecationReason))
   }
 
   private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
@@ -94,7 +82,8 @@ object IntrospectionClient {
     `type`: Type,
     isDeprecated: Boolean,
     deprecationReason: Option[String]
-  ): FieldDefinition = FieldDefinition(description, name, args, `type`, directives(isDeprecated, deprecationReason))
+  ): FieldDefinition =
+    FieldDefinition(description, name, args, `type`, Directives.deprecation(isDeprecated, deprecationReason))
 
   private def mapType(
     kind: __TypeKind,
@@ -158,7 +147,8 @@ object IntrospectionClient {
     description: Option[String],
     locations: List[__DirectiveLocation],
     args: List[InputValueDefinition],
-    isRepeatable: Boolean
+    isRepeatable: Boolean,
+    directives: List[Directive]
   ): DirectiveDefinition =
     DirectiveDefinition(
       description,
@@ -185,7 +175,9 @@ object IntrospectionClient {
         case __DirectiveLocation.INPUT_OBJECT           => TypeSystemDirectiveLocation.INPUT_OBJECT
         case __DirectiveLocation.INPUT_FIELD_DEFINITION => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
         case __DirectiveLocation.VARIABLE_DEFINITION    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
-      }.toSet
+        case __DirectiveLocation.DIRECTIVE_DEFINITION   => TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION
+      }.toSet,
+      directives
     )
 
   private val typeRef: SelectionBuilder[__Type, Type] =
@@ -255,34 +247,38 @@ object IntrospectionClient {
         __Schema.mutationType(__Type.name) ~
         __Schema.subscriptionType(__Type.name)).mapN(mapSchema _) ~
         __Schema.types(fullType).map(_.flatten.filterNot(_.name.startsWith("__"))) ~
-        __Schema.directives {
-          if (config.supportIsRepeatable)
-            (__Directive.name ~
-              __Directive.description ~
-              __Directive.locations ~
-              __Directive.args(inputValue) ~
-              __Directive.isRepeatable).mapN(mapDirective _)
-          else
-            (__Directive.name ~
-              __Directive.description ~
-              __Directive.locations ~
-              __Directive.args(inputValue)).mapN(mapDirective(_, _, _, _, isRepeatable = false))
+        __Schema.directives(if (config.supportDeprecatedDirectives) Some(true) else None) {
+          (__Directive.name ~
+            __Directive.description ~
+            __Directive.locations ~
+            __Directive.args(if (config.supportDeprecatedArgs) Some(true) else None)(inputValue) ~
+            (if (config.supportIsRepeatable) __Directive.isRepeatable else SelectionBuilder.pure(false)) ~
+            (if (config.supportDeprecatedDirectives)
+               (__Directive.isDeprecated ~ __Directive.deprecationReason).mapN(Directives.deprecation _)
+             else SelectionBuilder.pure(List.empty[Directive]))).mapN(mapDirective _)
         }
     }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
 
   final class Config(
     val supportDeprecatedArgs: Boolean = true,
-    val supportIsRepeatable: Boolean = true
+    val supportIsRepeatable: Boolean = true,
+    val supportDeprecatedDirectives: Boolean = false
   ) {
 
+    def this(supportDeprecatedArgs: Boolean, supportIsRepeatable: Boolean) =
+      this(supportDeprecatedArgs, supportIsRepeatable, false)
+
     def supportDeprecatedArgs(value: Boolean): Config =
-      new Config(supportDeprecatedArgs = value, supportIsRepeatable = supportIsRepeatable)
+      new Config(value, supportIsRepeatable, supportDeprecatedDirectives)
 
     def supportIsRepeatable(value: Boolean): Config =
-      new Config(supportDeprecatedArgs = supportDeprecatedArgs, supportIsRepeatable = value)
+      new Config(supportDeprecatedArgs, value, supportDeprecatedDirectives)
+
+    def supportDeprecatedDirectives(value: Boolean): Config =
+      new Config(supportDeprecatedArgs, supportIsRepeatable, value)
 
     override def toString: String =
-      s"Config(supportDeprecatedArgs = $supportDeprecatedArgs, supportIsRepeatable = $supportIsRepeatable)"
+      s"Config(supportDeprecatedArgs = $supportDeprecatedArgs, supportIsRepeatable = $supportIsRepeatable, supportDeprecatedDirectives = $supportDeprecatedDirectives)"
   }
 
   object Config {

@@ -1,9 +1,10 @@
 package caliban.introspection
 
 import caliban.CalibanError.ExecutionError
+import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.{ Directives, Document, OperationType, Selection }
 import caliban.parsing.adt.Selection.Field
 import caliban.schema.Step.QueryStep
 import caliban.schema._
@@ -12,6 +13,7 @@ import zio.{ Exit, ZIO }
 import zio.query.ZQuery
 
 import scala.annotation.tailrec
+import scala.collection.immutable.ListSet
 import scala.collection.mutable
 
 object Introspector extends IntrospectionDerivation {
@@ -42,6 +44,29 @@ object Introspector extends IntrospectionDerivation {
       Set(__DirectiveLocation.SCALAR),
       _ => List(__InputValue("url", None, () => Types.string.nonNull, None)),
       isRepeatable = false
+    ),
+    __Directive(
+      "deprecated",
+      Some(
+        "The @deprecated directive is used within the type system definition language to indicate deprecated portions of a GraphQL service's schema, such as deprecated fields on a type, arguments on a field, input fields on an input type, values of an enum type, or directives."
+      ),
+      ListSet(
+        __DirectiveLocation.FIELD_DEFINITION,
+        __DirectiveLocation.ARGUMENT_DEFINITION,
+        __DirectiveLocation.INPUT_FIELD_DEFINITION,
+        __DirectiveLocation.ENUM_VALUE,
+        __DirectiveLocation.DIRECTIVE_DEFINITION
+      ),
+      _ =>
+        List(
+          __InputValue(
+            "reason",
+            None,
+            () => Types.string.nonNull,
+            Some(StringValue(Directives.DefaultDeprecationReason).toInputString)
+          )
+        ),
+      isRepeatable = false
     )
   )
 
@@ -61,6 +86,8 @@ object Introspector extends IntrospectionDerivation {
       _ => Nil,
       isRepeatable = false
     )
+
+  private[caliban] lazy val builtInDirectives: List[__Directive] = directives :+ oneOfDirective
 
   /**
    * Generates a schema for introspecting the given type.
@@ -87,10 +114,15 @@ object Introspector extends IntrospectionDerivation {
     typesMap ++= introspectionRootType.types
     typesMap.remove("__Introspection")
     typesMap.update("Boolean", Types.boolean) // because of skip and include
-    typesMap.update("String", Types.string)   // because of specifiedBy
+    typesMap.update("String", Types.string)   // because of specifiedBy and deprecated
 
     val types    = typesMap.values.toList.sortBy(_.name)
     val hasOneOf = types.exists(_._isOneOfInput)
+
+    val additional    = rootType.additionalDirectives
+    val allDirectives =
+      (directives ++ (if (hasOneOf) List(oneOfDirective) else Nil))
+        .filterNot(builtIn => additional.exists(_.name == builtIn.name)) ++ additional
 
     val resolver = __Introspection(
       __Schema(
@@ -99,7 +131,7 @@ object Introspector extends IntrospectionDerivation {
         rootType.mutationType,
         rootType.subscriptionType,
         types,
-        directives ++ (if (hasOneOf) List(oneOfDirective) else Nil) ++ rootType.additionalDirectives
+        _.filter(allDirectives)(_.isDeprecated)
       ),
       args => typesMap.get(args.name)
     )
@@ -114,9 +146,9 @@ object Introspector extends IntrospectionDerivation {
 
   private[caliban] def isIntrospection(document: Document): Boolean =
     document.definitions.forall {
-      case OperationDefinition(_, _, _, _, selectionSet) =>
+      case OperationDefinition(_, _, _, _, selectionSet, _) =>
         selectionSet.nonEmpty && selectionSet.forall(isIntrospectionField)
-      case _                                             => true
+      case _                                                => true
     }
 
   private[caliban] def hasIntrospection(document: Document, operationName: Option[String]): Boolean =

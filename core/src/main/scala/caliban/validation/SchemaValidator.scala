@@ -1,33 +1,20 @@
 package caliban.validation
 
 import caliban.CalibanError.ValidationError
-import caliban.InputValue
 import caliban.introspection.adt.__TypeKind._
-import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
+import caliban.introspection.Introspector
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.{ Directive, Document, Type }
+import caliban.parsing.adt.{ Directive, Document, SchemaCoordinate, Type }
+import caliban.parsing.adt.SchemaCoordinate._
 import caliban.rendering.DocumentRenderer
-import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
+import caliban.schema.{ RootType, Types }
 import caliban.validation.Utils.isObjectType
 import caliban.validation.ValidationOps._
 
 private[caliban] object SchemaValidator {
-
-  /**
-   * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
-   */
-  def validateSchema[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] =
-    for {
-      query <- schema.query.toRight(missingQueryRoot)
-      _     <- validateSchema(
-                 schema.additionalTypes,
-                 query.opType,
-                 schema.mutation.map(_.opType),
-                 schema.subscription.map(_.opType)
-               )
-    } yield RootSchema(query, schema.mutation, schema.subscription)
 
   private[caliban] val missingQueryRoot: ValidationError =
     ValidationError(
@@ -53,31 +40,28 @@ private[caliban] object SchemaValidator {
       .toLeft(())
   }
 
-  private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] =
-    validateSchema(rootType.additionalTypes, rootType.queryType, rootType.mutationType, rootType.subscriptionType)
-
-  private def validateSchema(
-    additionalTypes: List[__Type],
-    query: __Type,
-    mutation: Option[__Type],
-    subscription: Option[__Type]
-  ): Either[ValidationError, Unit] = {
-    val roots = query :: mutation.toList ::: subscription.toList
-    val types = Types.collectRootTypes(additionalTypes, roots).sorted
+  /**
+   * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] = {
+    val roots = rootType.queryType :: rootType.mutationType.toList ::: rootType.subscriptionType.toList
+    val types = Types.collectRootTypes(rootType.additionalTypes, roots).sorted
     for {
       _ <- validateDistinctRootTypes(roots)
       _ <- validateAllDiscard(types)(validateType)
+      _ <- validateFiniteInputObjects(types)
       _ <- validateClashingTypes(types)
       _ <- validateDirectives(types)
-      _ <- failWhen(mutation.exists(_.kind != OBJECT))(
+      _ <- validateDirectiveDefinitions(rootType.additionalDirectives)
+      _ <- failWhen(rootType.mutationType.exists(_.kind != OBJECT))(
              "The mutation root operation is not an object type.",
              "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
            )
-      _ <- failWhen(subscription.exists(_.kind != OBJECT))(
+      _ <- failWhen(rootType.subscriptionType.exists(_.kind != OBJECT))(
              "The mutation root subscription is not an object type.",
              "The mutation root subscription type is optional; if it is not provided, the service does not support subscriptions. If it is provided, it must be an Object type."
            )
-      _ <- failWhen(query.kind != OBJECT)(
+      _ <- failWhen(rootType.queryType.kind != OBJECT)(
              "The query root operation is not an object type.",
              "The query root operation type must be provided and must be an Object type."
            )
@@ -113,13 +97,22 @@ private[caliban] object SchemaValidator {
   private[caliban] def validateType(t: __Type): Either[ValidationError, Unit] =
     t.name.fold[Either[ValidationError, Unit]](unit)(name => checkName(name, s"Type '$name'")) *>
       (t.kind match {
-        case __TypeKind.ENUM         => validateEnum(t)
-        case __TypeKind.UNION        => validateUnion(t)
-        case __TypeKind.INTERFACE    => validateInterface(t)
-        case __TypeKind.INPUT_OBJECT => validateInputObject(t)
-        case __TypeKind.OBJECT       => validateObject(t)
-        case _                       => unit
+        case __TypeKind.ENUM                          => validateEnum(t)
+        case __TypeKind.UNION                         => validateUnion(t)
+        case __TypeKind.INTERFACE | __TypeKind.OBJECT => validateFieldsType(t)
+        case __TypeKind.INPUT_OBJECT                  => validateInputObject(t)
+        case _                                        => unit
       })
+
+  private def validateDeprecationReason(
+    isDeprecated: Boolean,
+    reason: Option[String],
+    errorContext: => String
+  ): Either[ValidationError, Unit] =
+    failWhen(isDeprecated && reason.isEmpty)(
+      s"$errorContext is deprecated without a reason.",
+      "The `reason` argument of the `@deprecated` directive must be a non-null String."
+    )
 
   private def validateClashingTypes(types: List[__Type]): Either[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
@@ -136,60 +129,100 @@ private[caliban] object SchemaValidator {
     }
   }
 
-  private def validateDirectives(types: List[__Type]): Either[ValidationError, Unit] = {
-
-    def validateArguments(
-      args: Map[String, InputValue],
-      errorContext: => String
-    ): Either[ValidationError, Unit] = {
-      val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      validateAllDiscard(args.keys.toList)(argName => checkName(argName, argumentErrorContextBuilder(argName)))
+  private def validateAppliedDirectives(directives: Option[List[Directive]], location: SchemaCoordinate) =
+    validateAllDiscard(directives.getOrElse(Nil)) { directive =>
+      lazy val context = s"Directive '@${directive.name}' on '$location'"
+      checkName(directive.name, context) *>
+        validateAllDiscard(directive.arguments.keys.toList)(name => checkName(name, s"Argument '$name' of $context"))
     }
 
-    def validateDirective(directive: Directive, errorContext: => String) = {
-      lazy val directiveErrorContext = s"Directive '${directive.name}' of $errorContext"
-
-      checkName(directive.name, directiveErrorContext) *>
-        validateArguments(directive.arguments, directiveErrorContext)
-    }
-
-    def validateDirectives(
-      directives: Option[List[Directive]],
-      errorContext: => String
-    ): Either[ValidationError, Unit] =
-      validateAllDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
-
-    def validateInputValueDirectives(
-      inputValues: List[__InputValue],
-      errorContext: => String
-    ): Either[ValidationError, Unit] = {
-      val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
-      validateAllDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
-    }
-
-    def validateFieldDirectives(
-      field: __Field,
-      errorContext: => String
-    ): Either[ValidationError, Unit] = {
-      lazy val fieldErrorContext = s"Field '${field.name}' of $errorContext"
-      validateDirectives(field.directives, fieldErrorContext) *>
-        validateInputValueDirectives(field.allArgs, fieldErrorContext)
-    }
-
+  private def validateDirectives(types: List[__Type]): Either[ValidationError, Unit] =
     validateAllDiscard(types) { t =>
-      lazy val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
+      val typeName = t.name.getOrElse("")
       for {
-        _ <- validateDirectives(t.directives, typeErrorContext)
-        _ <- validateInputValueDirectives(t.allInputFields, typeErrorContext)
-        _ <- validateAllDiscard(t.allFields)(validateFieldDirectives(_, typeErrorContext))
+        _ <- validateAppliedDirectives(t.directives, TypeCoordinate(typeName))
+        _ <- validateAllDiscard(t.allInputFields)(f =>
+               validateAppliedDirectives(f.directives, MemberCoordinate(typeName, f.name))
+             )
+        _ <- validateAllDiscard(t.allFields) { f =>
+               validateAppliedDirectives(f.directives, MemberCoordinate(typeName, f.name)) *>
+                 validateAllDiscard(f.allArgs)(a =>
+                   validateAppliedDirectives(a.directives, ArgumentCoordinate(typeName, f.name, a.name))
+                 )
+             }
+      } yield ()
+    }
+
+  private def validateDirectiveDefinitions(directives: List[__Directive]): Either[ValidationError, Unit] = {
+    val definitions = (Introspector.builtInDirectives ::: directives).map(d => d.name -> d).toMap
+
+    def applied(directives: Option[List[Directive]]): List[Either[String, __Type]]  =
+      directives.getOrElse(Nil).map(d => Left(d.name))
+    def input(value: __InputValue): List[Either[String, __Type]]                    =
+      Right(value._type.innerType) :: applied(value.directives)
+    def references(reference: Either[String, __Type]): List[Either[String, __Type]] =
+      reference.fold(
+        definitions.get(_).toList.flatMap(d => applied(Some(d.allDirectives)) ::: d.allArgs.flatMap(input)),
+        t =>
+          applied(t.directives) ::: t.allInputFields.flatMap(input) ::: t.allEnumValues.flatMap(v =>
+            applied(v.directives)
+          )
+      )
+
+    @scala.annotation.tailrec
+    def isRecursive(
+      name: String,
+      visited: Set[Either[String, Option[String]]],
+      pending: List[Either[String, __Type]]
+    ): Boolean =
+      pending match {
+        case Nil                                                 => false
+        case Left(`name`) :: _                                   => true
+        case reference :: rest if visited(reference.map(_.name)) => isRecursive(name, visited, rest)
+        case reference :: rest                                   =>
+          isRecursive(name, visited + reference.map(_.name), references(reference) ::: rest)
+      }
+
+    validateAllDiscard(directives) { d =>
+      val coordinate = DirectiveCoordinate(d.name)
+      for {
+        _ <- validateAppliedDirectives(d.directives, coordinate)
+        _ <- validateDeprecationReason(d.isDeprecated, d.deprecationReason, s"Directive '$coordinate'")
+        _ <- validateAllDiscard(d.allArgs) { arg =>
+               val argument = DirectiveArgumentCoordinate(d.name, arg.name)
+               validateAppliedDirectives(arg.directives, argument) *>
+                 validateDeprecationReason(arg.isDeprecated, arg.deprecationReason, s"Argument '$argument'")
+             }
+        _ <- validateAllDiscard(d.allDirectives.groupBy(_.name).toList) { case (name, usages) =>
+               val definition = definitions.get(name)
+               failWhen(definition.exists(!_.locations.contains(__DirectiveLocation.DIRECTIVE_DEFINITION)))(
+                 s"Directive '@$name' on '$coordinate' is used in invalid location 'DIRECTIVE_DEFINITION'.",
+                 "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
+               ) *>
+                 failWhen(usages.lengthCompare(1) > 0 && !definition.exists(_.isRepeatable))(
+                   s"Directive '@$name' is applied more than once on '$coordinate'.",
+                   "Only one of each non-repeatable directive is allowed per location."
+                 )
+             }
+        _ <- failWhen(isRecursive(d.name, Set.empty, references(Left(d.name))))(
+               s"Directive '$coordinate' references itself.",
+               "A directive definition must not contain the use of a directive which references itself directly or indirectly by referencing a Type or Directive which transitively includes a reference to this directive."
+             )
       } yield ()
     }
   }
 
   private def validateEnum(t: __Type): Either[ValidationError, Unit] =
     t.allEnumValues match {
-      case _ :: _ => unit
-      case Nil    =>
+      case values @ (_ :: _) =>
+        validateAllDiscard(values)(v =>
+          validateDeprecationReason(
+            v.isDeprecated,
+            v.deprecationReason,
+            s"Enum value '${MemberCoordinate(t.name.getOrElse(""), v.name)}'"
+          )
+        )
+      case Nil               =>
         failValidation(
           s"Enum ${t.name.getOrElse("")} doesn't contain any values",
           "An Enum type must define one or more unique enum values."
@@ -213,7 +246,9 @@ private[caliban] object SchemaValidator {
     }
 
   private def validateInputObject(t: __Type): Either[ValidationError, Unit] = {
-    lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
+    val typeName                      = t.name.getOrElse("")
+    def fieldContext(f: __InputValue) = s"Input field '${MemberCoordinate(typeName, f.name)}'"
+    lazy val inputObjectContext       = inputObjectName(t)
 
     def noDuplicateInputValueName(
       inputValues: List[__InputValue],
@@ -234,18 +269,18 @@ private[caliban] object SchemaValidator {
     }
 
     def validateFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
-      validateAllDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
+      validateAllDiscard(fields)(f => validateInputValue(f, fieldContext(f))) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
     def validateOneOfFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
       noDuplicatedOneOfOrigin(fields) *>
         validateAllDiscard(fields) { f =>
           failWhen(f.defaultValue.isDefined)(
-            s"$inputObjectContext argument has a default value",
+            s"OneOf ${fieldContext(f)} has a default value",
             "Fields of OneOf input objects cannot have default values"
           ) *>
             failWhen(!f._type.isNullable)(
-              s"$inputObjectContext argument is not nullable",
+              s"OneOf ${fieldContext(f)} is not nullable",
               "All of OneOf input fields must be declared as nullable in the schema according to the spec"
             )
         }
@@ -261,159 +296,185 @@ private[caliban] object SchemaValidator {
     }
   }
 
+  private def inputObjectName(t: __Type): String =
+    s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
+
+  private def validateFiniteInputObjects(types: List[__Type]): Either[ValidationError, Unit] = {
+    def hasFiniteValue(finite: Set[String])(t: __Type): Boolean = {
+      def isFinite(f: __Type): Boolean = f.kind match {
+        case NON_NULL     => f.ofType.exists(isFinite)
+        case INPUT_OBJECT => f.name.exists(finite.contains)
+        case _            => true
+      }
+      if (t._isOneOfInput) t.allInputFields.exists(f => isFinite(f._type))
+      else t.allInputFields.forall(f => f._type.isNullable || isFinite(f._type))
+    }
+
+    @scala.annotation.tailrec
+    def infinite(finite: Set[String], pending: List[__Type]): List[__Type] =
+      pending.partition(hasFiniteValue(finite)) match {
+        case (Nil, rest)  => rest
+        case (more, rest) => infinite(finite ++ more.flatMap(_.name), rest)
+      }
+
+    infinite(Set.empty, types.filter(_.kind == INPUT_OBJECT)) match {
+      case Nil    => unit
+      case t :: _ =>
+        failValidation(
+          s"${inputObjectName(t)} has an unbreakable cycle and cannot have a finite value",
+          "An Input Object type must not reference itself through an unbroken chain of Non-Null or OneOf fields"
+        )
+    }
+  }
+
   private def validateInputValue(
     inputValue: __InputValue,
-    errorContext: => String
-  ): Either[ValidationError, Unit] = {
-    lazy val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
+    fieldContext: => String
+  ): Either[ValidationError, Unit] =
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
+      _ <- validateDeprecationReason(inputValue.isDeprecated, inputValue.deprecationReason, fieldContext)
       _ <- checkName(inputValue.name, fieldContext)
       _ <- onlyInputType(inputValue._type, fieldContext)
     } yield ()
-  }
 
-  private def validateInterface(t: __Type): Either[ValidationError, Unit] = {
-    lazy val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
+  private def validateFieldsType(t: __Type): Either[ValidationError, Unit] = {
+    val kind         = t.kind.toString.toLowerCase.capitalize
+    lazy val context = s"$kind '${t.name.getOrElse("")}'"
 
     t.allFields match {
-      case Nil    =>
-        failValidation(
-          s"$interfaceContext does not have fields",
-          "An Interface type must define one or more fields"
-        )
-      case fields => validateFields(fields, interfaceContext)
+      case Nil => failValidation(s"$context does not have fields", s"An $kind type must define one or more fields")
+      case _   => validateFields(t, context) *> validateInterfaceFields(t, context)
     }
   }
 
-  private def validateObject(obj: __Type): Either[ValidationError, Unit] = {
-    lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
+  private def validateInterfaceFields(obj: __Type, context: String): Either[ValidationError, Unit] = {
+    val kind = obj.kind.toString.toLowerCase
 
-    def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) = t.allFields.map(_.name)
+    def fieldNames(t: __Type) = t.allFields.map(_.name)
 
-      val supertype = obj.interfaces().toList.flatten
+    val supertype       = obj.interfaces().toList.flatten
+    val supertypeFields = supertype.flatMap(_.allFields)
 
-      def checkForMissingFields(): Either[ValidationError, Unit] = {
-        val objectFieldNames    = fieldNames(obj).toSet
-        val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
-        val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
+    def checkImplementedInterfaces(): Either[ValidationError, Unit] = {
+      val undeclared = Types.withAncestors(supertype).filterNot(i => supertype.exists(Types.same(_, i)))
+      failWhen(supertype.exists(Types.same(_, obj)))(
+        s"$context must not implement itself",
+        "An Interface type may not implement itself."
+      ) *> failWhen(undeclared.nonEmpty)(
+        s"$context must also implement ${undeclared.flatMap(_.name).mkString(", ")}",
+        s"An ${kind.capitalize} type must declare every interface implemented by the interfaces it implements"
+      )
+    }
 
-        failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(
-          {
-            val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
-            s"$objectContext is missing field(s): ${missingFields.mkString(", ")}"
-          },
-          "An Object type must include a field of the same name for every field defined in an interface"
-        )
+    def checkForMissingFields(): Either[ValidationError, Unit] = {
+      val objectFieldNames    = fieldNames(obj).toSet
+      val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
+      val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
+
+      failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(
+        {
+          val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
+          s"$context is missing field(s): ${missingFields.mkString(", ")}"
+        },
+        s"An ${kind.capitalize} type must include a field of the same name for every field defined in an interface"
+      )
+    }
+
+    def checkForInvalidSubtypeFields(): Either[ValidationError, Unit] = {
+      val objectFields = obj.allFields
+
+      // https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
+      def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type): Boolean = {
+        import __TypeKind._
+        if (objectFieldType.kind == NON_NULL) {
+          // Non-Null is a valid sub-type of either Non-Null or its nullable variant.
+          val unwrappedObj = objectFieldType.ofType.getOrElse(objectFieldType)
+          val unwrappedSup =
+            if (supertypeFieldType.kind == NON_NULL) supertypeFieldType.ofType.getOrElse(supertypeFieldType)
+            else supertypeFieldType
+          isValidSubtype(unwrappedSup, unwrappedObj)
+        } else if (supertypeFieldType.kind == NON_NULL) {
+          // A nullable object field cannot implement a non-nullable interface field.
+          false
+        } else if (supertypeFieldType.kind == LIST && objectFieldType.kind == LIST) {
+          (for {
+            s <- supertypeFieldType.ofType
+            o <- objectFieldType.ofType
+          } yield isValidSubtype(s, o)).getOrElse(false)
+        } else if (Types.same(supertypeFieldType, objectFieldType)) {
+          true
+        } else
+          (supertypeFieldType.kind, objectFieldType.kind) match {
+            case (UNION, OBJECT)                              =>
+              supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType))
+            case (INTERFACE, OBJECT) | (INTERFACE, INTERFACE) =>
+              supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType)) ||
+              Types.withAncestors(objectFieldType.interfaces().toList.flatten).exists(Types.same(_, supertypeFieldType))
+            case _                                            => false
+          }
       }
 
-      def checkForInvalidSubtypeFields(): Either[ValidationError, Unit] = {
-        val objectFields    = obj.allFields
-        val supertypeFields = supertype.flatMap(_.allFields)
+      validateAllDiscard(objectFields) { objField =>
+        lazy val fieldContext = s"Field '${MemberCoordinate(obj.name.getOrElse(""), objField.name)}'"
 
-        // https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
-        def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type): Boolean = {
-          import __TypeKind._
-          if (objectFieldType.kind == NON_NULL) {
-            // Non-Null is a valid sub-type of either Non-Null or its nullable variant.
-            val unwrappedObj = objectFieldType.ofType.getOrElse(objectFieldType)
-            val unwrappedSup =
-              if (supertypeFieldType.kind == NON_NULL) supertypeFieldType.ofType.getOrElse(supertypeFieldType)
-              else supertypeFieldType
-            isValidSubtype(unwrappedSup, unwrappedObj)
-          } else if (supertypeFieldType.kind == NON_NULL) {
-            // A nullable object field cannot implement a non-nullable interface field.
-            false
-          } else if (supertypeFieldType.kind == LIST && objectFieldType.kind == LIST) {
-            (for {
-              s <- supertypeFieldType.ofType
-              o <- objectFieldType.ofType
-            } yield isValidSubtype(s, o)).getOrElse(false)
-          } else if (Types.same(supertypeFieldType, objectFieldType)) {
-            true
-          } else
-            (supertypeFieldType.kind, objectFieldType.kind) match {
-              case (UNION, OBJECT)                              =>
-                supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType))
-              case (INTERFACE, OBJECT) | (INTERFACE, INTERFACE) =>
-                supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType)) ||
-                implementsTransitively(objectFieldType, supertypeFieldType)
-              case _                                            => false
-            }
-        }
-
-        def implementsTransitively(t: __Type, ancestor: __Type): Boolean = {
-          @scala.annotation.tailrec
-          def loop(queue: List[__Type], visited: List[__Type]): Boolean = queue match {
-            case Nil       => false
-            case h :: rest =>
-              if (visited.exists(Types.same(_, h))) loop(rest, visited)
-              else if (Types.same(h, ancestor)) true
-              else loop(rest ::: h.interfaces().toList.flatten, h :: visited)
+        validateAllDiscard(supertypeFields.filter(_.name == objField.name)) { superField =>
+          val superArgs = superField.allArgs.map(arg => (arg.name, arg)).toMap
+          val extraArgs = objField.allArgs.filter { arg =>
+            superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg._type, superArg._type))
           }
-          loop(t.interfaces().toList.flatten, List(t))
-        }
 
-        validateAllDiscard(objectFields) { objField =>
-          lazy val fieldContext = s"Field '${objField.name}'"
+          def fieldTypeIsValid = isValidSubtype(superField._type, objField._type)
 
-          supertypeFields.find(_.name == objField.name) match {
-            case None             => unit
-            case Some(superField) =>
-              val superArgs = superField.allArgs.map(arg => (arg.name, arg)).toMap
-              val extraArgs = objField.allArgs.filter { arg =>
-                superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg._type, superArg._type))
-              }
+          def extraArgsAreValid = !extraArgs.exists(_._type.kind == __TypeKind.NON_NULL)
 
-              def fieldTypeIsValid = isValidSubtype(superField._type, objField._type)
+          def missingArgs = superField.allArgs.filterNot(arg =>
+            objField.allArgs.exists(a => a.name == arg.name && Types.same(a._type, arg._type))
+          )
 
-              def listItemTypeIsValid =
-                isListField(superField) && isListField(objField) && (for {
-                  superListItemType <- superField._type.ofType
-                  objListItemType   <- objField._type.ofType
-                } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
-
-              def extraArgsAreValid = !extraArgs.exists(_._type.kind == __TypeKind.NON_NULL)
-
-              (fieldTypeIsValid, isListField(superField)) match {
-                case (_, true) if !listItemTypeIsValid =>
-                  failValidation(
-                    s"$fieldContext in $objectContext is an invalid list item subtype",
-                    "An object list item field type must be equal to or a possible" +
-                      " type of the interface list item field type."
-                  )
-                case (false, false)                    =>
-                  failValidation(
-                    s"$fieldContext in $objectContext is an invalid subtype",
-                    "An object field type must be equal to or a possible type of the interface field type."
-                  )
-                case _ if !extraArgsAreValid           =>
-                  val argNames = extraArgs.filter(_._type.kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
-                  failValidation(
-                    s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
-                    "Any additional field arguments must not be of a non-nullable type."
-                  )
-                case _                                 => unit
-              }
+          (fieldTypeIsValid, isListField(superField)) match {
+            case (false, true)             =>
+              failValidation(
+                s"$fieldContext is an invalid list item subtype",
+                s"An $kind list item field type must be equal to or a possible" +
+                  " type of the interface list item field type."
+              )
+            case (false, false)            =>
+              failValidation(
+                s"$fieldContext is an invalid subtype",
+                s"An $kind field type must be equal to or a possible type of the interface field type."
+              )
+            case _ if missingArgs.nonEmpty =>
+              failValidation(
+                s"$fieldContext must declare argument(s) '${missingArgs.map(_.name).mkString(", ")}' of the interface field",
+                s"An $kind field must include an argument of the same name and type for every interface field argument."
+              )
+            case _ if !extraArgsAreValid   =>
+              val argNames = extraArgs.filter(_._type.kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
+              failValidation(
+                s"$fieldContext with extra non-nullable arg(s) '$argNames' is invalid",
+                "Any additional field arguments must not be of a non-nullable type."
+              )
+            case _                         => unit
           }
         }
       }
-
-      for {
-        _ <- checkForMissingFields()
-        _ <- checkForInvalidSubtypeFields()
-      } yield ()
     }
 
-    obj.allFields match {
-      case Nil    =>
-        failValidation(
-          s"$objectContext does not have fields",
-          "An Object type must define one or more fields"
+    def checkForDeprecatedFields(): Either[ValidationError, Unit] =
+      validateAllDiscard(obj.allFields.filter(_.isDeprecated)) { field =>
+        failWhen(supertypeFields.exists(f => f.name == field.name && !f.isDeprecated))(
+          s"Field '${MemberCoordinate(obj.name.getOrElse(""), field.name)}' is deprecated but the interface field is not",
+          "A field must not be deprecated if the interface field it implements is not deprecated."
         )
-      case fields => validateFields(fields, objectContext) *> validateInterfaceFields(obj)
-    }
+      }
+
+    for {
+      _ <- checkImplementedInterfaces()
+      _ <- checkForMissingFields()
+      _ <- checkForInvalidSubtypeFields()
+      _ <- checkForDeprecatedFields()
+    } yield ()
   }
 
   private def isListField(field: __Field) =
@@ -440,16 +501,21 @@ private[caliban] object SchemaValidator {
     }
   }
 
-  private def validateFields(fields: List[__Field], context: => String): Either[ValidationError, Unit] =
-    noDuplicateFieldName(fields, context) *>
-      validateAllDiscard(fields) { field =>
-        lazy val fieldContext = s"Field '${field.name}' of $context"
+  private def validateFields(t: __Type, context: => String): Either[ValidationError, Unit] = {
+    val typeName = t.name.getOrElse("")
+    noDuplicateFieldName(t.allFields, context) *>
+      validateAllDiscard(t.allFields) { field =>
+        lazy val fieldContext = s"Field '${MemberCoordinate(typeName, field.name)}'"
         for {
           _ <- checkName(field.name, fieldContext)
+          _ <- validateDeprecationReason(field.isDeprecated, field.deprecationReason, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
-          _ <- validateAllDiscard(field.allArgs)(validateInputValue(_, fieldContext))
+          _ <- validateAllDiscard(field.allArgs)(arg =>
+                 validateInputValue(arg, s"Argument '${ArgumentCoordinate(typeName, field.name, arg.name)}'")
+               )
         } yield ()
       }
+  }
 
   private def noDuplicateFieldName(fields: List[__Field], errorContext: => String) = {
     val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"

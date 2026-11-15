@@ -140,6 +140,17 @@ type Pilot {
 If you prefer an `Interface` instead of a `Union` type, add the `@GQLInterface` annotation to your sealed trait.
 An interface will be created with all the fields that are common to the case classes extending the sealed trait, as long as they return the same type.
 
+When a sealed trait annotated with `@GQLInterface` extends another one, the generated interface implements the parent interface.
+It must then expose all the fields of the parent interface: excluding one of them makes the schema validation fail.
+This requires a `Schema` for the parent sealed trait to be available in the implicit scope (auto derivation is not used to find it).
+
+```scala
+@GQLInterface
+sealed trait Animal
+@GQLInterface
+sealed trait Pet extends Animal // interface Pet implements Animal
+```
+
 If you prefer to have a `Union` type instead of an `Enum`, even when the sealed trait contains only objects, add the `@GQLUnion` annotation.
 
 ## Case classes and sealed traits
@@ -762,3 +773,18 @@ val apiV1   = apiBeta.transform(Transformer.ExcludeDirectives(Beta()))
 ```
 
 You can also create your own transformers by extending the `Transformer` trait and implementing its methods.
+
+## Schema coordinates
+
+[Schema coordinates](https://spec.graphql.org/September2025/#sec-Schema-Coordinates) are a standard way to refer to a schema element, such as `Character`, `Character.name`, `Queries.character(name:)` or `@deprecated(reason:)`.
+Use `Parser.parseSchemaCoordinate` to parse one (whitespace is not allowed) and `toString` to render it.
+
+`GraphQL#resolveSchemaCoordinate` (or `RootType#resolve`) looks up the element in your schema, including built-in scalars and directives.
+It returns `None` when the element does not exist, and a `ValidationError` when its containing element does not exist (for example `Unknown.name`).
+
+```scala
+for {
+  coordinate <- Parser.parseSchemaCoordinate("Queries.character(name:)")
+  element    <- api.resolveSchemaCoordinate(coordinate)
+} yield element // Some(SchemaElement.InputValue(...))
+```

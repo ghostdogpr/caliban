@@ -129,7 +129,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         remoteSchema.subscriptionType.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name))).contains(List("tick"))
       )
     },
-    test("parseRemoteSchema preserves deprecated fields and arguments by default") {
+    test("parseRemoteSchema hides deprecated fields and arguments unless requested") {
       val schema =
         """
           |schema { query: Query }
@@ -142,16 +142,15 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         document     <- ZIO.fromEither(Parser.parseQuery(schema))
         remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(document))
         defaultFields = remoteSchema.queryType.fields(__DeprecatedArgs()).getOrElse(Nil)
-        allFields     = remoteSchema.queryType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
-        hiddenFields  = remoteSchema.queryType.fields(__DeprecatedArgs(Some(false))).getOrElse(Nil)
+        allFields     = remoteSchema.queryType.fields(__DeprecatedArgs(true)).getOrElse(Nil)
         legacy        = allFields.find(_.name == "legacy")
         defaultArgs   = legacy.toList.flatMap(_.args(__DeprecatedArgs()))
-        hiddenArgs    = legacy.toList.flatMap(_.args(__DeprecatedArgs(Some(false))))
+        allArgs       = legacy.toList.flatMap(_.args(__DeprecatedArgs(true)))
       } yield assertTrue(
-        defaultFields.exists(_.name == "legacy"),
-        defaultArgs.exists(_.name == "old"),
-        !hiddenFields.exists(_.name == "legacy"),
-        !hiddenArgs.exists(_.name == "old")
+        !defaultFields.exists(_.name == "legacy"),
+        allFields.exists(_.name == "legacy"),
+        !defaultArgs.exists(_.name == "old"),
+        allArgs.exists(_.name == "old")
       )
     },
     test("preserves interface-implements-interface relationships") {
@@ -183,6 +182,8 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
           |  url: URL
           |}
           |scalar URL @specifiedBy(url: "https://example.com/url")
+          |directive @legacy on FIELD
+          |extend directive @legacy @deprecated
           |""".stripMargin
 
       for {
@@ -192,13 +193,19 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
                       .flatMap(_.possibleTypes)
                       .flatMap(_.find(_.name.contains("Product")))
         visible   = product.flatMap(_.fields(__DeprecatedArgs())).getOrElse(Nil)
-        all       = product.flatMap(_.fields(__DeprecatedArgs(Some(true)))).getOrElse(Nil)
+        all       = product.flatMap(_.fields(__DeprecatedArgs(true))).getOrElse(Nil)
         legacy    = all.find(_.name == "legacy")
         url       = all.find(_.name == "url").map(_._type.innerType)
       } yield assertTrue(
         !visible.exists(_.name == "legacy"),
         legacy.flatMap(_.deprecationReason).contains("No longer supported"),
+        normalize(schema.replace("@deprecated", "@deprecated(reason: null)")).isLeft,
+        normalize(schema + "directive @flag(old: String @deprecated(reason: null)) on FIELD").isLeft,
         url.flatMap(_.specifiedByURL).contains("https://example.com/url"),
+        rootType.additionalDirectives
+          .find(_.name == "legacy")
+          .flatMap(_.deprecationReason)
+          .contains("No longer supported"),
         rootType.types.get("Status").flatMap(_.description).contains("Product status")
       )
     },
@@ -221,12 +228,16 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         })
       }
     },
-    test("preserves and validates OneOf input objects") {
+    test("preserves and validates OneOf and recursive input objects") {
+      val shared        = (0 until 30).map(i => s"input A$i { left: A${i + 1}! right: A${i + 1}! }").mkString("\n")
       val validSchema   =
-        """
-          |type Query { find(by: Choice!): String }
-          |input Choice @oneOf { id: ID name: String }
-          |""".stripMargin
+        s"""
+           |type Query { find(by: Choice!, filter: Filter, a: A0): String }
+           |input Choice @oneOf { id: ID name: String next: Choice }
+           |input Filter { not: Filter and: [Filter!]! value: String! }
+           |$shared
+           |input A30 { value: String }
+           |""".stripMargin
       val invalidSchema =
         """
           |type Query { find(by: Choice!): String }
@@ -240,16 +251,42 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
     },
     test("rejects invalid schema documents with a precise error") {
       val cases = List(
-        "schema { query: String } type Foo { id: ID }"                                                                                      -> "The query root type 'String' must be an object type.",
-        "schema { query: Query } extend schema { query: RootQuery } type Query { value: String } type RootQuery { value: String }"          ->
+        "schema { query: String } type Foo { id: ID }"                                                                                                                     -> "The query root type 'String' must be an object type.",
+        "schema { query: Query } extend schema { query: RootQuery } type Query { value: String } type RootQuery { value: String }"                                         ->
           "Conflicting query root types are declared: 'Query', 'RootQuery'.",
-        "schema { mutation: Mutation } type Query { value: String } type Mutation { update: Boolean }"                                      ->
+        "schema { mutation: Mutation } type Query { value: String } type Mutation { update: Boolean }"                                                                     ->
           "The query root operation is missing.",
-        "schema { mutation: Mutation } type Mutation { update: Missing } type Duplicate { value: String } type Duplicate { value: String }" ->
+        "schema { mutation: Mutation } type Mutation { update: Missing } type Duplicate { value: String } type Duplicate { value: String }"                                ->
           "The query root operation is missing.",
-        "type Mutation { update: Boolean }"                                                                                                 -> "The query root operation is missing.",
-        "schema { query: Query } schema { query: Query } type Query { value: String }"                                                      -> "Schema is defined multiple times.",
-        "schema { query: Root mutation: Root } type Root { value: String }"                                                                 -> "Root operation type 'Root' is used more than once."
+        "type Mutation { update: Boolean }"                                                                                                                                -> "The query root operation is missing.",
+        "schema { query: Query } schema { query: Query } type Query { value: String }"                                                                                     -> "Schema is defined multiple times.",
+        "schema { query: Root mutation: Root } type Root { value: String }"                                                                                                -> "Root operation type 'Root' is used more than once.",
+        "type Query { node: Node } interface Node { id: ID! } type User implements Node { id: ID! @deprecated }"                                                           ->
+          "Field 'User.id' is deprecated but the interface field is not",
+        "type Query { user: User } interface Node { id: ID! } interface Resource implements Node { id: ID! @deprecated } type User implements Node & Resource { id: ID! }" ->
+          "Field 'Resource.id' is deprecated but the interface field is not",
+        "type Query { find(a: A): String } input A { b: B! } input B { a: A! }"                                                                                            ->
+          "InputObject 'A' has an unbreakable cycle and cannot have a finite value",
+        "type Query { find(a: A): String } input A @oneOf { a: A }"                                                                                                        ->
+          "OneOf InputObject 'A' has an unbreakable cycle and cannot have a finite value",
+        "type Query { find(a: First): String } input First @oneOf { second: Second } input Second { first: First! }"                                                       ->
+          "OneOf InputObject 'First' has an unbreakable cycle and cannot have a finite value",
+        "type Query { value: String } extend directive @missing @deprecated"                                                                                               ->
+          "Schema extends undefined directive '@missing'.",
+        "type Query { value: String } directive @a on DIRECTIVE_DEFINITION extend directive @a @a"                                                                         ->
+          "Directive '@a' references itself.",
+        "type Query { value: String } directive @a @b on OBJECT directive @b @a on DIRECTIVE_DEFINITION"                                                                   ->
+          "Directive '@a' references itself.",
+        "type Query { value: String } directive @a(input: A) on INPUT_OBJECT input A @a { value: String }"                                                                 ->
+          "Directive '@a' references itself.",
+        "type Query { value: String } directive @a @specifiedBy(url: \"https://example.com\") on OBJECT"                                                                   ->
+          "Directive '@specifiedBy' on '@a' is used in invalid location 'DIRECTIVE_DEFINITION'.",
+        "type Query { value: String } directive @meta on DIRECTIVE_DEFINITION directive @a @meta on OBJECT extend directive @a @meta"                                      ->
+          "Directive '@meta' is applied more than once on '@a'.",
+        "type Query { value: String } directive @a @deprecated on OBJECT extend directive @a @deprecated(reason: \"Use @b\")"                                              ->
+          "Directive '@deprecated' is applied more than once on '@a'.",
+        "type Query { value: String } directive @a @deprecated(reason: null) on OBJECT"                                                                                    ->
+          "Directive '@a' is deprecated without a reason."
       )
 
       assertTrue(

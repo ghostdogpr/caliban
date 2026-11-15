@@ -18,14 +18,16 @@ object Definition {
       name: Option[String],
       variableDefinitions: List[VariableDefinition],
       directives: List[Directive],
-      selectionSet: List[Selection]
+      selectionSet: List[Selection],
+      description: Option[String] = None
     ) extends ExecutableDefinition
 
     final case class FragmentDefinition(
       name: String,
       typeCondition: NamedType,
       directives: List[Directive],
-      selectionSet: List[Selection]
+      selectionSet: List[Selection],
+      description: Option[String] = None
     ) extends ExecutableDefinition
   }
 
@@ -45,8 +47,12 @@ object Definition {
       name: String,
       args: List[InputValueDefinition],
       isRepeatable: Boolean,
-      locations: Set[DirectiveLocation]
-    ) extends TypeSystemDefinition
+      locations: Set[DirectiveLocation],
+      directives: List[Directive] = Nil
+    ) extends TypeSystemDefinition {
+      def isDeprecated: Boolean             = Directives.isDeprecated(directives)
+      def deprecationReason: Option[String] = Directives.deprecationReason(directives)
+    }
 
     sealed trait DirectiveLocation extends Serializable
     object DirectiveLocation {
@@ -74,6 +80,7 @@ object Definition {
         case object INPUT_OBJECT           extends TypeSystemDirectiveLocation
         case object INPUT_FIELD_DEFINITION extends TypeSystemDirectiveLocation
         case object VARIABLE_DEFINITION    extends TypeSystemDirectiveLocation
+        case object DIRECTIVE_DEFINITION   extends TypeSystemDirectiveLocation
       }
     }
 
@@ -188,6 +195,11 @@ object Definition {
       query: Option[String],
       mutation: Option[String],
       subscription: Option[String]
+    ) extends TypeSystemExtension
+
+    final case class DirectiveExtension(
+      name: String,
+      directives: List[Directive]
     ) extends TypeSystemExtension
 
     sealed trait TypeExtension extends TypeSystemExtension

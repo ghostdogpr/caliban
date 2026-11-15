@@ -116,7 +116,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           result  <- execute(post(url, """{"query":"{ __schema { queryType { name } } }"}"""))
           sent    <- source.requests.get
         } yield assertTrue(
-          result.response.status == Status.BadRequest,
+          result.response.status == Status.UnprocessableEntity,
           result.body.contains("Introspection is disabled"),
           sent.isEmpty
         )
@@ -213,15 +213,16 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           sent.size == 1
         )
       },
-      test("serializes public resolver rejections as HTTP 200 while internal failures remain HTTP 500") {
+      test("serializes public resolver rejections as request errors while internal failures remain HTTP 500") {
         def serialized(url: URL, mediaType: String) =
           for {
             rejected <- execute(post(url, """{"extensions":{"documentId":"unknown"}}""", mediaType))
             failed   <- execute(post(url, """{"query":"internal"}""", mediaType))
+            strict    = mediaType != "application/json"
           } yield assertTrue(
-            rejected.response.status == Status.Ok,
-            rejected.body ==
-              """{"data":null,"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
+            rejected.response.status == (if (strict) Status.BadRequest else Status.Ok),
+            rejected.body == (if (strict) "{" else """{"data":null,""") +
+              """"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
             failed.response.status == Status.InternalServerError,
             failed.body.contains("Operation resolution failed."),
             !failed.body.contains("resolver-secret"),
@@ -289,7 +290,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           sent.isEmpty
         )
       },
-      test("rejects unsupported methods and falls back to JSON for unsupported response encodings") {
+      test("rejects unsupported methods and response encodings, and falls back to JSON for unsupported parameters") {
         for {
           source          <- stub(greetingResponse)
           runtime         <- remoteGateway(source.endpoint, schema).interpreter
@@ -340,8 +341,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                              )
         } yield assertTrue(
           method.response.status == Status.NotFound,
-          accept.response.status == Status.Ok,
-          accept.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
+          accept.response.status == Status.NotAcceptable,
           fallback.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
           multipart.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
           multipart.body.contains("\"greeting\":\"hello\""),
