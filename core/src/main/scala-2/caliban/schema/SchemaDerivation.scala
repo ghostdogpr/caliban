@@ -245,14 +245,17 @@ trait CommonSchemaDerivation[R] {
             .toList
             .sortBy(_.name)
 
-        makeInterface(
-          Some(getName(ctx)),
-          getDescription(ctx),
-          commonFields,
-          impl,
-          Some(ctx.typeName.full),
-          Some(getDirectives(ctx.annotations))
-        ).copy(interfaces = () => SchemaUtils.parentInterfaces(p.schemas()))
+        SchemaUtils.withParentInterfaces(
+          makeInterface(
+            Some(getName(ctx)),
+            getDescription(ctx),
+            commonFields,
+            impl,
+            Some(ctx.typeName.full),
+            Some(getDirectives(ctx.annotations))
+          ),
+          p.schemas()
+        )
       }
     }
 

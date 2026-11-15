@@ -27,8 +27,22 @@ private[schema] object SchemaUtils {
       )
     )
 
-  def parentInterfaces(parents: List[Schema[_, _]]): Option[List[__Type]] =
-    Some(parents.map(_.toType_()).filter(_.kind == __TypeKind.INTERFACE)).filter(_.nonEmpty)
+  def withParentInterfaces(t: __Type, parents: => List[Schema[_, _]]): __Type =
+    t.copy(interfaces = () => {
+      val fields = t.allFields.map(_.name).toSet
+
+      @scala.annotation.tailrec
+      def ancestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
+        case Nil                                       => acc.reverse
+        case h :: rest if acc.exists(_.name == h.name) => ancestors(rest, acc)
+        case h :: rest                                 => ancestors(rest ++ h.interfaces().getOrElse(Nil), h :: acc)
+      }
+
+      Some(
+        ancestors(parents.map(_.toType_()), Nil)
+          .filter(i => i.kind == __TypeKind.INTERFACE && i.allFields.forall(f => fields(f.name)))
+      ).filter(_.nonEmpty)
+    })
 
   def isEmptyUnionObject(t: __Type): Boolean =
     t.fields(__DeprecatedArgs.include).contains(Nil)

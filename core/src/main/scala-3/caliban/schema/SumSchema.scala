@@ -48,7 +48,7 @@ final private class SumSchema[R, A](
       )
     } else {
       val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-      mkInterface(annotations, info, impl).copy(interfaces = () => SchemaUtils.parentInterfaces(parents))
+      SchemaUtils.withParentInterfaces(mkInterface(annotations, info, impl), parents)
     }
   }
 
