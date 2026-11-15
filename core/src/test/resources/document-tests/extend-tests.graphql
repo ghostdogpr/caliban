@@ -57,3 +57,5 @@ extend interface Character {
 extend type Human implements Character {
   homePlanet: String
 }
+
+extend directive @auth @deprecated(reason: "Use @policy instead")

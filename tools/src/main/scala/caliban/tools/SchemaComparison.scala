@@ -293,7 +293,9 @@ object SchemaComparison {
     val locationDeleted =
       (left.locations -- right.locations).map(l => DirectiveLocationDeleted(l, left.name)).toList
 
-    descriptionChanges ++ argChanges ++ repeatableChanges ++ locationAdded ++ locationDeleted
+    val directiveChanges = compareAllDirectives(left.directives, right.directives, target)
+
+    descriptionChanges ++ argChanges ++ repeatableChanges ++ locationAdded ++ locationDeleted ++ directiveChanges
   }
 
   private def compareAllDirectiveDefinitions(

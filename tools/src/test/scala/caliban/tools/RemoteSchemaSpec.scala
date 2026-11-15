@@ -182,6 +182,8 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
           |  url: URL
           |}
           |scalar URL @specifiedBy(url: "https://example.com/url")
+          |directive @legacy on FIELD
+          |extend directive @legacy @deprecated
           |""".stripMargin
 
       for {
@@ -200,6 +202,10 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         normalize(schema.replace("@deprecated", "@deprecated(reason: null)")).isLeft,
         normalize(schema + "directive @flag(old: String @deprecated(reason: null)) on FIELD").isLeft,
         url.flatMap(_.specifiedByURL).contains("https://example.com/url"),
+        rootType.additionalDirectives
+          .find(_.name == "legacy")
+          .flatMap(_.deprecationReason)
+          .contains("No longer supported"),
         rootType.types.get("Status").flatMap(_.description).contains("Product status")
       )
     },
@@ -264,7 +270,21 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         "type Query { find(a: A): String } input A @oneOf { a: A }"                                                                                                        ->
           "OneOf InputObject 'A' has an unbreakable cycle and cannot have a finite value",
         "type Query { find(a: First): String } input First @oneOf { second: Second } input Second { first: First! }"                                                       ->
-          "OneOf InputObject 'First' has an unbreakable cycle and cannot have a finite value"
+          "OneOf InputObject 'First' has an unbreakable cycle and cannot have a finite value",
+        "type Query { value: String } extend directive @missing @deprecated"                                                                                               ->
+          "Schema extends undefined directive '@missing'.",
+        "type Query { value: String } directive @a on DIRECTIVE_DEFINITION extend directive @a @a"                                                                         ->
+          "Directive '@a' references itself.",
+        "type Query { value: String } directive @a @b on OBJECT directive @b @a on DIRECTIVE_DEFINITION"                                                                   ->
+          "Directive '@a' references itself.",
+        "type Query { value: String } directive @a(input: A) on INPUT_OBJECT input A @a { value: String }"                                                                 ->
+          "Directive '@a' references itself.",
+        "type Query { value: String } directive @a @specifiedBy(url: \"https://example.com\") on OBJECT"                                                                   ->
+          "Directive '@specifiedBy' on '@a' is used in invalid location 'DIRECTIVE_DEFINITION'.",
+        "type Query { value: String } directive @meta on DIRECTIVE_DEFINITION directive @a @meta on OBJECT extend directive @a @meta"                                      ->
+          "Directive '@meta' is applied more than once on '@a'.",
+        "type Query { value: String } directive @a @deprecated(reason: null) on OBJECT"                                                                                    ->
+          "Directive '@a' is deprecated without a reason."
       )
 
       assertTrue(

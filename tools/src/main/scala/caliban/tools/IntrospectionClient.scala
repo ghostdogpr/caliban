@@ -158,7 +158,9 @@ object IntrospectionClient {
     description: Option[String],
     locations: List[__DirectiveLocation],
     args: List[InputValueDefinition],
-    isRepeatable: Boolean
+    isRepeatable: Boolean,
+    isDeprecated: Boolean,
+    deprecationReason: Option[String]
   ): DirectiveDefinition =
     DirectiveDefinition(
       description,
@@ -185,7 +187,9 @@ object IntrospectionClient {
         case __DirectiveLocation.INPUT_OBJECT           => TypeSystemDirectiveLocation.INPUT_OBJECT
         case __DirectiveLocation.INPUT_FIELD_DEFINITION => TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION
         case __DirectiveLocation.VARIABLE_DEFINITION    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
-      }.toSet
+        case __DirectiveLocation.DIRECTIVE_DEFINITION   => TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION
+      }.toSet,
+      directives(isDeprecated, deprecationReason)
     )
 
   private val typeRef: SelectionBuilder[__Type, Type] =
@@ -255,34 +259,38 @@ object IntrospectionClient {
         __Schema.mutationType(__Type.name) ~
         __Schema.subscriptionType(__Type.name)).mapN(mapSchema _) ~
         __Schema.types(fullType).map(_.flatten.filterNot(_.name.startsWith("__"))) ~
-        __Schema.directives {
-          if (config.supportIsRepeatable)
-            (__Directive.name ~
-              __Directive.description ~
-              __Directive.locations ~
-              __Directive.args(inputValue) ~
-              __Directive.isRepeatable).mapN(mapDirective _)
-          else
-            (__Directive.name ~
-              __Directive.description ~
-              __Directive.locations ~
-              __Directive.args(inputValue)).mapN(mapDirective(_, _, _, _, isRepeatable = false))
+        __Schema.directives(if (config.supportDeprecatedDirectives) Some(true) else None) {
+          (__Directive.name ~
+            __Directive.description ~
+            __Directive.locations ~
+            __Directive.args(inputValue) ~
+            (if (config.supportIsRepeatable) __Directive.isRepeatable else SelectionBuilder.pure(false)) ~
+            (if (config.supportDeprecatedDirectives) __Directive.isDeprecated else SelectionBuilder.pure(false)) ~
+            (if (config.supportDeprecatedDirectives) __Directive.deprecationReason
+             else SelectionBuilder.pure(Option.empty[String]))).mapN(mapDirective _)
         }
     }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
 
   final class Config(
     val supportDeprecatedArgs: Boolean = true,
-    val supportIsRepeatable: Boolean = true
+    val supportIsRepeatable: Boolean = true,
+    val supportDeprecatedDirectives: Boolean = false
   ) {
 
+    def this(supportDeprecatedArgs: Boolean, supportIsRepeatable: Boolean) =
+      this(supportDeprecatedArgs, supportIsRepeatable, false)
+
     def supportDeprecatedArgs(value: Boolean): Config =
-      new Config(supportDeprecatedArgs = value, supportIsRepeatable = supportIsRepeatable)
+      new Config(value, supportIsRepeatable, supportDeprecatedDirectives)
 
     def supportIsRepeatable(value: Boolean): Config =
-      new Config(supportDeprecatedArgs = supportDeprecatedArgs, supportIsRepeatable = value)
+      new Config(supportDeprecatedArgs, value, supportDeprecatedDirectives)
+
+    def supportDeprecatedDirectives(value: Boolean): Config =
+      new Config(supportDeprecatedArgs, supportIsRepeatable, value)
 
     override def toString: String =
-      s"Config(supportDeprecatedArgs = $supportDeprecatedArgs, supportIsRepeatable = $supportIsRepeatable)"
+      s"Config(supportDeprecatedArgs = $supportDeprecatedArgs, supportIsRepeatable = $supportIsRepeatable, supportDeprecatedDirectives = $supportDeprecatedDirectives)"
   }
 
   object Config {

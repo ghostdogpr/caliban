@@ -1579,27 +1579,27 @@ object CompositionSpec extends ZIOSpecDefault {
           hiddenEnum.left.exists(_.exists(_.contains("State.BLOCKED")))
         )
       },
-      test("retains an otherwise-unused ID referenced by a directive definition") {
+      test("retains an otherwise-unused ID and the directives of a directive definition") {
         val result = compose(
           CompositionInput(
             "id-metadata",
             directiveSchema(
               "type Query { value: String @audit(id: \"1\") }",
-              "directive @audit(id: ID) on FIELD_DEFINITION"
-            )
+              "directive @audit(id: ID) @meta @internal @deprecated(reason: \"Use @label\") on FIELD_DEFINITION\ndirective @meta on DIRECTIVE_DEFINITION\ndirective @internal on DIRECTIVE_DEFINITION",
+              "@compose(name: \"@audit\") @compose(name: \"@meta\")"
+            ).replace("import: [\"@audit\"]", "import: [\"@audit\", \"@meta\"]")
           )
         )
+        val audit  = result.toOption.flatMap(_.rootType.additionalDirectives.find(_.name == "audit"))
 
         assertTrue(
           result.isRight,
           result.exists(_.rootType.types.contains("ID")),
-          result.exists(
-            _.rootType.additionalDirectives
-              .find(_.name == "audit")
-              .exists(
-                _.allArgs.exists(argument => argument.name == "id" && argument._type.innerType.name.contains("ID"))
-              )
-          )
+          audit.exists(
+            _.allArgs.exists(argument => argument.name == "id" && argument._type.innerType.name.contains("ID"))
+          ),
+          audit.flatMap(_.deprecationReason).contains("Use @label"),
+          audit.toList.flatMap(audit => directives(audit.directives)).map(_._1) == List("meta")
         )
       },
       test("removes @inaccessible arguments from composed directive definitions") {

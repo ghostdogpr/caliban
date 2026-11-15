@@ -2,7 +2,8 @@ package caliban.validation
 
 import caliban.CalibanError.ValidationError
 import caliban.introspection.adt.__TypeKind._
-import caliban.introspection.adt.{ __Directive, __Field, __InputValue, __Type, __TypeKind }
+import caliban.introspection.Introspector
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -81,15 +82,7 @@ private[caliban] object SchemaValidator {
       _ <- validateFiniteInputObjects(types)
       _ <- validateClashingTypes(types)
       _ <- validateDirectives(types)
-      _ <- validateAllDiscard(directives)(d =>
-             validateAllDiscard(d.allArgs)(arg =>
-               validateDeprecationReason(
-                 arg.isDeprecated,
-                 arg.deprecationReason,
-                 s"Argument '${DirectiveArgumentCoordinate(d.name, arg.name)}'"
-               )
-             )
-           )
+      _ <- validateDirectiveDefinitions(directives)
       _ <- failWhen(mutation.exists(_.kind != OBJECT))(
              "The mutation root operation is not an object type.",
              "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
@@ -167,27 +160,85 @@ private[caliban] object SchemaValidator {
     }
   }
 
-  private def validateDirectives(types: List[__Type]): Either[ValidationError, Unit] = {
-    def validateDirectives(directives: Option[List[Directive]], location: SchemaCoordinate) =
-      validateAllDiscard(directives.getOrElse(Nil)) { directive =>
-        lazy val context = s"Directive '@${directive.name}' on '$location'"
-        checkName(directive.name, context) *>
-          validateAllDiscard(directive.arguments.keys.toList)(name => checkName(name, s"Argument '$name' of $context"))
-      }
+  private def validateAppliedDirectives(directives: Option[List[Directive]], location: SchemaCoordinate) =
+    validateAllDiscard(directives.getOrElse(Nil)) { directive =>
+      lazy val context = s"Directive '@${directive.name}' on '$location'"
+      checkName(directive.name, context) *>
+        validateAllDiscard(directive.arguments.keys.toList)(name => checkName(name, s"Argument '$name' of $context"))
+    }
 
+  private def validateDirectives(types: List[__Type]): Either[ValidationError, Unit] =
     validateAllDiscard(types) { t =>
       val typeName = t.name.getOrElse("")
       for {
-        _ <- validateDirectives(t.directives, TypeCoordinate(typeName))
+        _ <- validateAppliedDirectives(t.directives, TypeCoordinate(typeName))
         _ <- validateAllDiscard(t.allInputFields)(f =>
-               validateDirectives(f.directives, MemberCoordinate(typeName, f.name))
+               validateAppliedDirectives(f.directives, MemberCoordinate(typeName, f.name))
              )
         _ <- validateAllDiscard(t.allFields) { f =>
-               validateDirectives(f.directives, MemberCoordinate(typeName, f.name)) *>
+               validateAppliedDirectives(f.directives, MemberCoordinate(typeName, f.name)) *>
                  validateAllDiscard(f.allArgs)(a =>
-                   validateDirectives(a.directives, ArgumentCoordinate(typeName, f.name, a.name))
+                   validateAppliedDirectives(a.directives, ArgumentCoordinate(typeName, f.name, a.name))
                  )
              }
+      } yield ()
+    }
+
+  private def validateDirectiveDefinitions(directives: List[__Directive]): Either[ValidationError, Unit] = {
+    val definitions = (Introspector.builtInDirectives ::: directives).map(d => d.name -> d).toMap
+
+    def applied(directives: Option[List[Directive]]): List[Either[String, __Type]]  =
+      directives.getOrElse(Nil).map(d => Left(d.name))
+    def input(value: __InputValue): List[Either[String, __Type]]                    =
+      Right(value._type.innerType) :: applied(value.directives)
+    def references(reference: Either[String, __Type]): List[Either[String, __Type]] =
+      reference.fold(
+        definitions.get(_).toList.flatMap(d => applied(Some(d.allDirectives)) ::: d.allArgs.flatMap(input)),
+        t =>
+          applied(t.directives) ::: t.allInputFields.flatMap(input) ::: t.allEnumValues.flatMap(v =>
+            applied(v.directives)
+          )
+      )
+
+    @scala.annotation.tailrec
+    def isRecursive(
+      name: String,
+      visited: Set[Either[String, Option[String]]],
+      pending: List[Either[String, __Type]]
+    ): Boolean =
+      pending match {
+        case Nil                                                 => false
+        case Left(`name`) :: _                                   => true
+        case reference :: rest if visited(reference.map(_.name)) => isRecursive(name, visited, rest)
+        case reference :: rest                                   =>
+          isRecursive(name, visited + reference.map(_.name), references(reference) ::: rest)
+      }
+
+    validateAllDiscard(directives) { d =>
+      val coordinate = DirectiveCoordinate(d.name)
+      for {
+        _ <- validateAppliedDirectives(d.directives, coordinate)
+        _ <- validateDeprecationReason(d.isDeprecated, d.deprecationReason, s"Directive '$coordinate'")
+        _ <- validateAllDiscard(d.allArgs) { arg =>
+               val argument = DirectiveArgumentCoordinate(d.name, arg.name)
+               validateAppliedDirectives(arg.directives, argument) *>
+                 validateDeprecationReason(arg.isDeprecated, arg.deprecationReason, s"Argument '$argument'")
+             }
+        _ <- validateAllDiscard(d.allDirectives.groupBy(_.name).toList) { case (name, usages) =>
+               val definition = definitions.get(name)
+               failWhen(definition.exists(!_.locations.contains(__DirectiveLocation.DIRECTIVE_DEFINITION)))(
+                 s"Directive '@$name' on '$coordinate' is used in invalid location 'DIRECTIVE_DEFINITION'.",
+                 "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
+               ) *>
+                 failWhen(usages.lengthCompare(1) > 0 && !definition.exists(_.isRepeatable))(
+                   s"Directive '@$name' is applied more than once on '$coordinate'.",
+                   "Only one of each non-repeatable directive is allowed per location."
+                 )
+             }
+        _ <- failWhen(isRecursive(d.name, Set.empty, references(Left(d.name))))(
+               s"Directive '$coordinate' references itself.",
+               "A directive definition must not contain the use of a directive which references itself directly or indirectly by referencing a Type or Directive which transitively includes a reference to this directive."
+             )
       } yield ()
     }
   }

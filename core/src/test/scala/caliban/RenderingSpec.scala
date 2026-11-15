@@ -41,6 +41,8 @@ object RenderingSpec extends ZIOSpecDefault {
     definitions.map {
       case t: TypeSystemDefinition.SchemaDefinition                         =>
         t.copy(directives = fixDirectives(t.directives))
+      case t: TypeSystemDefinition.DirectiveDefinition                      =>
+        t.copy(directives = fixDirectives(t.directives))
       case t: TypeDefinition.ObjectTypeDefinition                           =>
         t.copy(directives = fixDirectives(t.directives), fields = fixFields(t.fields))
       case t: TypeSystemDefinition.TypeDefinition.InterfaceTypeDefinition   =>

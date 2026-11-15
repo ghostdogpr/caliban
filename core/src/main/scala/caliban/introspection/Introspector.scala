@@ -13,6 +13,7 @@ import zio.{ Exit, ZIO }
 import zio.query.ZQuery
 
 import scala.annotation.tailrec
+import scala.collection.immutable.ListSet
 import scala.collection.mutable
 
 object Introspector extends IntrospectionDerivation {
@@ -47,13 +48,14 @@ object Introspector extends IntrospectionDerivation {
     __Directive(
       "deprecated",
       Some(
-        "The @deprecated directive is used within the type system definition language to indicate deprecated portions of a GraphQL service's schema, such as deprecated fields on a type, arguments on a field, input fields on an input type, or values of an enum type."
+        "The @deprecated directive is used within the type system definition language to indicate deprecated portions of a GraphQL service's schema, such as deprecated fields on a type, arguments on a field, input fields on an input type, values of an enum type, or directives."
       ),
-      Set(
+      ListSet(
         __DirectiveLocation.FIELD_DEFINITION,
         __DirectiveLocation.ARGUMENT_DEFINITION,
         __DirectiveLocation.INPUT_FIELD_DEFINITION,
-        __DirectiveLocation.ENUM_VALUE
+        __DirectiveLocation.ENUM_VALUE,
+        __DirectiveLocation.DIRECTIVE_DEFINITION
       ),
       _ =>
         List(
@@ -117,6 +119,9 @@ object Introspector extends IntrospectionDerivation {
     val types    = typesMap.values.toList.sortBy(_.name)
     val hasOneOf = types.exists(_._isOneOfInput)
 
+    val allDirectives =
+      directives ++ (if (hasOneOf) List(oneOfDirective) else Nil) ++ rootType.additionalDirectives
+
     val resolver = __Introspection(
       __Schema(
         rootType.description,
@@ -124,7 +129,7 @@ object Introspector extends IntrospectionDerivation {
         rootType.mutationType,
         rootType.subscriptionType,
         types,
-        directives ++ (if (hasOneOf) List(oneOfDirective) else Nil) ++ rootType.additionalDirectives
+        args => if (args.includeDeprecated) allDirectives else allDirectives.filterNot(_.isDeprecated)
       ),
       args => typesMap.get(args.name)
     )

@@ -46,7 +46,8 @@ object RemoteGraphQLConfig {
     maxResponseBytes: Int,
     maxParsingDepth: Int,
     maxRedirects: Int,
-    headers: List[Header]
+    headers: List[Header],
+    deprecatedDirectives: Boolean
   ) {
 
     /**
@@ -81,6 +82,13 @@ object RemoteGraphQLConfig {
     def withHeaders(values: Header*): Acquisition =
       copy(headers = values.toList)
 
+    /**
+     * Requests deprecated directives during introspection. Enable it only for subgraphs supporting
+     * `__Schema.directives(includeDeprecated:)` and `__Directive.isDeprecated`.
+     */
+    def withDeprecatedDirectives(value: Boolean): Acquisition =
+      copy(deprecatedDirectives = value)
+
     override def toString: String = "Acquisition(<redacted>)"
 
     private[gateway] def diagnostics: List[String] = {
@@ -105,7 +113,8 @@ object RemoteGraphQLConfig {
         maxResponseBytes = 16 * 1024 * 1024,
         maxParsingDepth = 128,
         maxRedirects = 10,
-        headers = Nil
+        headers = Nil,
+        deprecatedDirectives = false
       )
   }
 
