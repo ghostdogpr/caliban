@@ -283,6 +283,8 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
           "Directive '@specifiedBy' on '@a' is used in invalid location 'DIRECTIVE_DEFINITION'.",
         "type Query { value: String } directive @meta on DIRECTIVE_DEFINITION directive @a @meta on OBJECT extend directive @a @meta"                                      ->
           "Directive '@meta' is applied more than once on '@a'.",
+        "type Query { value: String } directive @a @deprecated on OBJECT extend directive @a @deprecated(reason: \"Use @b\")"                                              ->
+          "Directive '@deprecated' is applied more than once on '@a'.",
         "type Query { value: String } directive @a @deprecated(reason: null) on OBJECT"                                                                                    ->
           "Directive '@a' is deprecated without a reason."
       )

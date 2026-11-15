@@ -278,7 +278,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
       suite("repeatable directive")(
         test("becomes repeatable") {
           val nonRepeatable = "directive @test on FIELD_DEFINITION"
-          val repeatable    = "directive @test @deprecated repeatable on FIELD_DEFINITION"
+          val repeatable    = "directive @test repeatable on FIELD_DEFINITION extend directive @test @deprecated"
 
           val expected   = SchemaComparisonChange.DirectiveDefinitionRepeatableChanged("test", from = false, to = true)
           val deprecated = SchemaComparisonChange.DirectiveAdded("deprecated", Target.Directive("test"))

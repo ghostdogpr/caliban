@@ -32,8 +32,8 @@ object SchemaComparison {
       right.typeDefinitions.map(t => t.name -> t).toMap
     )
     val directiveChanges     = compareAllDirectiveDefinitions(
-      left.directiveDefinitions.map(t => t.name -> t).toMap,
-      right.directiveDefinitions.map(t => t.name -> t).toMap
+      RemoteSchema.extendDirectives(left).map(t => t.name -> t).toMap,
+      RemoteSchema.extendDirectives(right).map(t => t.name -> t).toMap
     )
     val leftTypeExtensions   = left.definitions.collect { case te: TypeExtension => te }
     val rightTypeExtensions  = right.definitions.collect { case te: TypeExtension => te }

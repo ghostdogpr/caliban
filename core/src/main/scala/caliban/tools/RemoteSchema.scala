@@ -61,17 +61,17 @@ object RemoteSchema {
     document: Document,
     extensionsCanDefineTypes: Boolean
   ): Either[ValidationError, Document] = {
-    val defined             = if (extensionsCanDefineTypes) defineMissingTypes(document) else document
-    val knownTypes          = defined.typeDefinitions.iterator.map(_.name).toSet
-    val knownDirectives     = defined.directiveDefinitions.iterator.map(_.name).toSet
-    val typeExtensions      = defined.typeExtensions.collect { case extension: TypeExtension => extension }
+    val defined         = if (extensionsCanDefineTypes) defineMissingTypes(document) else document
+    val knownTypes      = defined.typeDefinitions.iterator.map(_.name).toSet
+    val knownDirectives = defined.directiveDefinitions.iterator.map(_.name).toSet
+    val typeExtensions  = defined.typeExtensions.collect { case extension: TypeExtension => extension }
       .groupBy(asDefinition(_).name)
-    val directiveExtensions = defined.typeExtensions.collect { case extension: DirectiveExtension => extension }
-      .groupBy(_.name)
 
     (
       typeExtensions.keys.find(!knownTypes.contains(_)),
-      directiveExtensions.keys.find(!knownDirectives.contains(_))
+      defined.typeExtensions.collectFirst {
+        case DirectiveExtension(name, _) if !knownDirectives.contains(name) => name
+      }
     ) match {
       case (Some(name), _) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
       case (_, Some(name)) => Left(ValidationError(s"Schema extends undefined directive '@$name'.", ""))
@@ -82,20 +82,24 @@ object RemoteSchema {
                               )
           schemaDefinition <- mergeSchemaDeclarations(defined)
         } yield {
-          val directives = defined.directiveDefinitions.map { definition =>
-            val extensions = directiveExtensions.getOrElse(definition.name, Nil)
-            definition.copy(directives = definition.directives ::: extensions.flatMap(_.directives))
-          }
-          val retained   = defined.definitions.filter {
+          val retained = defined.definitions.filter {
             case _: TypeDefinition | _: TypeExtension | _: SchemaDefinition | _: SchemaExtension |
                 _: DirectiveDefinition | _: DirectiveExtension =>
               false
             case _ => true
           }
-          Document(schemaDefinition.toList ::: types ::: directives ::: retained, defined.sourceMapper)
+          Document(schemaDefinition.toList ::: types ::: extendDirectives(defined) ::: retained, defined.sourceMapper)
         }
     }
   }
+
+  private[caliban] def extendDirectives(document: Document): List[DirectiveDefinition] =
+    document.directiveDefinitions.map { definition =>
+      definition.copy(directives = definition.directives ::: document.typeExtensions.flatMap {
+        case DirectiveExtension(definition.name, directives) => directives
+        case _                                               => Nil
+      })
+    }
 
   private def defineMissingTypes(document: Document): Document = {
     val definedNames     = document.typeDefinitions.iterator.map(_.name).toSet
@@ -289,7 +293,9 @@ object RemoteSchema {
         locations = definition.locations.map(toDirectiveLocation),
         isDeprecated = definition.isDeprecated,
         deprecationReason = definition.deprecationReason,
-        directives = toDirectives(definition.directives)
+        directives = Some(
+          definition.directives.diff(definition.directives.find(_.name == Directives.DeprecatedDirective).toList)
+        ).filter(_.nonEmpty)
       )
 
     private def toObjectType(definition: ObjectTypeDefinition): __Type =
