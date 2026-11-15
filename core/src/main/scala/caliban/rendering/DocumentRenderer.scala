@@ -46,6 +46,7 @@ object DocumentRenderer extends Renderer[Document] {
     case te: TypeExtension.InputObjectTypeExtension => (4, te.name)
     case te: TypeExtension.InterfaceTypeExtension   => (5, te.name)
     case te: TypeExtension.ObjectTypeExtension      => (6, te.name)
+    case te: TypeSystemExtension.DirectiveExtension => (7, te.name)
   }
 
   private implicit val directiveLocationOrdering: Ordering[DirectiveLocation] = Ordering.by {
@@ -68,6 +69,7 @@ object DocumentRenderer extends Renderer[Document] {
     case TypeSystemDirectiveLocation.INPUT_OBJECT           => 16
     case TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION => 17
     case TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => 18
+    case TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION   => 19
 
   }
 
@@ -163,7 +165,7 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(value: DirectiveDefinition, indent: Option[Int], writer: StringBuilder): Unit =
         value match {
-          case DirectiveDefinition(description, name, args, isRepeatable, locations) =>
+          case DirectiveDefinition(description, name, args, isRepeatable, locations, directives) =>
             descriptionRenderer.unsafeRender(description, indent, writer)
             writer append "directive @"
             writer append name
@@ -172,6 +174,7 @@ object DocumentRenderer extends Renderer[Document] {
               inputRenderer.unsafeRender(args, indent, writer)
               writer append ')'
             }
+            directivesRenderer.unsafeRender(directives, indent, writer)
             if (isRepeatable) writer append " repeatable"
             writer append " on "
             locationsRenderer.unsafeRender(locations, indent, writer)
@@ -200,6 +203,7 @@ object DocumentRenderer extends Renderer[Document] {
               case TypeSystemDirectiveLocation.INPUT_OBJECT           => writer append "INPUT_OBJECT"
               case TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION => writer append "INPUT_FIELD_DEFINITION"
               case TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => writer append "VARIABLE_DEFINITION"
+              case TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION   => writer append "DIRECTIVE_DEFINITION"
             }
         }
 
@@ -459,6 +463,7 @@ object DocumentRenderer extends Renderer[Document] {
         case t: TypeExtension.ScalarTypeExtension      => scalarExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.ObjectTypeExtension      => objectTypeExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.UnionTypeExtension       => unionTypeExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeSystemExtension.DirectiveExtension => directiveExtensionRenderer.unsafeRender(t, indent, writer)
       }
 
   }
@@ -569,6 +574,16 @@ object DocumentRenderer extends Renderer[Document] {
           write
         )
       }
+    }
+
+  private lazy val directiveExtensionRenderer: Renderer[TypeSystemExtension.DirectiveExtension] =
+    new Renderer[TypeSystemExtension.DirectiveExtension] with scalarOps {
+      override def unsafeRender(
+        extension: TypeSystemExtension.DirectiveExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit =
+        unsafeRenderImpl("extend directive", s"@${extension.name}", None, extension.directives, indent, write)
     }
 
   private lazy val scalarRenderer: Renderer[ScalarTypeDefinition] = new Renderer[ScalarTypeDefinition] with scalarOps {

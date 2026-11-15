@@ -889,7 +889,24 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.VariableDefinition.*"),
       ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.VariableDefinition$"),
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.parsing.adt.Selection#Field.*")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
+      // directives on directive definitions, as required by the September 2026 spec
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__Directive.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__Directive$"),
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__Schema.*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__Schema.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.parsing.adt.Definition#TypeSystemDefinition#DirectiveDefinition.*"
+      ),
+      ProblemFilters.exclude[MissingTypesProblem](
+        "caliban.parsing.adt.Definition$TypeSystemDefinition$DirectiveDefinition$"
+      ),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.codegen.CalibanCommonSettings.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.codegen.Options.*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.codegen.Options$"),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.codegen.compiletime.Config#ClientGenerationSettings.*"
+      )
     )
   )
 

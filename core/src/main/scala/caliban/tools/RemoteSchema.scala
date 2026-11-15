@@ -31,6 +31,8 @@ object RemoteSchema {
     def rootType(name: SchemaDefinition => Option[String]): Option[ObjectTypeDefinition] =
       doc.schemaDefinition.flatMap(name).flatMap(doc.objectTypeDefinition)
 
+    val directives = doc.directiveDefinitions.map(converter.toDirective)
+
     rootType(_.query).map(query =>
       __Schema(
         description = doc.schemaDefinition.flatMap(_.description),
@@ -38,7 +40,7 @@ object RemoteSchema {
         mutationType = rootType(_.mutation).map(converter.toTypeDefinition),
         subscriptionType = rootType(_.subscription).map(converter.toTypeDefinition),
         types = doc.typeDefinitions.map(converter.toTypeDefinition),
-        directives = doc.directiveDefinitions.map(converter.toDirective)
+        directives = converter.filterDeprecated(directives, _)(_.isDeprecated)
       )
     )
   }
@@ -59,14 +61,21 @@ object RemoteSchema {
     document: Document,
     extensionsCanDefineTypes: Boolean
   ): Either[ValidationError, Document] = {
-    val defined        = if (extensionsCanDefineTypes) defineMissingTypes(document) else document
-    val knownTypes     = defined.typeDefinitions.iterator.map(_.name).toSet
-    val typeExtensions = defined.typeExtensions.collect { case extension: TypeExtension => extension }
+    val defined         = if (extensionsCanDefineTypes) defineMissingTypes(document) else document
+    val knownTypes      = defined.typeDefinitions.iterator.map(_.name).toSet
+    val knownDirectives = defined.directiveDefinitions.iterator.map(_.name).toSet
+    val typeExtensions  = defined.typeExtensions.collect { case extension: TypeExtension => extension }
       .groupBy(asDefinition(_).name)
 
-    typeExtensions.keys.find(!knownTypes.contains(_)) match {
-      case Some(name) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
-      case None       =>
+    (
+      typeExtensions.keys.find(!knownTypes.contains(_)),
+      defined.typeExtensions.collectFirst {
+        case DirectiveExtension(name, _) if !knownDirectives.contains(name) => name
+      }
+    ) match {
+      case (Some(name), _) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
+      case (_, Some(name)) => Left(ValidationError(s"Schema extends undefined directive '@$name'.", ""))
+      case _               =>
         for {
           types            <- validateAll(defined.typeDefinitions)(definition =>
                                 mergeExtensions(definition, typeExtensions.getOrElse(definition.name, Nil))
@@ -74,13 +83,23 @@ object RemoteSchema {
           schemaDefinition <- mergeSchemaDeclarations(defined)
         } yield {
           val retained = defined.definitions.filter {
-            case _: TypeDefinition | _: TypeExtension | _: SchemaDefinition | _: SchemaExtension => false
-            case _                                                                               => true
+            case _: TypeDefinition | _: TypeExtension | _: SchemaDefinition | _: SchemaExtension |
+                _: DirectiveDefinition | _: DirectiveExtension =>
+              false
+            case _ => true
           }
-          Document(schemaDefinition.toList ::: types ::: retained, defined.sourceMapper)
+          Document(schemaDefinition.toList ::: types ::: extendDirectives(defined) ::: retained, defined.sourceMapper)
         }
     }
   }
+
+  private[caliban] def extendDirectives(document: Document): List[DirectiveDefinition] =
+    document.directiveDefinitions.map { definition =>
+      definition.copy(directives = definition.directives ::: document.typeExtensions.flatMap {
+        case DirectiveExtension(definition.name, directives) => directives
+        case _                                               => Nil
+      })
+    }
 
   private def defineMissingTypes(document: Document): Document = {
     val definedNames     = document.typeDefinitions.iterator.map(_.name).toSet
@@ -271,7 +290,12 @@ object RemoteSchema {
         description = definition.description,
         args = (args: __DeprecatedArgs) => filterDeprecated(definition.args.map(toInputValue), args)(_.isDeprecated),
         isRepeatable = definition.isRepeatable,
-        locations = definition.locations.map(toDirectiveLocation)
+        locations = definition.locations.map(toDirectiveLocation),
+        isDeprecated = definition.isDeprecated,
+        deprecationReason = definition.deprecationReason,
+        directives = Some(
+          definition.directives.diff(definition.directives.find(_.name == Directives.DeprecatedDirective).toList)
+        ).filter(_.nonEmpty)
       )
 
     private def toObjectType(definition: ObjectTypeDefinition): __Type =
@@ -418,9 +442,10 @@ object RemoteSchema {
         case TypeSystemDirectiveLocation.INPUT_OBJECT           => __DirectiveLocation.INPUT_OBJECT
         case TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION => __DirectiveLocation.INPUT_FIELD_DEFINITION
         case TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => __DirectiveLocation.VARIABLE_DEFINITION
+        case TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION   => __DirectiveLocation.DIRECTIVE_DEFINITION
       }
 
-    private def filterDeprecated[A](values: List[A], args: __DeprecatedArgs)(isDeprecated: A => Boolean): List[A] =
+    def filterDeprecated[A](values: List[A], args: __DeprecatedArgs)(isDeprecated: A => Boolean): List[A] =
       if (args.includeDeprecated) values else values.filterNot(isDeprecated)
 
     private def deprecatable[D, A](definitions: List[D])(convert: D => A)(

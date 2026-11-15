@@ -25,7 +25,8 @@ object OptionsParser {
     addDerives: Option[Boolean],
     envForDerives: Option[String],
     excludeDeprecated: Option[Boolean],
-    supportDeprecatedArgs: Option[Boolean]
+    supportDeprecatedArgs: Option[Boolean],
+    supportDeprecatedDirectives: Option[Boolean]
   )
 
   private object RawOptions {
@@ -74,7 +75,8 @@ object OptionsParser {
                   rawOpts.addDerives,
                   rawOpts.envForDerives,
                   rawOpts.excludeDeprecated,
-                  rawOpts.supportDeprecatedArgs
+                  rawOpts.supportDeprecatedArgs,
+                  rawOpts.supportDeprecatedDirectives
                 )
               }
               .option

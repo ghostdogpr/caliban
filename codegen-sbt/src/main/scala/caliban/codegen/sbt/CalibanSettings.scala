@@ -26,6 +26,7 @@ sealed trait CalibanSettings {
     withSettings(_.abstractEffectType(abstractEffectType))
   final def supportDeprecatedArgs(value: Boolean): Self           = withSettings(_.supportDeprecatedArgs(value))
   final def supportIsRepeatable(value: Boolean): Self             = withSettings(_.supportIsRepeatable(value))
+  final def supportDeprecatedDirectives(value: Boolean): Self     = withSettings(_.supportDeprecatedDirectives(value))
   final def preserveInputNames(value: Boolean): Self              = withSettings(_.preserveInputNames(value))
   final def addDerives(value: Boolean): Self                      = withSettings(_.addDerives(value))
   final def envForDerives(value: String): Self                    = withSettings(_.envForDerives(value))

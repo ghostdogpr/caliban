@@ -2,6 +2,7 @@ package caliban.tools
 
 import caliban._
 import caliban.introspection.Introspector
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.quick._
 import caliban.schema.Annotations._
 import caliban.schema.Schema.auto._
@@ -19,7 +20,16 @@ object IntrospectionClientSpec extends ZIOSpecDefault {
   }
 
   val queries = Queries(getObject = Resolvers.getObject)
-  val api     = graphQL(RootResolver(queries)).withAdditionalDirectives(Introspector.directives)
+  val legacy  = __Directive(
+    "legacy",
+    None,
+    Set(__DirectiveLocation.FIELD_DEFINITION),
+    _ => Nil,
+    isRepeatable = false,
+    isDeprecated = true,
+    deprecationReason = Some("Use @deprecated")
+  )
+  val api     = graphQL(RootResolver(queries)).withAdditionalDirectives(Introspector.directives :+ legacy)
 
   def spec = suite("IntrospectionClientSpec")(
     test("is isomorphic") {
@@ -28,7 +38,9 @@ object IntrospectionClientSpec extends ZIOSpecDefault {
         _                 <- api.runServer(port = port, apiPath = "/api/graphql").fork
         _                 <- Clock.ClockLive.sleep(2.seconds)
         introspectedSchema =
-          SchemaLoader.fromIntrospectionWith(s"http://localhost:$port/api/graphql", None)(_.supportDeprecatedArgs(true))
+          SchemaLoader.fromIntrospectionWith(s"http://localhost:$port/api/graphql", None)(
+            _.supportDeprecatedArgs(true).supportDeprecatedDirectives(true)
+          )
         codeSchema         = SchemaLoader.fromCaliban(api)
         res               <- SchemaComparison.compare(introspectedSchema, codeSchema)
       } yield assertTrue(res.isEmpty)

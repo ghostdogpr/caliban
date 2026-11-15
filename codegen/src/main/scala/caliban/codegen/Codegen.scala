@@ -95,9 +95,11 @@ object Codegen {
         arguments.schemaPath,
         arguments.headers, {
           val default = IntrospectionClient.Config.default
-          IntrospectionClient.Config(
+          new IntrospectionClient.Config(
             supportDeprecatedArgs = arguments.supportDeprecatedArgs.getOrElse(default.supportDeprecatedArgs),
-            supportIsRepeatable = arguments.supportIsRepeatable.getOrElse(default.supportIsRepeatable)
+            supportIsRepeatable = arguments.supportIsRepeatable.getOrElse(default.supportIsRepeatable),
+            supportDeprecatedDirectives =
+              arguments.supportDeprecatedDirectives.getOrElse(default.supportDeprecatedDirectives)
           )
         }
       ),

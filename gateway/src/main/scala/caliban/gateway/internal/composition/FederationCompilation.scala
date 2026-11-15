@@ -233,9 +233,10 @@ private[gateway] object FederationCompilation {
     }
     TypeSystemDirectiveApplication(SchemaDefinitionCoordinate, schemaDirectives) :: types :::
       rootType.additionalDirectives.flatMap(definition =>
-        definition.allArgs.map(argument =>
-          application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
-        )
+        application(DirectiveDefinitionCoordinate(definition.name), definition.directives) ::
+          definition.allArgs.map(argument =>
+            application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
+          )
       )
   }
 }

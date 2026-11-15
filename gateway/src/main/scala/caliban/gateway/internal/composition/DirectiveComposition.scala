@@ -154,6 +154,11 @@ private[gateway] object DirectiveComposition {
     val coordinate = Some(SchemaCoordinate.MemberCoordinate(typeName, valueName))
   }
 
+  final case class DirectiveDefinitionCoordinate(directiveName: String) extends Coordinate {
+    val location   = __DirectiveLocation.DIRECTIVE_DEFINITION
+    val coordinate = Some(SchemaCoordinate.DirectiveCoordinate(directiveName))
+  }
+
   final case class DirectiveArgumentCoordinate(directiveName: String, argumentName: String) extends Coordinate {
     val location   = __DirectiveLocation.ARGUMENT_DEFINITION
     val coordinate = Some(SchemaCoordinate.DirectiveArgumentCoordinate(directiveName, argumentName))
@@ -180,8 +185,9 @@ private[gateway] object DirectiveComposition {
     def definitions(rewrite: __Type => __Type): List[__Directive] =
       selectedDefinitions.distinctBy(_.key).map { selected =>
         val definition = selected.definition
-        definition.copy(args =
-          includeDeprecated =>
+        definition.copy(
+          directives = attach(definition.directives, DirectiveDefinitionCoordinate(definition.name)),
+          args = includeDeprecated =>
             definition
               .args(includeDeprecated)
               .map(argument =>
@@ -340,6 +346,8 @@ private[gateway] object DirectiveComposition {
       coordinate match {
         case TypeCoordinate(name, __DirectiveLocation.OBJECT) if subgraph.isInterfaceObject(name) =>
           Some(TypeCoordinate(name, __DirectiveLocation.INTERFACE))
+        case DirectiveDefinitionCoordinate(directive)                                             =>
+          selectedDefinition(composedNames, directive).map { case (_, name) => DirectiveDefinitionCoordinate(name) }
         case DirectiveArgumentCoordinate(directive, argument)                                     =>
           selectedDefinition(composedNames, directive).map { case (_, name) =>
             DirectiveArgumentCoordinate(name, argument)
@@ -490,14 +498,22 @@ private[gateway] object DirectiveComposition {
   private final case class DefinitionSignature(
     repeatable: Boolean,
     locations: Set[__DirectiveLocation],
-    arguments: Map[String, (InputSignature, Boolean, Option[String])]
+    arguments: Map[String, (InputSignature, Boolean, Option[String])],
+    isDeprecated: Boolean,
+    deprecationReason: Option[String]
   )
 
   private def definitionSignature(definition: __Directive): DefinitionSignature = {
     val arguments = definition.allArgs.map { argument =>
       argument.name -> ((inputSignature(argument), argument.isDeprecated, argument.deprecationReason))
     }
-    DefinitionSignature(definition.isRepeatable, definition.locations, arguments.toMap)
+    DefinitionSignature(
+      definition.isRepeatable,
+      definition.locations,
+      arguments.toMap,
+      definition.isDeprecated,
+      definition.deprecationReason
+    )
   }
 
   private def importedName(value: InputValue): Option[ImportedName] =

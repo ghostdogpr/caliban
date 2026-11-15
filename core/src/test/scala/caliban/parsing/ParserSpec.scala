@@ -9,7 +9,7 @@ import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition,
 import caliban.parsing.adt.Definition.TypeSystemDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
+import caliban.parsing.adt.Definition.TypeSystemExtension.{ DirectiveExtension, SchemaExtension }
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.OperationType.{ Mutation, Query }
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
@@ -1367,7 +1367,8 @@ object ParserSpec extends ZIOSpecDefault {
         }
       },
       test("parse repeatable directives") {
-        val gqlInputExtension = "directive @test repeatable on FIELD_DEFINITION"
+        val gqlInputExtension =
+          "directive @test @deprecated repeatable on FIELD_DEFINITION | DIRECTIVE_DEFINITION extend directive @test @foo"
         Parser.parseQuery(gqlInputExtension).map { doc =>
           assertTrue(
             doc == Document(
@@ -1378,9 +1379,12 @@ object ParserSpec extends ZIOSpecDefault {
                   List.empty,
                   isRepeatable = true,
                   Set(
-                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION
-                  )
-                )
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION,
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION
+                  ),
+                  List(Directive("deprecated", index = 16))
+                ),
+                DirectiveExtension("test", List(Directive("foo", index = 105)))
               ),
               sourceMapper = SourceMapper.apply(gqlInputExtension)
             )

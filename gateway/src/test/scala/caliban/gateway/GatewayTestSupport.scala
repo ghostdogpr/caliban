@@ -36,7 +36,7 @@ private[gateway] object GatewayTestSupport {
   def introspectionResponse(api: GraphQL[Any]): UIO[String] =
     ZIO.fromEither(api.interpreterEither).orDie.flatMap { interpreter =>
       interpreter
-        .execute(IntrospectionClient.Query)
+        .execute(IntrospectionClient.query(deprecatedDirectives = true))
         .map(writeToString(_))
     }
 
