@@ -13,6 +13,8 @@ object Macros {
   inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
   inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
 
+  inline def parentInterfaces[R, T]: List[Schema[R, ?]] = ${ parentInterfacesImpl[R, T] }
+
   transparent inline def hasFieldsFromMethods[T]: Boolean =
     ${ hasFieldsFromMethodsImpl[T] }
 
@@ -44,6 +46,28 @@ object Macros {
       case _: ImplicitSearchSuccess => Expr(true)
       case _: ImplicitSearchFailure => Expr(false)
     }
+  }
+
+  private def parentInterfacesImpl[R: Type, T: Type](using q: Quotes): Expr[List[Schema[R, ?]]] = {
+    import q.reflect.*
+    val interfaceSym                    = TypeRepr.of[GQLInterface].typeSymbol
+    def isInterface(s: Symbol): Boolean = s.flags.is(Flags.Sealed) && s.hasAnnotation(interfaceSym)
+
+    val tpe = TypeRepr.of[T]
+    Expr.ofList(
+      if (!isInterface(tpe.typeSymbol)) Nil
+      else
+        tpe.baseClasses.tail.filter(isInterface).flatMap { p =>
+          tpe.baseType(p).asType match {
+            case '[t] =>
+              Implicits.search(TypeRepr.of[Schema[R, t]]) match {
+                case s: ImplicitSearchSuccess if !s.tree.symbol.flags.is(Flags.Inline) =>
+                  Some(s.tree.asExprOf[Schema[R, ?]])
+                case _                                                                 => None
+              }
+          }
+        }
+    )
   }
 
   private def isEnumFieldImpl[P: Type, T: Type](using q: Quotes): Expr[Boolean] = {

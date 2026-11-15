@@ -144,7 +144,7 @@ trait CommonSchemaDerivation[R] {
 
   }
 
-  def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+  def split[T](ctx: SealedTrait[Typeclass, T])(implicit p: ParentInterfaces[R, T]): Typeclass[T] = new Typeclass[T] {
 
     private lazy val subtypes =
       ctx.subtypes
@@ -252,7 +252,7 @@ trait CommonSchemaDerivation[R] {
           impl,
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
-        )
+        ).copy(interfaces = () => SchemaUtils.parentInterfaces(p.schemas()))
       }
     }
 

@@ -11,7 +11,8 @@ import scala.annotation.threadUnsafe
 final private class SumSchema[R, A](
   _members: => (List[(String, __Type, List[Any])], List[Schema[R, Any]]),
   info: TypeInfo,
-  annotations: List[Any]
+  annotations: List[Any],
+  parents: => List[Schema[R, ?]]
 )(ordinal: A => Int)
     extends Schema[R, A] {
 
@@ -47,7 +48,7 @@ final private class SumSchema[R, A](
       )
     } else {
       val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-      mkInterface(annotations, info, impl)
+      mkInterface(annotations, info, impl).copy(interfaces = () => SchemaUtils.parentInterfaces(parents))
     }
   }
 

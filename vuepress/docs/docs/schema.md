@@ -140,6 +140,16 @@ type Pilot {
 If you prefer an `Interface` instead of a `Union` type, add the `@GQLInterface` annotation to your sealed trait.
 An interface will be created with all the fields that are common to the case classes extending the sealed trait, as long as they return the same type.
 
+When a sealed trait annotated with `@GQLInterface` extends another one, the generated interface implements the parent interface.
+This requires a `Schema` for the parent sealed trait to be available in the implicit scope (auto derivation is not used to find it).
+
+```scala
+@GQLInterface
+sealed trait Animal
+@GQLInterface
+sealed trait Pet extends Animal // interface Pet implements Animal
+```
+
 If you prefer to have a `Union` type instead of an `Enum`, even when the sealed trait contains only objects, add the `@GQLUnion` annotation.
 
 ## Case classes and sealed traits

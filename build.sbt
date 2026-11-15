@@ -885,7 +885,9 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.VariableDefinition.*"),
       ProblemFilters.exclude[MissingTypesProblem]("caliban.parsing.adt.VariableDefinition$"),
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.parsing.adt.Selection#Field.*")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.parsing.adt.Selection#Field.*"),
+      // Schema derivation's split now takes the parent interfaces of a sealed trait
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.schema.*.split")
     )
   )
 
