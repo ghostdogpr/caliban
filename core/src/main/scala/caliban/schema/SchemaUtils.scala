@@ -27,9 +27,13 @@ private[schema] object SchemaUtils {
       )
     )
 
-  def withParentInterfaces(t: __Type, parents: => List[Schema[_, _]]): __Type =
+  def withParentInterfaces(t: __Type, excluded: Set[String], parents: => List[Schema[_, _]]): __Type =
     t.copy(interfaces = () => {
-      val fields = t.allFields.map(_.name).toSet
+      def hasExcludedField(i: __Type) =
+        excluded.nonEmpty && i.possibleTypes.toList.flatten
+          .map(_.allFields.map(_.name).toSet)
+          .reduceOption(_ & _)
+          .exists(_.exists(excluded))
 
       @scala.annotation.tailrec
       def ancestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
@@ -40,7 +44,7 @@ private[schema] object SchemaUtils {
 
       Some(
         ancestors(parents.map(_.toType_()), Nil)
-          .filter(i => i.kind == __TypeKind.INTERFACE && i.allFields.forall(f => fields(f.name)))
+          .filter(i => i.kind == __TypeKind.INTERFACE && !hasExcludedField(i))
       ).filter(_.nonEmpty)
     })
 

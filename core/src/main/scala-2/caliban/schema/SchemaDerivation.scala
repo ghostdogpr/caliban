@@ -254,6 +254,7 @@ trait CommonSchemaDerivation[R] {
             Some(ctx.typeName.full),
             Some(getDirectives(ctx.annotations))
           ),
+          excl,
           p.schemas()
         )
       }

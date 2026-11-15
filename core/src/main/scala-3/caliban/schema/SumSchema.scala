@@ -17,14 +17,13 @@ final private class SumSchema[R, A](
     extends Schema[R, A] {
 
   @threadUnsafe
-  private lazy val (subTypes, schemas, emptyUnionObjectIdxs) = {
+  private lazy val (subTypes, schemas) = {
     val (m, s) = _members
-    (
-      m.sortBy(_._1),
-      s.toArray,
-      s.map(s0 => SchemaUtils.isEmptyUnionObject(s0.toType_())).toArray[Boolean]
-    )
+    (m.sortBy(_._1), s.toArray)
   }
+
+  @threadUnsafe
+  private lazy val emptyUnionObjectIdxs = schemas.map(s0 => SchemaUtils.isEmptyUnionObject(s0.toType_()))
 
   private var containsEmptyUnionObjects = false
   private val isOneOfInput              = annotations.contains(GQLOneOfInput())
@@ -48,7 +47,7 @@ final private class SumSchema[R, A](
       )
     } else {
       val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-      SchemaUtils.withParentInterfaces(mkInterface(annotations, info, impl), parents)
+      mkInterface(annotations, info, impl, parents)
     }
   }
 

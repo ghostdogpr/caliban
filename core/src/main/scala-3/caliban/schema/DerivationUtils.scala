@@ -79,7 +79,8 @@ private object DerivationUtils {
   def mkInterface(
     annotations: List[Any],
     info: TypeInfo,
-    impl: List[__Type]
+    impl: List[__Type],
+    parents: => List[Schema[?, ?]]
   ): __Type = {
     val excl         = annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
     val commonFields = () =>
@@ -106,13 +107,17 @@ private object DerivationUtils {
         .toList
         .sortBy(_.name)
 
-    makeInterface(
-      Some(getName(annotations, info)),
-      getDescription(annotations),
-      commonFields,
-      impl,
-      Some(info.full),
-      Some(getDirectives(annotations))
+    SchemaUtils.withParentInterfaces(
+      makeInterface(
+        Some(getName(annotations, info)),
+        getDescription(annotations),
+        commonFields,
+        impl,
+        Some(info.full),
+        Some(getDirectives(annotations))
+      ),
+      excl,
+      parents
     )
   }
 

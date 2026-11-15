@@ -234,6 +234,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |interface Mid2 implements NestedInterface {
             |  b: String!
+            |  friend: NestedInterface
             |}
             |
             |interface Mid3 {
@@ -248,14 +249,16 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |  b: String!
             |}
             |
-            |type FooB implements NestedInterface & Mid1 & Mid2 {
+            |type FooB implements NestedInterface & Mid2 & Mid1 {
             |  a: String!
             |  b: String!
+            |  friend: Mid2
             |}
             |
-            |type FooC implements NestedInterface & Mid2 {
+            |type FooC implements Mid2 & NestedInterface {
             |  c: String!
             |  b: String!
+            |  friend: NestedInterface
             |}
             |
             |type FooD implements NestedInterface & Mid1 & Low {
@@ -655,11 +658,11 @@ object NestedInterfaceTypes {
     @GQLInterface("b")
     sealed trait Mid3 extends NestedInterface
 
-    case class FooA(b: String)            extends Mid1
-    case class FooB(a: String, b: String) extends Mid1 with Mid2
-    case class FooC(c: String, b: String) extends Mid2
-    case class FooD(b: String, d: Int)    extends Low
-    case class FooE(b: String, e: Int)    extends Mid3
+    case class FooA(b: String)                                             extends Mid1
+    case class FooB(a: String, b: String, friend: Option[Mid2])            extends Mid1 with Mid2
+    case class FooC(c: String, b: String, friend: Option[NestedInterface]) extends Mid2
+    case class FooD(b: String, d: Int)                                     extends Low
+    case class FooE(b: String, e: Int)                                     extends Mid3
   }
 }
 
@@ -690,8 +693,8 @@ object NestedInterfaceIssue {
   val schema = {
     val queries = Query(
       NestedInterface.FooA("b"),
-      NestedInterface.FooB("a", "b"),
-      NestedInterface.FooC("c", "b"),
+      NestedInterface.FooB("a", "b", None),
+      NestedInterface.FooC("c", "b", None),
       NestedInterface.FooD("b", 1),
       NestedInterface.FooE("b", 2)
     )
