@@ -720,6 +720,10 @@ object ClientWriter {
         s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
     }
 
+    def emittedEnum(typedef: EnumTypeDefinition): EnumTypeDefinition =
+      if (excludeDeprecated) typedef.copy(enumValuesDefinition = typedef.enumValuesDefinition.filterNot(_.isDeprecated))
+      else typedef
+
     def safeEnumValueName(typedef: EnumTypeDefinition): String => String = {
       val mappingClashedEnumValues = getMappingsClashedNames(typedef.enumValuesDefinition.map(_.enumValue))
       enumValue => safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
@@ -788,46 +792,48 @@ object ClientWriter {
       def maybeDeprecated(arg: InputValueDefinition) =
         if (arg.isDeprecated) writeDeprecated(arg.deprecationReason) else ""
 
-      s"${args.map(arg => s"${maybeDeprecated(arg)}${safeName(arg.name)} : ${writeType(arg.ofType)}${defaultValueOf(arg).fold("")(v => s" = $v")}").mkString(", ")}"
+      s"${args.map(arg => s"${maybeDeprecated(arg)}${safeName(arg.name)} : ${writeType(arg.ofType)}${defaultValueOf(arg).orElse(emptyValue(arg.ofType)).fold("")(v => s" = $v")}").mkString(", ")}"
     }
 
     def defaultValueOf(arg: InputValueDefinition): Option[String] =
-      arg.defaultValue
-        .flatMap(writeValue(arg.ofType, _))
-        .orElse(arg.ofType match {
-          case t if t.nullable => Some("None")
-          case ListType(_, _)  => Some("Nil")
-          case _               => None
-        })
+      arg.defaultValue.fold(emptyValue(arg.ofType))(writeValue(arg.ofType, _))
+
+    def emptyValue(t: Type): Option[String] = t match {
+      case t if t.nullable => Some("None")
+      case ListType(_, _)  => Some("Nil")
+      case _               => None
+    }
 
     def sequence(values: List[Option[String]]): Option[List[String]] =
       if (values.forall(_.isDefined)) Some(values.flatten) else None
 
     def writeValue(t: Type, value: InputValue): Option[String] = (t, value) match {
       case (_, NullValue) if t.nullable         => Some("None")
-      case _ if t.nullable                      => writeValue(t.toNonNullable, value).map(v => s"Some($v)")
+      case _ if t.nullable                      => writeValue(t.toNonNullable, value).map(v => s"scala.Some($v)")
       case (ListType(of, _), ListValue(values)) =>
         sequence(values.map(writeValue(of, _))).map(_.mkString("List(", ", ", ")"))
       case (ListType(of, _), _)                 => writeValue(of, value).map(v => s"List($v)")
       case (NamedType(name, _), _)              =>
         val typeName = safeTypeName(name)
         (KnownPackagePrefix.replaceFirstIn(typeName, ""), value) match {
-          case ("Int", IntValue.IntNumber(v))                 => Some(v.toString)
-          case ("Long", v: IntValue)                          => Some(s"${v.toLong}L")
-          case ("BigInt", v: IntValue)                        => Some(s"""BigInt("$v")""")
-          case ("Double", v: IntValue)                        => Some(v.toLong.toDouble.toString)
-          case ("Double", v: FloatValue)                      => Some(v.toDouble.toString)
-          case ("BigDecimal", v: IntValue)                    => Some(s"""BigDecimal("$v")""")
-          case ("BigDecimal", v: FloatValue)                  => Some(s"""BigDecimal("${v.toBigDecimal}")""")
-          case ("String", v: StringValue)                     => Some(v.toString)
-          case ("Boolean", BooleanValue(v))                   => Some(v.toString)
-          case _ if scalarMappingsWithDefaults.contains(name) => None
-          case _                                              =>
+          case ("Int", IntValue.IntNumber(v))                    => Some(v.toString)
+          case ("Long", v: IntValue)                             => Some(s"${v.toLong}L")
+          case ("BigInt", v: IntValue)                           => Some(s"""BigInt("$v")""")
+          case ("Double", v @ (_: IntValue | _: FloatValue))     =>
+            Some(BigDecimal(v.toString).toDouble).filterNot(_.isInfinite).map(_.toString)
+          case ("BigDecimal", v @ (_: IntValue | _: FloatValue)) => Some(s"""BigDecimal("$v")""")
+          case ("String", v: StringValue)                        => Some(v.toString)
+          case ("Boolean", BooleanValue(v))                      => Some(v.toString)
+          case _ if scalarMappingsWithDefaults.contains(name)    => None
+          case _                                                 =>
             (typesMap.get(typeName), value) match {
-              case (Some(_: ScalarTypeDefinition), v: StringValue)                                                => Some(v.toString)
-              case (Some(e: EnumTypeDefinition), EnumValue(v)) if e.enumValuesDefinition.exists(_.enumValue == v) =>
-                Some(s"$typeName.${safeEnumValueName(e)(v)}")
-              case (Some(i: InputObjectTypeDefinition), ObjectValue(values)) if Directives.isOneOf(i.directives)  =>
+              case (Some(_: ScalarTypeDefinition), v: StringValue)                                               => Some(v.toString)
+              case (Some(e: EnumTypeDefinition), EnumValue(v))                                                   =>
+                val emitted = emittedEnum(e)
+                Some(v)
+                  .filter(v => emitted.enumValuesDefinition.exists(_.enumValue == v))
+                  .map(v => s"$typeName.${safeEnumValueName(emitted)(v)}")
+              case (Some(i: InputObjectTypeDefinition), ObjectValue(values)) if Directives.isOneOf(i.directives) =>
                 values.toList match {
                   case (k, v) :: Nil =>
                     i.fields
@@ -844,7 +850,7 @@ object ClientWriter {
                     .fold(defaultValueOf(f))(writeValue(f.ofType, _))
                     .map(v => s"${safeName(f.name)} = $v")
                 }).map(_.mkString(s"$typeName(", ", ", ")"))
-              case _                                                                                              => None
+              case _                                                                                             => None
             }
         }
     }
@@ -1013,14 +1019,11 @@ object ClientWriter {
       .map { typedef =>
         if (typedef.enumValuesDefinition.isEmpty)
           throw new Exception(s"Invalid GraphQL Schema: enum ${typedef.name} must have at least one value")
-        else if (excludeDeprecated) {
-          val valuesWithoutDeprecated = typedef.enumValuesDefinition.filterNot(_.isDeprecated)
-          if (valuesWithoutDeprecated.isEmpty)
-            throw new Exception(
-              s"Invalid GraphQL Schema: enum ${typedef.name} has no values left after excluding deprecated ones"
-            )
-          typedef.copy(enumValuesDefinition = valuesWithoutDeprecated)
-        } else typedef
+        else if (emittedEnum(typedef).enumValuesDefinition.isEmpty)
+          throw new Exception(
+            s"Invalid GraphQL Schema: enum ${typedef.name} has no values left after excluding deprecated ones"
+          )
+        else emittedEnum(typedef)
       }
       .map { typedef =>
         val content     = writeEnum(typedef, extensibleEnums = extensibleEnums)

@@ -212,6 +212,10 @@ object ClientWriterSpec extends SnapshotTest {
                MARS @deprecated
                BELT
              }
+
+             type Query {
+               characters(deprecated: Origin = MARS, kept: Origin = BELT): String
+             }
             """,
           excludeDeprecated = true
         )
@@ -468,7 +472,14 @@ object ClientWriterSpec extends SnapshotTest {
                 isExternal: Boolean! = false
                 limit: Int = 10
                 origins: [Origin!]! = MARS
+              }
+
+              input Config {
                 json: Json = "{}"
+              }
+
+              enum Some {
+                A
               }
 
               input Search @oneOf {
@@ -482,7 +493,7 @@ object ClientWriterSpec extends SnapshotTest {
                   last: Int
                   origins: [String]!
                   count: Long! = 5
-                  ratio: Float! = 1
+                  ratio: Float! = 9223372036854775808
                   weight: BigDecimal = 0.5
                   name: String! = "a \"b\"\n"
                   nickname: String = null
@@ -492,6 +503,7 @@ object ClientWriterSpec extends SnapshotTest {
                   filters: [Filter!] = [{ userId: "u", limit: null }, { userId: "v", isExternal: true }]
                   search: Search = { name: "n" }
                   json: Json! = "{}"
+                  config: Config = {}
                 ): String
               }""",
           Map("Json" -> "io.circe.Json")

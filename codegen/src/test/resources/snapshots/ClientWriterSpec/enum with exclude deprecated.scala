@@ -1,4 +1,5 @@
 import caliban.client.CalibanClientError.DecodingError
+import caliban.client.FieldBuilder._
 import caliban.client._
 import caliban.client.__Value._
 
@@ -20,6 +21,18 @@ object Client {
     }
 
     val values: scala.collection.immutable.Vector[Origin] = scala.collection.immutable.Vector(EARTH, BELT)
+  }
+
+  type Query = _root_.caliban.client.Operations.RootQuery
+  object Query {
+    def characters(deprecated: scala.Option[Origin] = None, kept: scala.Option[Origin] = scala.Some(Origin.BELT))(
+      implicit encoder0: ArgEncoder[scala.Option[Origin]]
+    ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[String]] =
+      _root_.caliban.client.SelectionBuilder.Field(
+        "characters",
+        OptionOf(Scalar()),
+        arguments = List(Argument("deprecated", deprecated, "Origin"), Argument("kept", kept, "Origin"))
+      )
   }
 
 }
