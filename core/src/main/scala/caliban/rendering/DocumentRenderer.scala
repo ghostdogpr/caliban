@@ -259,16 +259,17 @@ object DocumentRenderer extends Renderer[Document] {
   private[caliban] lazy val selectionsRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
     private val inner = selectionRenderer.list(Renderer.newlineOrSpace)
 
-    override def unsafeRender(selections: List[Selection], indent: Option[Int], writer: StringBuilder): Unit =
+    override def unsafeRender(selections: List[Selection], indent: Option[Int], writer: StringBuilder): Unit = {
+      spaceOrEmpty(indent, writer)
+      writer append '{'
       if (selections.nonEmpty) {
-        spaceOrEmpty(indent, writer)
-        writer append '{'
         newlineOrEmpty(indent, writer)
         inner.unsafeRender(selections, increment(indent), writer)
         newlineOrEmpty(indent, writer)
         pad(indent, writer)
-        writer append '}'
       }
+      writer append '}'
+    }
   }
 
   private lazy val selectionRenderer: Renderer[Selection] = new Renderer[Selection] {
@@ -288,7 +289,7 @@ object DocumentRenderer extends Renderer[Document] {
           builder append name
           inputArgumentsRenderer.unsafeRender(arguments, indent, builder)
           directivesRenderer.unsafeRender(directives, indent, builder)
-          selectionsRenderer.unsafeRender(selectionSet, indent, builder)
+          selectionSet.foreach(selectionsRenderer.unsafeRender(_, indent, builder))
         case Selection.FragmentSpread(name, directives)                           =>
           builder append "..."
           builder append name
@@ -301,9 +302,7 @@ object DocumentRenderer extends Renderer[Document] {
             builder append t.name
           }
           directivesRenderer.unsafeRender(dirs, indent, builder)
-          if (selectionSet.nonEmpty) {
-            selectionsRenderer.unsafeRender(selectionSet, indent, builder)
-          }
+          selectionsRenderer.unsafeRender(selectionSet, indent, builder)
       }
     }
   }

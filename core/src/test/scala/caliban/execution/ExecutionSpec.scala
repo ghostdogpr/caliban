@@ -381,6 +381,22 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"amos":{"name":"Amos Burton"}}""")
         }
       },
+      test("empty selection sets") {
+        val interpreter = graphQL(resolver).interpreter
+        val queries     = List(
+          "{}"                                              -> "{}",
+          """{ amos: character(name: "Amos Burton") {} }""" -> """{"amos":{}}""",
+          """{ amos: character(name: "Amos Burton") { name ... on Character {} ...f } }
+             fragment f on Character {}""" -> """{"amos":{"name":"Amos Burton"}}"""
+        )
+        ZIO
+          .foreach(queries) { case (query, expected) =>
+            interpreter.flatMap(_.execute(query)).map { response =>
+              assertTrue(response.errors.isEmpty, response.data.toString == expected)
+            }
+          }
+          .map(_.reduce(_ && _))
+      },
       test("include directive") {
         val interpreter = graphQL(resolver).interpreter
         val query       = gqldoc("""
@@ -525,7 +541,7 @@ object ExecutionSpec extends ZIOSpecDefault {
         import io.circe.syntax._
         case class Test(either: Either[Int, String])
         val api   = graphQL(RootResolver(Test(Right("ok"))))
-        val query = """query{}"""
+        val query = """query{ unknown }"""
 
         for {
           interpreter <- api.interpreter

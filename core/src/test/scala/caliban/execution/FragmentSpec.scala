@@ -149,9 +149,17 @@ object FragmentSpec extends ZIOSpecDefault {
                        }
                      }""")
 
-        interpreter.flatMap(_.execute(query)).map { response =>
-          assertTrue(response.data.toString == """{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""")
-        }
+        val nested =
+          """{ amos: character(name: "Amos Burton") { role { ... on Pilot { ... @include(if: true) { shipName } } } } }"""
+
+        for {
+          int      <- interpreter
+          response <- int.execute(query)
+          other    <- int.execute(nested)
+        } yield assertTrue(
+          response.data.toString == """{"amos":{"name":"Amos Burton","role":{"shipName":"Rocinante"}}}""",
+          other.data.toString == """{"amos":{"role":{}}}"""
+        )
       },
       test("inline fragment selection with equal field types") {
         sealed trait Union

@@ -59,7 +59,8 @@ object ValidationSpec extends ZIOSpecDefault {
                  name
                }
               }""")
-        check(query, "Subscription 's' has more than one root field.")
+        check(query, "Subscription 's' has more than one root field.") &&
+        check("subscription s {}", "Subscription 's' has no root field.")
       },
       test("all subscription operations have only one root") {
         val query = gqldoc("""
@@ -128,16 +129,17 @@ object ValidationSpec extends ZIOSpecDefault {
               }""")
         check(query, "Field 'unknown' does not exist on type 'Character'.")
       },
-      test("field on enum") {
-        val query = gqldoc("""
-             {
-               characters {
-                 origin {
-                   __typename
-                 }
-               }
-              }""")
-        check(query, "Field selection is impossible on type 'Origin'.")
+      test("field selection on enum or scalar") {
+        ZIO
+          .foreach(
+            List(
+              "{ characters { origin { __typename } } }" -> "Origin",
+              "{ characters { origin {} } }"             -> "Origin",
+              "{ characters { name {} } }"               -> "String",
+              "{ characters { __typename {} } }"         -> "String"
+            )
+          ) { case (query, typeName) => check(query, s"Field selection is impossible on type '$typeName'.") }
+          .map(_.reduce(_ && _))
       },
       test("missing field on object") {
         val query = gqldoc("""

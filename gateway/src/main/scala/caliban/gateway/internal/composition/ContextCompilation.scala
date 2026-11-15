@@ -82,7 +82,7 @@ private[composition] object ContextCompilation {
       case Selection.Field(alias, _, _, directives, children, _)         =>
         if (alias.nonEmpty) Left("aliases are not allowed in a context selection.")
         else if (directives.nonEmpty) Left("directives are not allowed in a context selection.")
-        else validateSelections(subgraph, children, topLevel = false)
+        else validateSelections(subgraph, children.getOrElse(Nil), topLevel = false)
       case Selection.InlineFragment(typeCondition, directives, children) =>
         val condition = typeCondition.flatMap(value => subgraph.rootType.types.get(value.name))
         if (directives.nonEmpty) Left("directives are not allowed in a context selection.")
@@ -140,11 +140,13 @@ private[composition] object ContextCompilation {
           .toRight(s"field '${field.name}' does not exist on context type '${staticType.name.getOrElse("")}'.")
           .flatMap { definition =>
             val output = definition._type.innerType
-            if (field.selectionSet.isEmpty) Right(definition._type :: Nil)
-            else if (output.name.exists(subgraph.isInterfaceObject)) Left(InterfaceObjectContextSelection)
-            else
-              traverseEither(contextPossibleTypes(output))(resolve(output, _, field.selectionSet))
-                .map(_.flatten.map(projectType(definition._type, _)))
+            field.selectionSet match {
+              case None                                                => Right(definition._type :: Nil)
+              case _ if output.name.exists(subgraph.isInterfaceObject) => Left(InterfaceObjectContextSelection)
+              case Some(selectionSet)                                  =>
+                traverseEither(contextPossibleTypes(output))(resolve(output, _, selectionSet))
+                  .map(_.flatten.map(projectType(definition._type, _)))
+            }
           }
 
     def resolve(staticType: __Type, runtime: __Type, values: List[Selection]): Either[String, List[__Type]] = {

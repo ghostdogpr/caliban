@@ -132,6 +132,51 @@ object OperationCostSpec extends ZIOSpecDefault {
         weights.lookups <= count(request.field.fields) * names.size * 2
       )
     },
+    test("does not multiply entity fetch cost work across nested path conditions") {
+      val names                           = List("A", "B", "C", "D")
+      val nodes                           =
+        s"""
+           |${federationSchemaPreamble("@key")}
+           |type Query { node: Node }
+           |interface Node { child: Node product: Product }
+           |${names.map(name => s"type $name implements Node { child: Node product: Product }").mkString("\n")}
+           |type Product @key(fields: "id") { id: ID! }
+           |""".stripMargin
+      val products                        =
+        s"""
+           |${federationSchemaPreamble("@key")}
+           |type Product @key(fields: "id") { id: ID! name: String }
+           |""".stripMargin
+      def selection(depth: Int): String   =
+        if (depth == 0) "product { name }" else s"... on Node { child { ${selection(depth - 1)} } }"
+      val query                           = s"{ node { ${selection(8)} } }"
+      def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
+      for {
+        documents <- ZIO.foreach(List("nodes" -> nodes, "products" -> products)) { case (name, schema) =>
+                       parseSdl(schema).map(name -> _)
+                     }
+        graph     <- ZIO.fromEither(composeDocuments(documents)).orDieWith(errors => new AssertionError(errors.mkString))
+        operation <- RequestPreparation.parse(query)
+        request   <- RequestPreparation
+                       .prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, graph.rootType)
+        limits     = CandidateSearch.Limits(Int.MaxValue, Int.MaxValue, Int.MaxValue, Duration.Infinity)
+        plan      <- ZIO
+                       .fromEither(new OperationPlanner(graph, limits).plan(operation, request, Set.empty))
+                       .orDieWith(failure => new AssertionError(failure.toString))
+        weights    = new CountingCosts(Map(FieldCoordinate("Product", "name") -> BigInt(1)))
+        costs      =
+          new OperationCost(
+            graph.rootType.types,
+            graph.possibleTypesByName,
+            ComposedGraph.CostMetadata(weights = weights)
+          )
+        estimated  = costs.estimate(plan)
+      } yield assertTrue(
+        plan.payload.allEntities.exists(_.pathConditions.size == 8),
+        estimated.isRight,
+        weights.lookups <= count(request.field.fields) * names.size * 2
+      )
+    },
     test("retains runtime conditions and aliases when overlapping fields have different children") {
       val schema  = """
                      |type Query { node: Node }
@@ -1041,6 +1086,120 @@ object OperationCostSpec extends ZIOSpecDefault {
         sent._1.size == 1,
         sent._2.size == 1,
         sent._3.isEmpty
+      )
+    },
+    test("charges entity fetches conditioned on union members as the fetch they merge into") {
+      val cards                                    =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@cost"]) { query: Query }
+           |$federationDirectives
+           |$costDefinition
+           |union _Entity = Product | User
+           |type Query {
+           |  card: Card
+           |  items: [Item]
+           |  _entities(representations: [_Any!]!): [_Entity]!
+           |  _service: _Service!
+           |}
+           |type Card { components: [Component] }
+           |union Component = ComponentA | ComponentB | ComponentC
+           |type ComponentA { product: Product }
+           |type ComponentB { product: Product }
+           |type ComponentC { product: Product }
+           |interface Item { child: Child }
+           |type ItemA implements Item { child: Child }
+           |type ItemB implements Item { child: Child }
+           |interface Child { product: Product owner: Owner }
+           |type ChildX implements Child { product: Product owner: Owner }
+           |type ChildY implements Child { product: Product owner: Owner }
+           |union Owner = Product | User
+           |type Product @key(fields: "id") { id: ID! }
+           |type User @key(fields: "id") { id: ID! }
+           |""".stripMargin
+      val products                                 =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@cost"]) { query: Query }
+           |$federationDirectives
+           |$costDefinition
+           |union _Entity = Product | User
+           |type Query {
+           |  _entities(representations: [_Any!]!): [_Entity]!
+           |  _service: _Service!
+           |}
+           |type Product @key(fields: "id") {
+           |  id: ID!
+           |  a: String @cost(weight: 5)
+           |  b: String @cost(weight: 7)
+           |  c: String @cost(weight: 3)
+           |  owner: User
+           |}
+           |type User @key(fields: "id") { id: ID! d: String @cost(weight: 9) }
+           |""".stripMargin
+      val users                                    =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key", "@cost"]) { query: Query }
+           |$federationDirectives
+           |$costDefinition
+           |union _Entity = User
+           |type Query {
+           |  _entities(representations: [_Any!]!): [_Entity]!
+           |  _service: _Service!
+           |}
+           |type User @key(fields: "id") { id: ID! name: String @cost(weight: 9) }
+           |""".stripMargin
+      // Each operation costs the same as one selecting the merged fields under a single member.
+      def members(x: String, y: String, z: String) =
+        s"{ card { components { ... on ComponentA { product { $x } } ... on ComponentB { product { $y } } ... on ComponentC { product { $z } } } } }"
+      def nested(x: String, y: String)             =
+        s"{ items { ... on ItemA { child { ... on ChildX { product { $x } } } } child { ... on ChildY { product { $y } } } } }"
+      def shared(x: String, y: String)             =
+        s"{ items { child { product { $x } ... on ChildX { product { $y } } } } }"
+      // The User fetch on ChildX objects excludes the Product fetch by the owner's own type.
+      def owner(x: String)                         =
+        s"{ items { child { owner { ... on Product { $x } } ... on ChildX { owner { ... on User { d } } } } } }"
+      // The deferred User fetches depend on the member fetches, which merge in another payload.
+      def deferred(members: String)                =
+        s"{ card { components { $members } } } fragment O on User { ... @defer { name } }"
+      // The fetch of the inlined deferred fragment and the ComponentB fetch are two fetches before the conditions too.
+      val inlined                                  =
+        "{ card { components { ... on ComponentA { ... @defer { product { a } } } ... on ComponentB { product { a } } } } }"
+      for {
+        cardsRemote    <- stub("{}")
+        productsRemote <- stub("{}")
+        usersRemote    <- stub("{}")
+        runtime        <- costLimitedGateway(1)(
+                            Subgraph.federation("cards", cardsRemote.endpoint, cards),
+                            Subgraph.federation("products", productsRemote.endpoint, products),
+                            Subgraph.federation("users", usersRemote.endpoint, users)
+                          ).interpreter
+        all            <- runtime.execute(members("a", "b", "c"))
+        merged         <- runtime.execute(members("a b c", "id", "id"))
+        nestedAll      <- runtime.execute(nested("a", "b"))
+        nestedMerged   <- runtime.execute(nested("a b", "id"))
+        sharedAll      <- runtime.execute(shared("a", "a b"))
+        sharedMerged   <- runtime.execute(shared("a b", "id"))
+        ownerAll       <- runtime.execute(owner("a"))
+        ownerOne       <- runtime.execute(owner("id"))
+        deferredAll    <-
+          runtime.execute(
+            deferred(
+              "... on ComponentA { product { a owner { ...O } } } ... on ComponentB { product { b owner { ...O } } }"
+            )
+          )
+        deferredMerged <- runtime.execute(deferred("... on ComponentA { product { a b owner { ...O } } }"))
+        inlinedAll     <- runtime.execute(inlined)
+      } yield assertTrue(
+        all.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        all.errors.map(_.getMessage) == merged.errors.map(_.getMessage),
+        nestedAll.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        nestedAll.errors.map(_.getMessage) == nestedMerged.errors.map(_.getMessage),
+        sharedAll.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        sharedAll.errors.map(_.getMessage) == sharedMerged.errors.map(_.getMessage),
+        ownerAll.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        ownerAll.errors.map(_.getMessage) == ownerOne.errors.map(_.getMessage),
+        deferredAll.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        deferredAll.errors.map(_.getMessage) == deferredMerged.errors.map(_.getMessage),
+        inlinedAll.errors.map(_.msg) == List("Operation cost 15 exceeds the configured maximum of 1.")
       )
     },
     test("uses the maximum cost declared for a shared field") {

@@ -36,9 +36,9 @@ private[caliban] trait SelectionParsers extends ValueParsers {
   def field(implicit ev: P[Any]): P[Field] =
     (Index ~~ name ~ aliasOrName.? ~ arguments.? ~ directives.? ~ selectionSet.?).map {
       case (index, alias, Some(name), args, dirs, sels) =>
-        Field(Some(alias), name, args.getOrElse(Map()), dirs.getOrElse(Nil), sels.getOrElse(Nil), index)
+        Field(Some(alias), name, args.getOrElse(Map()), dirs.getOrElse(Nil), sels, index)
       case (index, name, _, args, dirs, sels)           =>
-        Field(None, name, args.getOrElse(Map()), dirs.getOrElse(Nil), sels.getOrElse(Nil), index)
+        Field(None, name, args.getOrElse(Map()), dirs.getOrElse(Nil), sels, index)
 
     }
 
