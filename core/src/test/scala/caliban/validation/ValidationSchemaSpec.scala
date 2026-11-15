@@ -164,13 +164,21 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
               "Interface 'InterfaceEmpty' does not have fields"
             )
           },
-          test("must include a field of the same name for every field defined in an interface it implements") {
-            checkTypeError(
-              Types
-                .makeInterface(Some("InterfaceC"), None, () => Object.makeFields("a"), Nil)
-                .copy(interfaces = () => Some(List(Object.interfaceA, Object.interfaceB))),
-              "Interface 'InterfaceC' is missing field(s): b"
-            )
+          test("must include every field and transitive interface of the interfaces it implements, but not itself") {
+            val interfaceC                    = Types.makeInterface(Some("InterfaceC"), None, () => Object.makeFields("a"), Nil)
+            lazy val selfImplementing: __Type = interfaceC.copy(interfaces = () => Some(List(selfImplementing)))
+            val interfaceAB                   = Object.interfaceA.copy(interfaces = () => Some(List(Object.interfaceB)))
+            for {
+              missingField     <- checkTypeError(
+                                    interfaceC.copy(interfaces = () => Some(List(Object.interfaceA, Object.interfaceB))),
+                                    "Interface 'InterfaceC' is missing field(s): b"
+                                  )
+              self             <- checkTypeError(selfImplementing, "Interface 'InterfaceC' must not implement itself")
+              missingInterface <- checkTypeError(
+                                    interfaceC.copy(interfaces = () => Some(List(interfaceAB))),
+                                    "Interface 'InterfaceC' must also implement InterfaceB"
+                                  )
+            } yield missingField && self && missingInterface
           },
           test("field names must be unique") {
             checkTypeError(
@@ -301,10 +309,29 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             )
           },
           test("field type that is a valid list item subtype is valid") {
+            val strings = Types.string.list
+            val parent  =
+              Types.makeInterface(Some("Parent"), None, () => List(Types.makeField("a", None, Nil, () => strings)), Nil)
+            val child   = Types
+              .makeInterface(
+                Some("Child"),
+                None,
+                () => List(Types.makeField("a", None, Nil, () => strings.nonNull)),
+                Nil
+              )
+              .copy(interfaces = () => Some(List(parent)))
+            val both    = Types.makeObject(
+              Some("Both"),
+              None,
+              List(Types.makeField("a", None, Nil, () => strings)),
+              Nil,
+              interfaces = () => Some(List(parent, child))
+            )
             for {
               a <- graphQL(resolverListUnionSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
               b <- graphQL(resolverListInterfaceSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
-            } yield a && b
+            } yield a && b && assert(SchemaValidator.validateType(child))(isRight) &&
+              assert(SchemaValidator.validateType(both))(isLeft)
           },
           test("field type that is an invalid list item subtype is invalid") {
             checkTypeError(
@@ -359,16 +386,30 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             assert(SchemaValidator.validateType(cyclicObject))(isLeft)
           },
           test("fields including arguments of the same name and type defined in an interface are valid") {
-            graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
+            for {
+              same    <- graphQL(resolverFieldWithArg).interpreter.exit
+              renamed <- graphQL(resolverRenamedArg).interpreter.exit
+            } yield assert(same)(succeeds(anything)) && assert(renamed)(succeeds(anything))
           },
           test("fields with additional nullable args are valid") {
             assert(SchemaValidator.validateType(nullableExtraArgsObject))(isRight)
           },
-          test("fields with additional non-nullable args are invalid") {
-            checkTypeError(
-              nonNullableExtraArgsObject,
-              "Field 'NonNullableExtraArgsObject.fieldWithArg' with extra non-nullable arg(s) 'extraArg' is invalid"
-            )
+          test("fields with additional non-nullable args or without an interface arg of the same type are invalid") {
+            def withArgs(args: __InputValue*) =
+              nullableExtraArgsObject.copy(fields =
+                _ => Some(List(__Field("fieldWithArg", None, _ => args.toList, () => Types.string)))
+              )
+            val missingArg                    =
+              "Field 'NullableExtraArgsObject.fieldWithArg' must declare argument(s) 'arg' of the interface field"
+            for {
+              extra   <-
+                checkTypeError(
+                  nonNullableExtraArgsObject,
+                  "Field 'NonNullableExtraArgsObject.fieldWithArg' with extra non-nullable arg(s) 'extraArg' is invalid"
+                )
+              missing <- checkTypeError(withArgs(), missingArg)
+              changed <- checkTypeError(withArgs(__InputValue("arg", None, () => Types.int, None)), missingArg)
+            } yield extra && missing && changed
           },
           test("wrong type name is invalid") {
             check(

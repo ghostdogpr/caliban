@@ -571,17 +571,25 @@ object ExecutionSpec extends ZIOSpecDefault {
       test("merge 2 APIs") {
         case class Test(name: String)
         case class Test2(id: Int)
-        val api1        = graphQL(RootResolver(Test("name")))
-        val api2        = graphQL(RootResolver(Test2(2)))
+        val api1        = graphQL(RootResolver(Test("name")), directives = List(Directives.Test))
+        val api2        = graphQL(RootResolver(Test2(2)), directives = List(Directives.Test))
         val interpreter = (api1 |+| api2).interpreter
         val query       =
           """query{
             |  name
             |  id
             |}""".stripMargin
-        interpreter.flatMap(_.execute(query)).map { response =>
-          assertTrue(response.data.toString == """{"name":"name","id":2}""")
-        }
+        for {
+          i          <- interpreter
+          response   <- i.execute(query)
+          directives <- i.execute("{ __schema { directives { name } } }")
+          added      <- api1.withAdditionalDirectives(List(Directives.Test)).interpreter
+          addedOnce  <- added.execute("{ __schema { directives { name } } }")
+        } yield assertTrue(
+          response.data.toString == """{"name":"name","id":2}""",
+          directives.data.toString.split("\"test\"", -1).length == 2,
+          addedOnce.data.toString.split("\"test\"", -1).length == 2
+        )
       },
       test("error path") {
         case class A(b: B)

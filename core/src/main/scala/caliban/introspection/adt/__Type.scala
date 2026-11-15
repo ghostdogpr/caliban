@@ -69,10 +69,9 @@ case class __Type(
             description,
             name.getOrElse(""), {
               val dirs = directives.getOrElse(Nil)
-              dirs ++
-                specifiedByURL
-                  .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), dirs.size))
-                  .toList
+              specifiedByURL
+                .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), dirs.size))
+                .toList ++ dirs
             }
           )
         )

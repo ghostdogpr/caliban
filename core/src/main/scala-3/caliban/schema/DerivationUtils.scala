@@ -39,7 +39,7 @@ private object DerivationUtils {
     annotations.collectFirst { case GQLDescription(desc) => desc }
 
   def getDirectives(annotations: Seq[Any]): List[Directive] =
-    annotations.collect { case GQLDirective(dir) => dir }.toList
+    annotations.collect { case GQLDirective(dir) => dir }.toList.reverse
 
   def getDefaultValue(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDefault(v) => v }
@@ -69,56 +69,12 @@ private object DerivationUtils {
           description,
           getDeprecatedReason(annotations).isDefined,
           getDeprecatedReason(annotations),
-          Some(annotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
+          Some(getDirectives(annotations)).filter(_.nonEmpty)
         )
       }.sortBy(_.name),
       Some(info.full),
       Some(getDirectives(annotations))
     )
-
-  def mkInterface(
-    annotations: List[Any],
-    info: TypeInfo,
-    impl: List[__Type],
-    parents: => List[Schema[?, ?]]
-  ): __Type = {
-    val excl         = annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
-    val commonFields = () =>
-      impl
-        .flatMap(_.allFields)
-        .groupBy(_.name)
-        .collect {
-          case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
-            val deprecated = list.find(_.isDeprecated)
-            Types
-              .unify(list)
-              .flatMap(t =>
-                list.headOption.map(
-                  _.copy(
-                    description = Types.extractCommonDescription(list),
-                    `type` = () => t,
-                    isDeprecated = deprecated.isDefined,
-                    deprecationReason = deprecated.flatMap(_.deprecationReason)
-                  )
-                )
-              )
-        }
-        .flatten
-        .toList
-        .sortBy(_.name)
-
-    SchemaUtils.withParentInterfaces(
-      makeInterface(
-        Some(getName(annotations, info)),
-        getDescription(annotations),
-        commonFields,
-        impl,
-        Some(info.full),
-        Some(getDirectives(annotations))
-      ),
-      parents
-    )
-  }
 
   def mkInputObject[R](
     annotations: List[Any],

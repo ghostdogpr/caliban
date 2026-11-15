@@ -1,6 +1,5 @@
 package caliban.introspection.adt
 
-import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveDefinition
 import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.GQLExcluded
@@ -29,12 +28,5 @@ case class __Directive(
     args(__DeprecatedArgs.include)
 
   private[caliban] lazy val allDirectives: List[Directive] =
-    (if (isDeprecated)
-       List(
-         Directive(
-           Directives.DeprecatedDirective,
-           deprecationReason.map(reason => "reason" -> StringValue(reason)).toMap
-         )
-       )
-     else Nil) ++ directives.getOrElse(Nil)
+    Directives.deprecation(isDeprecated, deprecationReason) ++ directives.getOrElse(Nil)
 }

@@ -271,7 +271,9 @@ object IntrospectionSpec extends ZIOSpecDefault {
         }
       },
       test("introspect deprecated directives") {
-        val interpreter = graphQL(resolverIO, directives = List(Directives.Repeatable, Directives.Test)).interpreter
+        val deprecated  = Introspector.directives.filter(_.name == "deprecated")
+        val interpreter =
+          graphQL(resolverIO, directives = Directives.Repeatable :: Directives.Test :: deprecated).interpreter
         val query       = gqldoc("""
               query {
                 __schema {
@@ -283,7 +285,7 @@ object IntrospectionSpec extends ZIOSpecDefault {
 
         interpreter.flatMap(_.execute(query)).map(_.data.toString).map { response =>
           assertTrue(
-            response == """{"__schema":{"visible":[{"name":"skip"},{"name":"include"},{"name":"specifiedBy"},{"name":"deprecated"},{"name":"test"}],"all":[{"name":"skip","isDeprecated":false,"deprecationReason":null},{"name":"include","isDeprecated":false,"deprecationReason":null},{"name":"specifiedBy","isDeprecated":false,"deprecationReason":null},{"name":"deprecated","isDeprecated":false,"deprecationReason":null},{"name":"repeatable","isDeprecated":true,"deprecationReason":"Use @test"},{"name":"test","isDeprecated":false,"deprecationReason":null}]}}"""
+            response == """{"__schema":{"visible":[{"name":"skip"},{"name":"include"},{"name":"specifiedBy"},{"name":"test"},{"name":"deprecated"}],"all":[{"name":"skip","isDeprecated":false,"deprecationReason":null},{"name":"include","isDeprecated":false,"deprecationReason":null},{"name":"specifiedBy","isDeprecated":false,"deprecationReason":null},{"name":"repeatable","isDeprecated":true,"deprecationReason":"Use @test"},{"name":"test","isDeprecated":false,"deprecationReason":null},{"name":"deprecated","isDeprecated":false,"deprecationReason":null}]}}"""
           )
         }
       },

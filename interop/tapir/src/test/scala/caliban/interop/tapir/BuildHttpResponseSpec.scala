@@ -2,7 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.interop.tapir.TapirAdapterSpec.FakeServerRequest
-import sttp.model.{ Header, MediaType, Method, StatusCode, Uri }
+import sttp.model.{ Header, HeaderNames, MediaType, Method, StatusCode, Uri }
 import zio.{ Task, Trace, UIO, ZIO }
 import zio.stream.ZStream
 import zio.test._
@@ -21,19 +21,19 @@ object BuildHttpResponseSpec extends ZIOSpecDefault {
     TapirAdapter.buildHttpResponse[E, ZStream[Any, Throwable, Byte]](req)(response)._1
   }
 
-  private def executed[E](accept: Header, response: UIO[GraphQLResponse[E]]) = {
+  private def executed[E](accept: List[Header], response: UIO[GraphQLResponse[E]]) = {
     val interpreter = new GraphQLInterpreter[Any, E] {
       def check(query: String)(implicit trace: Trace)                    = ZIO.unit
       def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = response
     }
-    val req         = FakeServerRequest(Method.POST, uri, List(accept))
+    val req         = FakeServerRequest(Method.POST, uri, accept)
     TapirAdapter
       .executeHttpRequest[Any, E, ZStream[Any, Throwable, Byte]](interpreter, GraphQLRequest(), req)
       .mapError(r => new RuntimeException(r.toString))
   }
 
   private def encoded[E](accept: MediaType, response: UIO[GraphQLResponse[E]]): Task[(MediaType, String)] =
-    executed(Header.accept(accept), response).flatMap { case (media, _, _, body) =>
+    executed(List(Header.accept(accept)), response).flatMap { case (media, _, _, body) =>
       ZIO
         .fromEither(body.left.map(_ => new RuntimeException("expected a streamed body")))
         .flatMap(_.runCollect)
@@ -79,16 +79,31 @@ object BuildHttpResponseSpec extends ZIOSpecDefault {
       }
     },
     test("JSON rejects a subscription without consuming its source") {
-      val accept                                            = Header.accept(MediaType.ApplicationJson)
+      val json                                              = Header.accept(MediaType.ApplicationJson)
+      val accept                                            = List(json)
       def statusOf(response: UIO[GraphQLResponse[Nothing]]) = executed(accept, response).map(_._2)
       for {
         topLevel <- statusOf(subscribed(ResponseValue.StreamValue(ZStream.dieMessage("must not be consumed"))))
         field    <- statusOf(ZIO.succeed(subscriptionResponse))
-      } yield assertTrue(topLevel == StatusCode.BadRequest, field == StatusCode.BadRequest)
+        split    <- executed(List(Header.accept(MediaType.TextHtml), json), ZIO.succeed(queryResponse))
+      } yield assertTrue(
+        topLevel == StatusCode.BadRequest,
+        field == StatusCode.BadRequest,
+        split._1 == MediaType.ApplicationJson
+      )
     },
     test("prefers SSE over graphql-response+json for a subscription when both are accepted") {
       val accept = Header.accept(graphqlResponseJson, MediaType.TextEventStream)
       assertTrue(mediaTypeOf(accept, subscriptionResponse) == MediaType.TextEventStream)
+    },
+    test("answers a mutation over GET with 405 and an Allow header") {
+      val req      = FakeServerRequest(Method.GET, uri, List(Header.accept(graphqlResponseJson)))
+      val response = GraphQLResponse[CalibanError](Value.NullValue, List(HttpUtils.MutationOverGetError))
+      val built    = TapirAdapter.buildHttpResponse[CalibanError, ZStream[Any, Throwable, Byte]](req)(response)
+      assertTrue(
+        built._2 == StatusCode.MethodNotAllowed,
+        built._3 == List(Header(HeaderNames.Allow, "POST"))
+      )
     },
     test("uses graphql-response+json when SSE is not accepted") {
       assertTrue(mediaTypeOf(Header.accept(graphqlResponseJson), queryResponse) == graphqlResponseJson)

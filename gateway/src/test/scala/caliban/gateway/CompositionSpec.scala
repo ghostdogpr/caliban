@@ -792,15 +792,29 @@ object CompositionSpec extends ZIOSpecDefault {
           "type Query { product: Product } type Product @key(fields: \"missing\") { id: ID! }",
           "@key"
         )
+        val empty     = schema(
+          "type Query { item: Item } type Item @key(fields: \"id org {}\") { id: ID! org: Org } type Org { id: ID! }",
+          "@key"
+        )
+        val requires  = schema(
+          "type Query { thing: Thing } type Thing @key(fields: \"id\") { id: ID! group: Group @external total: Int @requires(fields: \"group {}\") } type Group { id: ID! }",
+          "@key",
+          "@external",
+          "@requires"
+        )
 
         compositionDiagnostics(
           Gateway.compose(
             Subgraph.federation("malformed", unreachableEndpoint, malformed),
-            Subgraph.federation("unknown", unreachableEndpoint, unknown)
+            Subgraph.federation("unknown", unreachableEndpoint, unknown),
+            Subgraph.federation("empty", unreachableEndpoint, empty),
+            Subgraph.federation("requires", unreachableEndpoint, requires)
           )
         ).map { diagnostics =>
           assertTrue(
-            diagnostics.count(_.contains("Invalid @key field set")) == 2,
+            diagnostics.count(_.contains("Invalid @key field set")) == 3,
+            diagnostics.exists(message => message.startsWith("[empty]")),
+            diagnostics.exists(message => message.startsWith("[requires] Invalid @requires field set")),
             diagnostics.exists(message => message.startsWith("[malformed]") && message.contains("could not be parsed")),
             diagnostics.exists(message => message.startsWith("[unknown]") && message.contains("does not exist"))
           )

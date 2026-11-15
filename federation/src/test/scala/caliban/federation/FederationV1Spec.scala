@@ -117,7 +117,7 @@ object FederationV1Spec extends ZIOSpecDefault {
         .map(
           assert(_)(
             containsString(
-              """type Orphan @extends @key(fields: \"name\") {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
+              """type Orphan @key(fields: \"name\") @extends {\n  name: String! @external\n  nicknames: [String!]!\n  child: OrphanChild!\n}"""
             ) &&
               containsString(
                 """type OrphanChild {\n  id: String!\n}"""

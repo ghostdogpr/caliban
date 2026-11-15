@@ -881,6 +881,8 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.copy"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.this"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.apply"),
+      // Accept header parsing replaced by HttpUtils.ResponseEncoding
+      ProblemFilters.exclude[MissingClassProblem]("caliban.HttpUtils$AcceptsGqlEncodings"),
       // includeDeprecated is now Boolean! = false, as required by the September 2025 spec
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
       ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),

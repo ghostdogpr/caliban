@@ -1,9 +1,8 @@
 package caliban.introspection.adt
 
-import caliban.Value.StringValue
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.GQLExcluded
 
 import scala.annotation.tailrec
@@ -18,17 +17,14 @@ case class __InputValue(
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded parentType: () => Option[__Type] = () => None
 ) {
-  def toInputValueDefinition: InputValueDefinition = {
-    val allDirectives = (if (isDeprecated)
-                           List(
-                             Directive(
-                               "deprecated",
-                               List(deprecationReason.map(reason => "reason" -> StringValue(reason))).flatten.toMap
-                             )
-                           )
-                         else Nil) ++ directives.getOrElse(Nil)
-    InputValueDefinition(description, name, _type.toType(), parsedDefaultValue, allDirectives)
-  }
+  def toInputValueDefinition: InputValueDefinition =
+    InputValueDefinition(
+      description,
+      name,
+      _type.toType(),
+      parsedDefaultValue,
+      Directives.deprecation(isDeprecated, deprecationReason) ++ directives.getOrElse(Nil)
+    )
 
   private[caliban] lazy val _type: __Type      = `type`()
   private[caliban] lazy val _parentType        = parentType()

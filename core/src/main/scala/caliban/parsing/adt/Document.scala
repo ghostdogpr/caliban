@@ -88,6 +88,10 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     fragmentDefinitions.exists(fragment => hasEmpty(fragment.selectionSet))
   }
 
+  private[caliban] def hasExecutableDescription: Boolean =
+    fragmentDefinitions.exists(_.description.nonEmpty) ||
+      operationDefinitions.exists(o => o.description.nonEmpty || o.variableDefinitions.exists(_.description.nonEmpty))
+
   private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
     def selectionHasDirective(selection: Selection): Boolean =
       selection match {

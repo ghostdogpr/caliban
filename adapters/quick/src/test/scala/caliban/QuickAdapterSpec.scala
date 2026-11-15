@@ -4,7 +4,7 @@ import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
 import sttp.client4.httpclient.zio.HttpClientZioBackend
-import sttp.client4.{ asStringAlways, basicRequest, multipart, UriContext }
+import sttp.client4.{ asStringAlways, basicRequest, multipart, DuplicateHeaderBehavior, UriContext }
 import zio._
 import zio.http._
 import zio.stream.{ ZPipeline, ZStream }
@@ -88,14 +88,22 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         "application/json; charset=utf-8"                      -> json,
         "application/json; charset=UTF8"                       -> json,
         "application/json; charset=iso-8859-1"                 -> json,
-        "application/json; profile=custom"                     -> json
+        "application/json; profile=custom"                     -> json,
+        "application/json;q=.0"                                -> json,
+        "application/json;q=\"0\""                             -> json
       )
       for {
         absent     <- execute(postQuery(apiUri))
         negotiated <- ZIO.foreach(expected) { case (accept, _) =>
                         execute(postQuery(apiUri).header("Accept", accept)).map(r => (r.code.code, r.contentType))
                       }
+        split      <- execute(
+                        postQuery(apiUri)
+                          .header("Accept", "text/html")
+                          .header("Accept", json, DuplicateHeaderBehavior.Add)
+                      )
       } yield assertTrue(
+        split.is200,
         absent.is200,
         absent.contentType.contains(json),
         absent.body.contains("\"data\""),
@@ -110,7 +118,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       val expected = List(
         "application/graphql+json"          -> 200,
         "text/plain;charset=UTF-8"          -> 415,
-        "application/x-www-form-urlencoded" -> 200
+        "application/x-www-form-urlencoded" -> 200,
+        "Application/JSON"                  -> 200
       )
       val untyped  = postQuery(apiUri)
       for {
@@ -141,6 +150,19 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                     )
       } yield assertTrue(response.code.code == 406)
     },
+    test("decodes an upload whose media type is only in the Content-Type header") {
+      val boundary = Boundary("caliban")
+      val form     = Form(FormField.simpleField("operations", CharactersQuery), FormField.simpleField("map", "{}"))
+      for {
+        bytes    <- Body.fromMultipartForm(form, boundary).asChunk
+        response <- respond(
+                      ZIO.succeed(GraphQLResponse(Value.StringValue("ok"), Nil)),
+                      "application/json",
+                      body = Body.fromChunk(bytes),
+                      contentType = Header.ContentType(MediaType.multipart.`form-data`, Some(boundary))
+                    )
+      } yield assertTrue(response.status == Status.Ok)
+    },
     test("does not apply the one-megabyte JSON default to uploads") {
       val largeFile = Array.fill[Byte](1024 * 1024 + 1)('x'.toByte)
 
@@ -169,12 +191,16 @@ object QuickAdapterSpec extends ZIOSpecDefault {
     },
     test("returns an observable error, or an SSE error event, when response encoding exceeds its limit") {
       for {
-        json <- execute(postQuery(smallResponseUri))
-        sse  <- execute(postQuery(smallResponseUri).header("Accept", "text/event-stream"))
+        json   <- execute(postQuery(smallResponseUri))
+        strict <- execute(postQuery(smallResponseUri).header("Accept", "application/graphql-response+json"))
+        sse    <- execute(postQuery(smallResponseUri).header("Accept", "text/event-stream"))
       } yield assertTrue(
         json.code.code == 500,
         json.contentType.contains("application/json"),
-        json.body.contains("exceeds the configured limit"),
+        json.body.contains("\"data\":null") && json.body.contains("exceeds the configured limit"),
+        strict.code.code == 500,
+        strict.contentType.contains("application/graphql-response+json"),
+        !strict.body.contains("\"data\"") && strict.body.contains("exceeds the configured limit"),
         sse.code.code == 200,
         sse.body.contains("event: next"),
         sse.body.contains("exceeds the configured limit")
@@ -229,9 +255,16 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       for {
         defaults <- statuses(HttpConfig.default)
         spec     <- statuses(HttpConfig.default.withPartialSuccessStatus(true).withJsonClientStatusCodes(true))
+        tooLarge <- respond(
+                      ZIO.succeed(partial),
+                      json,
+                      HttpConfig.default.withJsonClientStatusCodes(true).withMaxResponseBodyBytes(1)
+                    )
       } yield assertTrue(
         defaults == List((200, Some(gql), true), (200, Some(json), true), (200, Some(json), true)),
-        spec == List((294, Some(gql), true), (200, Some(json), true), (422, Some(gql), false))
+        spec == List((294, Some(gql), true), (200, Some(json), true), (422, Some(gql), false)),
+        tooLarge.status.code == 500,
+        tooLarge.headers.get(Header.ContentType).map(_.mediaType.fullType).contains(gql)
       )
     },
     test("negotiates each result kind separately for urql's default Accept header") {
@@ -369,7 +402,9 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private def respond(
     response: UIO[GraphQLResponse[CalibanError]],
     accept: String,
-    httpConfig: HttpConfig = HttpConfig.default
+    httpConfig: HttpConfig = HttpConfig.default,
+    body: Body = Body.fromString(CharactersQuery),
+    contentType: Header.ContentType = Header.ContentType(MediaType.application.json)
   ) = {
     val interpreter = new GraphQLInterpreter[Any, CalibanError] {
       def check(query: String)(implicit trace: Trace)                    = ZIO.unit
@@ -381,7 +416,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       .api
       .runZIO(
         Request
-          .post(URL.empty, Body.fromString(CharactersQuery).contentType(MediaType.application.json))
+          .post(URL.empty, body)
+          .addHeader(contentType)
           .addHeader(Header.Custom("Accept", accept))
       )
   }

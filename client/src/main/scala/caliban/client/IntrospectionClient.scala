@@ -224,7 +224,15 @@ object IntrospectionClient {
     def description: SelectionBuilder[__Directive, Option[String]]                                         = Field("description", OptionOf(Scalar()))
     def locations: SelectionBuilder[__Directive, List[__DirectiveLocation]]                                = Field("locations", ListOf(Scalar()))
     def args[A](innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Directive, List[A]] =
-      Field("args", ListOf(Obj(innerSelection)))
+      args(None)(innerSelection)
+    def args[A](
+      includeDeprecated: Option[Boolean]
+    )(innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Directive, List[A]] =
+      Field(
+        "args",
+        ListOf(Obj(innerSelection)),
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
+      )
     def isRepeatable: SelectionBuilder[__Directive, Boolean]                                               = Field("isRepeatable", Scalar())
     def isDeprecated: SelectionBuilder[__Directive, Boolean]                                               = Field("isDeprecated", Scalar())
     def deprecationReason: SelectionBuilder[__Directive, Option[String]]                                   =

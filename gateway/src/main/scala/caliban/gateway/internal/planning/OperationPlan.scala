@@ -182,8 +182,9 @@ private[gateway] object OperationPlan {
         case field: Selection.Field             =>
           field.copy(
             arguments = sortedArguments(field.arguments),
-            directives =
-              field.directives.map(directive => directive.copy(arguments = sortedArguments(directive.arguments))),
+            directives = field.directives
+              .sortBy(_.name)
+              .map(directive => directive.copy(arguments = sortedArguments(directive.arguments))),
             selectionSet = field.selectionSet.map(canonicalSelections)
           )
         case fragment: Selection.InlineFragment =>

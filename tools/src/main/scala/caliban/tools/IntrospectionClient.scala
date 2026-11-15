@@ -1,7 +1,5 @@
 package caliban.tools
 
-import caliban.InputValue
-import caliban.Value.StringValue
 import caliban.client.IntrospectionClient._
 import caliban.client.Operations.RootQuery
 import caliban.client.{ CalibanClientError, SelectionBuilder }
@@ -11,7 +9,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Directive, Document, Type }
+import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 import sttp.client4._
 import sttp.model.Uri
 import zio.{ RIO, Task, ZIO }
@@ -39,23 +37,13 @@ object IntrospectionClient {
   private def sendRequest[T](req: Request[Either[CalibanClientError, T]]): RIO[Backend[Task], T] =
     ZIO.serviceWithZIO[Backend[Task]](_.send(req)).map(_.body).absolve
 
-  private def directives(isDeprecated: Boolean, deprecationReason: Option[String]): List[Directive] =
-    if (isDeprecated)
-      List(
-        Directive(
-          "deprecated",
-          deprecationReason.fold(Map.empty[String, InputValue])(reason => Map("reason" -> StringValue(reason)))
-        )
-      )
-    else Nil
-
   private def mapEnumValue(
     name: String,
     description: Option[String],
     isDeprecated: Boolean,
     deprecationReason: Option[String]
   ): EnumValueDefinition =
-    EnumValueDefinition(description, name, directives(isDeprecated, deprecationReason))
+    EnumValueDefinition(description, name, Directives.deprecation(isDeprecated, deprecationReason))
 
   private def mapInputValue(
     name: String,
@@ -66,7 +54,7 @@ object IntrospectionClient {
     deprecationReason: Option[String]
   ): InputValueDefinition = {
     val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
-    InputValueDefinition(description, name, `type`, default, directives(isDeprecated, deprecationReason))
+    InputValueDefinition(description, name, `type`, default, Directives.deprecation(isDeprecated, deprecationReason))
   }
 
   private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
@@ -94,7 +82,8 @@ object IntrospectionClient {
     `type`: Type,
     isDeprecated: Boolean,
     deprecationReason: Option[String]
-  ): FieldDefinition = FieldDefinition(description, name, args, `type`, directives(isDeprecated, deprecationReason))
+  ): FieldDefinition =
+    FieldDefinition(description, name, args, `type`, Directives.deprecation(isDeprecated, deprecationReason))
 
   private def mapType(
     kind: __TypeKind,
@@ -159,8 +148,7 @@ object IntrospectionClient {
     locations: List[__DirectiveLocation],
     args: List[InputValueDefinition],
     isRepeatable: Boolean,
-    isDeprecated: Boolean,
-    deprecationReason: Option[String]
+    directives: List[Directive]
   ): DirectiveDefinition =
     DirectiveDefinition(
       description,
@@ -189,7 +177,7 @@ object IntrospectionClient {
         case __DirectiveLocation.VARIABLE_DEFINITION    => TypeSystemDirectiveLocation.VARIABLE_DEFINITION
         case __DirectiveLocation.DIRECTIVE_DEFINITION   => TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION
       }.toSet,
-      directives(isDeprecated, deprecationReason)
+      directives
     )
 
   private val typeRef: SelectionBuilder[__Type, Type] =
@@ -263,11 +251,11 @@ object IntrospectionClient {
           (__Directive.name ~
             __Directive.description ~
             __Directive.locations ~
-            __Directive.args(inputValue) ~
+            __Directive.args(if (config.supportDeprecatedArgs) Some(true) else None)(inputValue) ~
             (if (config.supportIsRepeatable) __Directive.isRepeatable else SelectionBuilder.pure(false)) ~
-            (if (config.supportDeprecatedDirectives) __Directive.isDeprecated else SelectionBuilder.pure(false)) ~
-            (if (config.supportDeprecatedDirectives) __Directive.deprecationReason
-             else SelectionBuilder.pure(Option.empty[String]))).mapN(mapDirective _)
+            (if (config.supportDeprecatedDirectives)
+               (__Directive.isDeprecated ~ __Directive.deprecationReason).mapN(Directives.deprecation _)
+             else SelectionBuilder.pure(List.empty[Directive]))).mapN(mapDirective _)
         }
     }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
 

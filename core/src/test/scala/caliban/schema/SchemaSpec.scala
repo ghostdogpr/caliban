@@ -263,25 +263,42 @@ object SchemaSpec extends ZIOSpecDefault {
                          |""".stripMargin
         assertTrue(gql.render == expected)
       },
-      test("enum supported directives") {
+      test("enum supported directives, in the order written") {
+        @GQLDirective(Directive("b"))
+        @GQLDirective(Directive("a"))
         sealed trait MyEnum
         object MyEnum {
-          @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("A")))) case object A extends MyEnum
+          @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("A"))))
+          @GQLDirective(Directive("tag"))
+          case object A                                                                          extends MyEnum
           @GQLDirective(Directive("join__Graph", Map("name" -> StringValue("B")))) case object B extends MyEnum
         }
-        case class Queries(myEnum: MyEnum)
+        @GQLDirective(Directive("d"))
+        @GQLDirective(Directive("c"))
+        case class Queries(@GQLDirective(Directive("f")) @GQLDirective(Directive("e")) myEnum: MyEnum)
         implicit val queriesSchema: Schema[Any, Queries] = genAll
 
+        val types                    = Types.collectTypes(introspect[Queries])
+        def directives(name: String) = types.find(_.name contains name).flatMap(_.directives).toList.flatten.map(_.name)
         assertTrue(
-          Types
-            .collectTypes(introspect[Queries])
+          types
             .find(_.name contains "MyEnum")
             .flatMap(_.enumValues(__DeprecatedArgs()))
             .map(_.flatMap(_.directives.toList.flatten))
             .get == List(
             Directive("join__Graph", Map("name" -> StringValue("A"))),
+            Directive("tag"),
             Directive("join__Graph", Map("name" -> StringValue("B")))
-          )
+          ),
+          directives("MyEnum") == List("b", "a"),
+          directives("Queries") == List("d", "c"),
+          types
+            .find(_.name contains "Queries")
+            .toList
+            .flatMap(_.allFields)
+            .flatMap(_.directives.toList.flatten)
+            .map(_.name) ==
+            List("f", "e")
         )
       },
       test("render can be called with a Schema where R is any") {

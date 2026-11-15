@@ -40,7 +40,7 @@ object RemoteSchema {
         mutationType = rootType(_.mutation).map(converter.toTypeDefinition),
         subscriptionType = rootType(_.subscription).map(converter.toTypeDefinition),
         types = doc.typeDefinitions.map(converter.toTypeDefinition),
-        directives = converter.filterDeprecated(directives, _)(_.isDeprecated)
+        directives = _.filter(directives)(_.isDeprecated)
       )
     )
   }
@@ -288,7 +288,7 @@ object RemoteSchema {
       __Directive(
         name = definition.name,
         description = definition.description,
-        args = (args: __DeprecatedArgs) => filterDeprecated(definition.args.map(toInputValue), args)(_.isDeprecated),
+        args = _.filter(definition.args.map(toInputValue))(_.isDeprecated),
         isRepeatable = definition.isRepeatable,
         locations = definition.locations.map(toDirectiveLocation),
         isDeprecated = definition.isDeprecated,
@@ -369,7 +369,7 @@ object RemoteSchema {
       __Field(
         name = definition.name,
         description = definition.description,
-        args = (args: __DeprecatedArgs) => filterDeprecated(definition.args.map(toInputValue), args)(_.isDeprecated),
+        args = _.filter(definition.args.map(toInputValue))(_.isDeprecated),
         `type` = toType(definition.ofType),
         isDeprecated = Directives.isDeprecated(definition.directives),
         deprecationReason = Directives.deprecationReason(definition.directives),
@@ -445,12 +445,9 @@ object RemoteSchema {
         case TypeSystemDirectiveLocation.DIRECTIVE_DEFINITION   => __DirectiveLocation.DIRECTIVE_DEFINITION
       }
 
-    def filterDeprecated[A](values: List[A], args: __DeprecatedArgs)(isDeprecated: A => Boolean): List[A] =
-      if (args.includeDeprecated) values else values.filterNot(isDeprecated)
-
     private def deprecatable[D, A](definitions: List[D])(convert: D => A)(
       isDeprecated: A => Boolean
     ): __DeprecatedArgs => Option[List[A]] =
-      args => if (definitions.nonEmpty) Some(filterDeprecated(definitions.map(convert), args)(isDeprecated)) else None
+      args => if (definitions.nonEmpty) Some(args.filter(definitions.map(convert))(isDeprecated)) else None
   }
 }

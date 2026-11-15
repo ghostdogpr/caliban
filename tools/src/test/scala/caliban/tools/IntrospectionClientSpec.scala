@@ -2,9 +2,10 @@ package caliban.tools
 
 import caliban._
 import caliban.introspection.Introspector
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue }
 import caliban.quick._
 import caliban.schema.Annotations._
+import caliban.schema.Types
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.test._
@@ -24,7 +25,7 @@ object IntrospectionClientSpec extends ZIOSpecDefault {
     "legacy",
     None,
     Set(__DirectiveLocation.FIELD_DEFINITION),
-    _ => Nil,
+    _.filter(List(__InputValue("old", None, () => Types.string, None, true, Some("Unused"))))(_.isDeprecated),
     isRepeatable = false,
     isDeprecated = true,
     deprecationReason = Some("Use @deprecated")

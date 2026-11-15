@@ -92,7 +92,7 @@ object DocumentRenderer extends Renderer[Document] {
   private[caliban] lazy val directivesRenderer: Renderer[List[Directive]] =
     directiveRenderer
       .list(Renderer.spaceOrEmpty, omitFirst = false)
-      .contramap(_.filter(_.isIntrospectable).sortBy(_.name))
+      .contramap(_.filter(_.isIntrospectable))
 
   private[caliban] lazy val descriptionRenderer: Renderer[Option[String]] =
     new Renderer[Option[String]] {
@@ -100,17 +100,17 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(description: Option[String], indent: Option[Int], writer: StringBuilder): Unit =
         description.foreach {
-          case value if value.isBlank                                           => ()
-          case value if value.contains('\n') && value.forall(isBlockStringChar) =>
+          case value if value.isBlank                   => ()
+          case value if isPrintableAsBlockString(value) =>
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
             writer append tripleQuote
-            newlineOrEmpty(indent, writer)
+            if (indent.isDefined || hasCommonIndent(value)) writer append '\n'
             valueEscaped()
-            if (value.last == '"') writer append '\n' else newlineOrEmpty(indent, writer)
+            if (value.last == '"' || value.last == '\\') writer append '\n' else newlineOrEmpty(indent, writer)
             writer append tripleQuote
             newlineOrSpace(indent, writer)
-          case value                                                            =>
+          case value                                    =>
             pad(indent, writer)
             writer append '"'
             Renderer.escapedString.unsafeRender(value, indent, writer)
@@ -948,8 +948,17 @@ object DocumentRenderer extends Renderer[Document] {
   private def spaceOrEmpty(indentation: Option[Int], writer: StringBuilder): Unit =
     if (indentation.isDefined) writer append ' '
 
-  private def isBlockStringChar(c: Char): Boolean =
-    c >= ' ' || c == '\t' || c == '\n' || c == '\r'
+  private def isPrintableAsBlockString(value: String): Boolean =
+    value.contains('\n') && value.forall(c => !c.isControl || c == '\t' || c == '\n' || c == '\r') &&
+      !value.split("\r\n|\r|\n").forall(line => line.forall(c => c == ' ' || c == '\t') || isIndented(line))
+
+  private def hasCommonIndent(value: String): Boolean = {
+    val lines = value.split("\r\n|\r|\n").toList.drop(1).filter(_.exists(c => c != ' ' && c != '\t'))
+    lines.nonEmpty && lines.forall(isIndented)
+  }
+
+  private def isIndented(line: String): Boolean =
+    line.nonEmpty && (line.charAt(0) == ' ' || line.charAt(0) == '\t')
 
   private def newlineOrEmpty(indent: Option[Int], writer: StringBuilder): Unit =
     if (indent.isDefined) writer append '\n'
