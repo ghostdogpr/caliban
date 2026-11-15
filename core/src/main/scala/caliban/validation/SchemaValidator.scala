@@ -378,129 +378,14 @@ private[caliban] object SchemaValidator {
           s"$interfaceContext does not have fields",
           "An Interface type must define one or more fields"
         )
-      case _   => validateFields(t, interfaceContext) *> validateImplementedDeprecations(t)
+      case _   =>
+        validateFields(t, interfaceContext) *> validateInterfaceFields(t, interfaceContext) *>
+          validateImplementedDeprecations(t)
     }
   }
 
   private def validateObject(obj: __Type): Either[ValidationError, Unit] = {
     lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
-
-    def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) = t.allFields.map(_.name)
-
-      val supertype = obj.interfaces().toList.flatten
-
-      def checkForMissingFields(): Either[ValidationError, Unit] = {
-        val objectFieldNames    = fieldNames(obj).toSet
-        val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
-        val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
-
-        failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(
-          {
-            val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
-            s"$objectContext is missing field(s): ${missingFields.mkString(", ")}"
-          },
-          "An Object type must include a field of the same name for every field defined in an interface"
-        )
-      }
-
-      def checkForInvalidSubtypeFields(): Either[ValidationError, Unit] = {
-        val objectFields    = obj.allFields
-        val supertypeFields = supertype.flatMap(_.allFields)
-
-        // https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
-        def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type): Boolean = {
-          import __TypeKind._
-          if (objectFieldType.kind == NON_NULL) {
-            // Non-Null is a valid sub-type of either Non-Null or its nullable variant.
-            val unwrappedObj = objectFieldType.ofType.getOrElse(objectFieldType)
-            val unwrappedSup =
-              if (supertypeFieldType.kind == NON_NULL) supertypeFieldType.ofType.getOrElse(supertypeFieldType)
-              else supertypeFieldType
-            isValidSubtype(unwrappedSup, unwrappedObj)
-          } else if (supertypeFieldType.kind == NON_NULL) {
-            // A nullable object field cannot implement a non-nullable interface field.
-            false
-          } else if (supertypeFieldType.kind == LIST && objectFieldType.kind == LIST) {
-            (for {
-              s <- supertypeFieldType.ofType
-              o <- objectFieldType.ofType
-            } yield isValidSubtype(s, o)).getOrElse(false)
-          } else if (Types.same(supertypeFieldType, objectFieldType)) {
-            true
-          } else
-            (supertypeFieldType.kind, objectFieldType.kind) match {
-              case (UNION, OBJECT)                              =>
-                supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType))
-              case (INTERFACE, OBJECT) | (INTERFACE, INTERFACE) =>
-                supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType)) ||
-                implementsTransitively(objectFieldType, supertypeFieldType)
-              case _                                            => false
-            }
-        }
-
-        def implementsTransitively(t: __Type, ancestor: __Type): Boolean = {
-          @scala.annotation.tailrec
-          def loop(queue: List[__Type], visited: List[__Type]): Boolean = queue match {
-            case Nil       => false
-            case h :: rest =>
-              if (visited.exists(Types.same(_, h))) loop(rest, visited)
-              else if (Types.same(h, ancestor)) true
-              else loop(rest ::: h.interfaces().toList.flatten, h :: visited)
-          }
-          loop(t.interfaces().toList.flatten, List(t))
-        }
-
-        validateAllDiscard(objectFields) { objField =>
-          lazy val fieldContext = s"Field '${MemberCoordinate(obj.name.getOrElse(""), objField.name)}'"
-
-          supertypeFields.find(_.name == objField.name) match {
-            case None             => unit
-            case Some(superField) =>
-              val superArgs = superField.allArgs.map(arg => (arg.name, arg)).toMap
-              val extraArgs = objField.allArgs.filter { arg =>
-                superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg._type, superArg._type))
-              }
-
-              def fieldTypeIsValid = isValidSubtype(superField._type, objField._type)
-
-              def listItemTypeIsValid =
-                isListField(superField) && isListField(objField) && (for {
-                  superListItemType <- superField._type.ofType
-                  objListItemType   <- objField._type.ofType
-                } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
-
-              def extraArgsAreValid = !extraArgs.exists(_._type.kind == __TypeKind.NON_NULL)
-
-              (fieldTypeIsValid, isListField(superField)) match {
-                case (_, true) if !listItemTypeIsValid =>
-                  failValidation(
-                    s"$fieldContext is an invalid list item subtype",
-                    "An object list item field type must be equal to or a possible" +
-                      " type of the interface list item field type."
-                  )
-                case (false, false)                    =>
-                  failValidation(
-                    s"$fieldContext is an invalid subtype",
-                    "An object field type must be equal to or a possible type of the interface field type."
-                  )
-                case _ if !extraArgsAreValid           =>
-                  val argNames = extraArgs.filter(_._type.kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
-                  failValidation(
-                    s"$fieldContext with extra non-nullable arg(s) '$argNames' is invalid",
-                    "Any additional field arguments must not be of a non-nullable type."
-                  )
-                case _                                 => unit
-              }
-          }
-        }
-      }
-
-      for {
-        _ <- checkForMissingFields()
-        _ <- checkForInvalidSubtypeFields()
-      } yield ()
-    }
 
     obj.allFields match {
       case Nil =>
@@ -509,9 +394,128 @@ private[caliban] object SchemaValidator {
           "An Object type must define one or more fields"
         )
       case _   =>
-        validateFields(obj, objectContext) *> validateInterfaceFields(obj) *>
+        validateFields(obj, objectContext) *> validateInterfaceFields(obj, objectContext) *>
           validateImplementedDeprecations(obj)
     }
+  }
+
+  private def validateInterfaceFields(obj: __Type, context: String): Either[ValidationError, Unit] = {
+    val kind = obj.kind.toString.toLowerCase
+
+    def fieldNames(t: __Type) = t.allFields.map(_.name)
+
+    val supertype = obj.interfaces().toList.flatten
+
+    def checkForMissingFields(): Either[ValidationError, Unit] = {
+      val objectFieldNames    = fieldNames(obj).toSet
+      val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
+      val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
+
+      failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(
+        {
+          val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
+          s"$context is missing field(s): ${missingFields.mkString(", ")}"
+        },
+        s"An ${kind.capitalize} type must include a field of the same name for every field defined in an interface"
+      )
+    }
+
+    def checkForInvalidSubtypeFields(): Either[ValidationError, Unit] = {
+      val objectFields    = obj.allFields
+      val supertypeFields = supertype.flatMap(_.allFields)
+
+      // https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
+      def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type): Boolean = {
+        import __TypeKind._
+        if (objectFieldType.kind == NON_NULL) {
+          // Non-Null is a valid sub-type of either Non-Null or its nullable variant.
+          val unwrappedObj = objectFieldType.ofType.getOrElse(objectFieldType)
+          val unwrappedSup =
+            if (supertypeFieldType.kind == NON_NULL) supertypeFieldType.ofType.getOrElse(supertypeFieldType)
+            else supertypeFieldType
+          isValidSubtype(unwrappedSup, unwrappedObj)
+        } else if (supertypeFieldType.kind == NON_NULL) {
+          // A nullable object field cannot implement a non-nullable interface field.
+          false
+        } else if (supertypeFieldType.kind == LIST && objectFieldType.kind == LIST) {
+          (for {
+            s <- supertypeFieldType.ofType
+            o <- objectFieldType.ofType
+          } yield isValidSubtype(s, o)).getOrElse(false)
+        } else if (Types.same(supertypeFieldType, objectFieldType)) {
+          true
+        } else
+          (supertypeFieldType.kind, objectFieldType.kind) match {
+            case (UNION, OBJECT)                              =>
+              supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType))
+            case (INTERFACE, OBJECT) | (INTERFACE, INTERFACE) =>
+              supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType)) ||
+              implementsTransitively(objectFieldType, supertypeFieldType)
+            case _                                            => false
+          }
+      }
+
+      def implementsTransitively(t: __Type, ancestor: __Type): Boolean = {
+        @scala.annotation.tailrec
+        def loop(queue: List[__Type], visited: List[__Type]): Boolean = queue match {
+          case Nil       => false
+          case h :: rest =>
+            if (visited.exists(Types.same(_, h))) loop(rest, visited)
+            else if (Types.same(h, ancestor)) true
+            else loop(rest ::: h.interfaces().toList.flatten, h :: visited)
+        }
+        loop(t.interfaces().toList.flatten, List(t))
+      }
+
+      validateAllDiscard(objectFields) { objField =>
+        lazy val fieldContext = s"Field '${MemberCoordinate(obj.name.getOrElse(""), objField.name)}'"
+
+        supertypeFields.find(_.name == objField.name) match {
+          case None             => unit
+          case Some(superField) =>
+            val superArgs = superField.allArgs.map(arg => (arg.name, arg)).toMap
+            val extraArgs = objField.allArgs.filter { arg =>
+              superArgs.get(arg.name).fold(true)(superArg => !Types.same(arg._type, superArg._type))
+            }
+
+            def fieldTypeIsValid = isValidSubtype(superField._type, objField._type)
+
+            def listItemTypeIsValid =
+              isListField(superField) && isListField(objField) && (for {
+                superListItemType <- superField._type.ofType
+                objListItemType   <- objField._type.ofType
+              } yield isValidSubtype(superListItemType, objListItemType)).getOrElse(false)
+
+            def extraArgsAreValid = !extraArgs.exists(_._type.kind == __TypeKind.NON_NULL)
+
+            (fieldTypeIsValid, isListField(superField)) match {
+              case (_, true) if !listItemTypeIsValid =>
+                failValidation(
+                  s"$fieldContext is an invalid list item subtype",
+                  s"An $kind list item field type must be equal to or a possible" +
+                    " type of the interface list item field type."
+                )
+              case (false, false)                    =>
+                failValidation(
+                  s"$fieldContext is an invalid subtype",
+                  s"An $kind field type must be equal to or a possible type of the interface field type."
+                )
+              case _ if !extraArgsAreValid           =>
+                val argNames = extraArgs.filter(_._type.kind == __TypeKind.NON_NULL).map(_.name).mkString(", ")
+                failValidation(
+                  s"$fieldContext with extra non-nullable arg(s) '$argNames' is invalid",
+                  "Any additional field arguments must not be of a non-nullable type."
+                )
+              case _                                 => unit
+            }
+        }
+      }
+    }
+
+    for {
+      _ <- checkForMissingFields()
+      _ <- checkForInvalidSubtypeFields()
+    } yield ()
   }
 
   private def validateImplementedDeprecations(t: __Type): Either[ValidationError, Unit] = {

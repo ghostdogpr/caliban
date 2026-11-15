@@ -144,7 +144,7 @@ trait CommonSchemaDerivation[R] {
 
   }
 
-  def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+  def split[T](ctx: SealedTrait[Typeclass, T])(implicit p: ParentInterfaces[R, T]): Typeclass[T] = new Typeclass[T] {
 
     private lazy val subtypes =
       ctx.subtypes
@@ -245,13 +245,16 @@ trait CommonSchemaDerivation[R] {
             .toList
             .sortBy(_.name)
 
-        makeInterface(
-          Some(getName(ctx)),
-          getDescription(ctx),
-          commonFields,
-          impl,
-          Some(ctx.typeName.full),
-          Some(getDirectives(ctx.annotations))
+        SchemaUtils.withParentInterfaces(
+          makeInterface(
+            Some(getName(ctx)),
+            getDescription(ctx),
+            commonFields,
+            impl,
+            Some(ctx.typeName.full),
+            Some(getDirectives(ctx.annotations))
+          ),
+          p.schemas()
         )
       }
     }

@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ EnumValue, NullValue, StringValue }
-import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
 import caliban.schema.Step.MetadataFunctionStep
 import caliban.parsing.adt.Directive
 
@@ -26,6 +26,18 @@ private[schema] object SchemaUtils {
         )
       )
     )
+
+  def withParentInterfaces(t: __Type, parents: => List[Schema[_, _]]): __Type =
+    t.copy(interfaces = () => {
+      @scala.annotation.tailrec
+      def ancestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
+        case Nil                                       => acc.reverse
+        case h :: rest if acc.exists(_.name == h.name) => ancestors(rest, acc)
+        case h :: rest                                 => ancestors(rest ++ h.interfaces().getOrElse(Nil), h :: acc)
+      }
+
+      Some(ancestors(parents.map(_.toType_()), Nil).filter(_.kind == __TypeKind.INTERFACE)).filter(_.nonEmpty)
+    })
 
   def isEmptyUnionObject(t: __Type): Boolean =
     t.fields(__DeprecatedArgs.include).contains(Nil)

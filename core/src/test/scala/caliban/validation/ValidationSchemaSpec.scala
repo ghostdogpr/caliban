@@ -164,6 +164,14 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
               "Interface 'InterfaceEmpty' does not have fields"
             )
           },
+          test("must include a field of the same name for every field defined in an interface it implements") {
+            checkTypeError(
+              Types
+                .makeInterface(Some("InterfaceC"), None, () => Object.makeFields("a"), Nil)
+                .copy(interfaces = () => Some(List(Object.interfaceA, Object.interfaceB))),
+              "Interface 'InterfaceC' is missing field(s): b"
+            )
+          },
           test("field names must be unique") {
             checkTypeError(
               Types.makeInterface(

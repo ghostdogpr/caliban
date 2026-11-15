@@ -906,7 +906,9 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[MissingTypesProblem]("caliban.codegen.Options$"),
       ProblemFilters.exclude[DirectMissingMethodProblem](
         "caliban.codegen.compiletime.Config#ClientGenerationSettings.*"
-      )
+      ),
+      // Schema derivation's split now takes the parent interfaces of a sealed trait
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.schema.*.split")
     )
   )
 
