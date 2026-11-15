@@ -7,6 +7,8 @@ import caliban.wrappers.Caching
 import zio.stream.{ UStream, ZChannel, ZPipeline, ZStream }
 import zio.{ Cause, Chunk, Trace }
 
+import scala.util.Try
+
 object HttpUtils {
 
   val MutationOverGetError: ValidationError =
@@ -127,19 +129,137 @@ object HttpUtils {
       fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) => cacheHeader }
     }.flatten
 
+  @deprecated("Kept for bin-compatibility only", "3.3.0")
   final class AcceptsGqlEncodings(header0: Option[String]) {
     private val isEmpty     = header0.isEmpty
     private val length      = if (isEmpty) 0 else header0.get.length
     private lazy val header = if (isEmpty) "" else header0.get.toLowerCase
 
-    /**
-     * NOTE: From  1st January 2025 this should be changed to `true` as the default
-     *
-     * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
-     */
     def graphQLJson: Boolean = length >= 33 && header.contains("application/graphql-response+json")
 
     def serverSentEvents: Boolean = length >= 17 && header.contains("text/event-stream")
+  }
+
+  private[caliban] sealed abstract class ResponseEncoding(
+    val mainType: String,
+    val subType: String,
+    val parameters: Map[String, String],
+    val strict: Boolean
+  )
+
+  private[caliban] object ResponseEncoding {
+    case object GraphQLJson extends ResponseEncoding("application", "graphql-response+json", Map.empty, strict = true)
+    case object Json        extends ResponseEncoding("application", "json", Map.empty, strict = false)
+    case object EventStream extends ResponseEncoding("text", "event-stream", Map.empty, strict = false)
+    case object Multipart
+        extends ResponseEncoding("multipart", "mixed", DeferMultipart.DeferHeaderParams, strict = true)
+
+    private val supported = List(GraphQLJson, Json, EventStream, Multipart)
+
+    def negotiate(accept: Option[String]): Option[ResponseEncoding] =
+      accept.map(_.trim).filter(_.nonEmpty) match {
+        case None                                                            => Some(Json)
+        case Some(a) if a == "*/*" || a.equalsIgnoreCase("application/json") => Some(Json)
+        case Some(a)                                                         =>
+          val ranges = parse(a)
+          best(ranges, supported).orElse(
+            if (ranges.exists(r => r.mainType.equalsIgnoreCase("application") && r.subType.equalsIgnoreCase("json")))
+              Some(Json)
+            else None
+          )
+      }
+
+    def acceptsEventStream(accept: Option[String]): Boolean =
+      accept.exists(a => best(parse(a), EventStream :: Nil).isDefined)
+
+    private final case class Range(mainType: String, subType: String, parameters: List[(String, String)], q: Double)
+
+    private final case class Negotiated(value: ResponseEncoding, q: Double, specificity: Int) {
+      def isPreferredOver(other: Negotiated): Boolean =
+        q > other.q || q == other.q &&
+          (specificity > other.specificity || specificity == 0 && other.specificity == 0 && value == Json)
+    }
+
+    private def best(ranges: List[Range], candidates: List[ResponseEncoding]): Option[ResponseEncoding] =
+      candidates.flatMap { candidate =>
+        ranges
+          .filter(matches(candidate, _))
+          .reduceOption((best, range) => if (specificity(range) > specificity(best)) range else best)
+          .filter(_.q > 0d)
+          .map(range => Negotiated(candidate, range.q, typeSpecificity(range)))
+      }.reduceOption((current, candidate) => if (candidate.isPreferredOver(current)) candidate else current)
+        .map(_.value)
+
+    private def parse(accept: String): List[Range] =
+      accept.split(',').toList.flatMap { element =>
+        val parts           = element.split(";", -1).toList.map(_.trim)
+        val mediaRange      = parts.head
+        val slash           = mediaRange.indexOf('/')
+        val (q, parameters) = parts.tail.map { parameter =>
+          val eq = parameter.indexOf('=')
+          if (eq < 0) parameter -> "" else parameter.substring(0, eq).trim -> unquote(parameter.substring(eq + 1).trim)
+        }.partition(_._1.equalsIgnoreCase("q"))
+        val quality         =
+          q.headOption.fold(Option(1d))(p => Try(p._2.toDouble).toOption.filter(q => q >= 0d && q <= 1d))
+        if (slash <= 0 || slash == mediaRange.length - 1) None
+        else quality.map(Range(mediaRange.substring(0, slash), mediaRange.substring(slash + 1), parameters, _))
+      }
+
+    private def matches(candidate: ResponseEncoding, range: Range): Boolean =
+      (range.mainType == "*" || range.mainType.equalsIgnoreCase(candidate.mainType)) &&
+        (range.subType == "*" || range.subType.equalsIgnoreCase(candidate.subType)) &&
+        range.parameters.forall {
+          case (name, _) if isIgnored(range, name)               => true
+          case (name, value) if name.equalsIgnoreCase("charset") =>
+            value.equalsIgnoreCase("utf-8") || value.equalsIgnoreCase("utf8")
+          case (name, value)                                     =>
+            candidate.parameters.exists { case (k, v) => k.equalsIgnoreCase(name) && v.equalsIgnoreCase(value) }
+        }
+
+    private def typeSpecificity(range: Range): Int =
+      if (range.mainType == "*") 0 else if (range.subType == "*") 1 else 2
+
+    private def specificity(range: Range): Int =
+      typeSpecificity(range) * 100 + range.parameters.count { case (name, _) => !isIgnored(range, name) }
+
+    private def isIgnored(range: Range, name: String): Boolean =
+      name.equalsIgnoreCase("boundary") && range.mainType.equalsIgnoreCase("multipart")
+
+    private def unquote(value: String): String =
+      if (value.length >= 2 && value.head == '"' && value.last == '"') value.substring(1, value.length - 1)
+      else value
+  }
+
+  private[caliban] final class HttpStatus(val code: Int, val encoding: ResponseEncoding) {
+    def isSuccess: Boolean        = code >= 200 && code < 300
+    def keepDataOnErrors: Boolean = isSuccess || !encoding.strict
+  }
+
+  private[caliban] def httpStatus(
+    response: GraphQLResponse[Any],
+    outcome: GraphQLResponseContext.Outcome,
+    encoding: ResponseEncoding,
+    partialSuccessStatus: Boolean = false,
+    jsonClientStatusCodes: Boolean = false
+  ): HttpStatus = {
+    import GraphQLResponseContext.{ Outcome, ServerFailure }
+    val strict = encoding.strict || encoding == ResponseEncoding.Json && jsonClientStatusCodes
+    val code   = outcome match {
+      case ServerFailure.Internal             => 500
+      case ServerFailure.Unavailable          => 503
+      case ServerFailure.TimedOut             => 504
+      case Outcome.MutationOverGet            => 405
+      case Outcome.ParsingFailed if strict    => 400
+      case Outcome.ValidationFailed if strict => 422
+      case Outcome.Executed
+          if partialSuccessStatus && encoding == ResponseEncoding.GraphQLJson && response.errors.nonEmpty =>
+        294
+      case _                                  => 200
+    }
+    val body   =
+      if (strict && encoding == ResponseEncoding.Json && (code < 200 || code >= 300)) ResponseEncoding.GraphQLJson
+      else encoding
+    new HttpStatus(code, body)
   }
 
   def graphiqlHtml(apiPath: String, uiPath: String, wsPath: Option[String]): String =

@@ -877,6 +877,10 @@ lazy val enableMimaSettingsJVM =
       ),
       // private implementation class; construction is handled by QuickAdapter
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this"),
+      // opt-in status codes of the GraphQL over HTTP spec added to HttpConfig
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.copy"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.this"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.HttpConfig.apply"),
       // includeDeprecated is now Boolean! = false, as required by the September 2025 spec
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
       ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.introspection.adt.__DeprecatedArgs.*"),
