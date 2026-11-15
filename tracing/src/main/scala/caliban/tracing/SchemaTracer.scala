@@ -9,10 +9,18 @@ import caliban.Value.StringValue
 import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.OperationType
 import caliban.wrappers.Wrapper.ExecutionWrapper
-import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
-import io.opentelemetry.api.trace.SpanKind
+import caliban.{ CalibanError, GraphQLResponse, IncomingRequestHeaders, InputValue, Value }
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator
+import io.opentelemetry.api.trace.{ Span, SpanKind }
+import io.opentelemetry.context.Context
+import io.opentelemetry.context.propagation.{ TextMapGetter, TextMapPropagator, TextMapSetter }
 import zio._
+import zio.telemetry.opentelemetry.context.IncomingContextCarrier
 import zio.telemetry.opentelemetry.tracing.Tracing
+import zio.telemetry.opentelemetry.tracing.propagation.TraceContextPropagator
+
+import java.util.Locale
+import scala.collection.mutable
 
 object SchemaTracer {
   val wrapper: ExecutionWrapper[Tracing] = new ExecutionWrapper[Tracing] {
@@ -25,16 +33,42 @@ object SchemaTracer {
         // skip introspection queries
         if (parentField.contains("__schema")) f(request)
         else
-          ZIO.serviceWithZIO[Tracing](tracer =>
-            tracer.span(
-              spanName(request),
-              SpanKind.INTERNAL
-            ) {
-              tracer.setAttribute("document", graphQLQuery(request)) *> f(request)
+          ZIO.serviceWithZIO[Tracing] { tracer =>
+            val name   = spanName(request)
+            val traced = tracer.setAttribute("document", graphQLQuery(request)) *> f(request)
+            tracer.getCurrentContextUnsafe.flatMap { current =>
+              if (Span.fromContext(current).getSpanContext.isValid) tracer.span(name, SpanKind.INTERNAL)(traced)
+              else
+                IncomingRequestHeaders.get.flatMap { headers =>
+                  val carrier = mutable.Map.empty[String, String]
+                  headers.foreach { case (k, v) =>
+                    val key = k.toLowerCase(Locale.ROOT)
+                    carrier(key) = carrier.get(key).fold(v)(_ + "," + v)
+                  }
+                  tracer.extractSpan(
+                    continuing(current),
+                    IncomingContextCarrier.default(carrier),
+                    name,
+                    SpanKind.INTERNAL
+                  )(traced)
+                }
             }
-          )
+          }
       }
   }
+
+  // extractSpan extracts against Context.root(), which would drop the current baggage
+  private def continuing(current: Context): TraceContextPropagator =
+    new TraceContextPropagator {
+      private val w3c                 = W3CTraceContextPropagator.getInstance()
+      val instance: TextMapPropagator = new TextMapPropagator {
+        def fields(): java.util.Collection[String]                                      = w3c.fields()
+        def inject[C](context: Context, carrier: C, setter: TextMapSetter[C]): Unit     =
+          w3c.inject(context, carrier, setter)
+        def extract[C](context: Context, carrier: C, getter: TextMapGetter[C]): Context =
+          w3c.extract(current, carrier, getter)
+      }
+    }
 
   private def spanName(request: ExecutionRequest): String = {
     val operationTypeString = request.operationType match {

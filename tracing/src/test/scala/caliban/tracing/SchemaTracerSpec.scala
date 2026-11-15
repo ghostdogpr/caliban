@@ -3,12 +3,16 @@ package caliban.tracing
 import caliban.InputValue.ListValue
 import caliban.Value.{ BooleanValue, EnumValue, IntValue, StringValue }
 import caliban.parsing.Parser
-import caliban.{ InputValue, TestUtils }
+import caliban.schema.Schema.auto._
+import caliban.{ graphQL, IncomingRequestHeaders, InputValue, RootResolver, TestUtils }
 import io.opentelemetry.api.common.AttributeKey
 import zio._
+import zio.telemetry.opentelemetry.baggage.Baggage
 import zio.test._
 
 object SchemaTracerSpec extends ZIOSpecDefault {
+  case class TenantQuery(tenant: UIO[Option[String]])
+
   override def spec = suite("SchemaTracerSpec")(
     test("maskArguments masks scalar, list, enum and boolean argument values") {
       val args   = Map[String, InputValue](
@@ -41,6 +45,20 @@ object SchemaTracerSpec extends ZIOSpecDefault {
         documents.map(_.length < 20000) == List(true),
         replayed.map(_.data) == List(response.data)
       )
-    }.provide(TracingMock.layer) @@ TestAspect.timeout(30.seconds)
+    }.provide(TracingMock.layer) @@ TestAspect.timeout(30.seconds),
+    test("keeps the current baggage when continuing the incoming trace") {
+      val parentId = "00f067aa0ba902b7"
+      val headers  = List("traceparent" -> s"00-4bf92f3577b34da6a3ce929b0e0e4736-$parentId-01")
+      for {
+        baggage     <- ZIO.service[Baggage]
+        interpreter <- (graphQL(RootResolver(TenantQuery(baggage.get("tenant")))) @@ SchemaTracer.wrapper).interpreter
+        _           <- baggage.set("tenant", "acme")
+        response    <- IncomingRequestHeaders.locally(headers)(interpreter.execute("{ tenant }"))
+        spans       <- TracingMock.getFinishedSpans
+      } yield assertTrue(
+        response.data.toString == """{"tenant":"acme"}""",
+        spans.map(_.getParentSpanId) == List(parentId)
+      )
+    }.provide(TracingMock.layer, Baggage.live())
   )
 }

@@ -25,7 +25,7 @@ object TracingMock {
       ZEnvironment(inMemorySpanExporter).add(tracer)
     }) ++ OpenTelemetry.contextZIO
 
-  val layer: ULayer[Tracing with InMemorySpanExporter with Tracer] =
+  val layer: ULayer[Tracing with InMemorySpanExporter with Tracer with ContextStorage] =
     inMemoryTracerLayer >>> (Tracing.live() ++ inMemoryTracerLayer)
 
   def getFinishedSpans =
