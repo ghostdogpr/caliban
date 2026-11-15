@@ -51,7 +51,7 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
     )
 
     new GraphQL[R] {
-      override protected val additionalDirectives: List[__Directive]            = schema.directives
+      override protected val additionalDirectives: List[__Directive]            = schema.directives(__DeprecatedArgs.include)
       override protected val schemaBuilder: caliban.schema.RootSchemaBuilder[R] = builder
       override protected val wrappers: List[caliban.wrappers.Wrapper[R]]        = List()
       override protected val features: Set[Feature]                             = Set.empty

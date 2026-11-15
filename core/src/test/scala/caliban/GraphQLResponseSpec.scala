@@ -41,8 +41,8 @@ object GraphQLResponseSpec extends ZIOSpecDefault {
           }
 
         val cases = List[(CalibanError, Outcome)](
-          ParsingError("bad syntax")        -> Outcome.RequestError,
-          ValidationError("bad query", "")  -> Outcome.RequestError,
+          ParsingError("bad syntax")        -> Outcome.ParsingFailed,
+          ValidationError("bad query", "")  -> Outcome.ValidationFailed,
           ExecutionError("resolver failed") -> Outcome.Executed
         )
 

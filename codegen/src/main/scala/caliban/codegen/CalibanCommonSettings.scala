@@ -22,7 +22,8 @@ final case class CalibanCommonSettings(
   addDerives: Option[Boolean],
   envForDerives: Option[String],
   excludeDeprecated: Option[Boolean],
-  supportDeprecatedArgs: Option[Boolean]
+  supportDeprecatedArgs: Option[Boolean],
+  supportDeprecatedDirectives: Option[Boolean]
 ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
@@ -46,7 +47,8 @@ final case class CalibanCommonSettings(
       addDerives = addDerives,
       envForDerives = envForDerives,
       excludeDeprecated = excludeDeprecated,
-      supportDeprecatedArgs = supportDeprecatedArgs
+      supportDeprecatedArgs = supportDeprecatedArgs,
+      supportDeprecatedDirectives = supportDeprecatedDirectives
     )
 
   private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
@@ -69,7 +71,8 @@ final case class CalibanCommonSettings(
       addDerives = r.addDerives.orElse(this.addDerives),
       envForDerives = r.envForDerives.orElse(this.envForDerives),
       excludeDeprecated = r.excludeDeprecated.orElse(this.excludeDeprecated),
-      supportDeprecatedArgs = r.supportDeprecatedArgs.orElse(this.supportDeprecatedArgs)
+      supportDeprecatedArgs = r.supportDeprecatedArgs.orElse(this.supportDeprecatedArgs),
+      supportDeprecatedDirectives = r.supportDeprecatedDirectives.orElse(this.supportDeprecatedDirectives)
     )
 
   def clientName(value: String): CalibanCommonSettings                         = this.copy(clientName = Some(value))
@@ -96,6 +99,8 @@ final case class CalibanCommonSettings(
   def excludeDeprecated(value: Boolean): CalibanCommonSettings                 = this.copy(excludeDeprecated = Some(value))
   def supportDeprecatedArgs(value: Boolean): CalibanCommonSettings             =
     this.copy(supportDeprecatedArgs = Some(value))
+  def supportDeprecatedDirectives(value: Boolean): CalibanCommonSettings       =
+    this.copy(supportDeprecatedDirectives = Some(value))
 }
 
 object CalibanCommonSettings {
@@ -119,6 +124,7 @@ object CalibanCommonSettings {
       addDerives = None,
       envForDerives = None,
       excludeDeprecated = None,
-      supportDeprecatedArgs = None
+      supportDeprecatedArgs = None,
+      supportDeprecatedDirectives = None
     )
 }

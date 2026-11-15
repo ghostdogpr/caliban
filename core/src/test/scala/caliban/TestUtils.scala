@@ -5,7 +5,7 @@ import caliban.TestUtils.InvalidSchemas.Interface.WrongArgumentName
 import caliban.TestUtils.InvalidSchemas.Object.FieldInterface.FieldObject
 import caliban.TestUtils.Origin._
 import caliban.TestUtils.Role._
-import caliban.Value.StringValue
+import caliban.Value.{ IntValue, StringValue }
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
@@ -205,7 +205,7 @@ object TestUtils {
     val Test = __Directive(
       name = "test",
       description = Some("Test directive"),
-      locations = Set(__DirectiveLocation.FIELD_DEFINITION),
+      locations = Set(__DirectiveLocation.FIELD_DEFINITION, __DirectiveLocation.DIRECTIVE_DEFINITION),
       args = _ => List(__InputValue("foo", None, () => Types.int, None)),
       isRepeatable = false
     )
@@ -215,7 +215,10 @@ object TestUtils {
       description = Some("Repeatable test directive"),
       locations = Set(__DirectiveLocation.FIELD_DEFINITION),
       args = _ => List(__InputValue("bar", None, () => Types.int, None)),
-      isRepeatable = true
+      isRepeatable = true,
+      isDeprecated = true,
+      deprecationReason = Some("Use @test"),
+      directives = Some(List(Directive("test", Map("foo" -> IntValue(1)))))
     )
   }
 
