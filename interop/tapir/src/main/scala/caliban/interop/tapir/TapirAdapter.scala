@@ -173,7 +173,7 @@ object TapirAdapter {
               deferMultipartMediaType,
               status,
               headers,
-              encodeMultipartMixedResponse(ZStream.succeed(response.toResponseValue))
+              encodeMultipartMixedResponse(ZStream.succeed(response.toResponseValue(httpStatus.keepDataOnErrors)))
             )
         }
     }

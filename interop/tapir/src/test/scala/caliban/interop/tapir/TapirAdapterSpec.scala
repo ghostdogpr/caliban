@@ -292,9 +292,15 @@ object TapirAdapterSpec {
           test("returns 405 with an Allow header for mutations over GET methods") {
             val mutation = """mutation{ deleteCharacter(name: "Amos Burton") }"""
             for {
-              json   <- runHttpRequest(method = Method.GET.method, query = mutation)
-              stream <-
+              json      <- runHttpRequest(method = Method.GET.method, query = mutation)
+              stream    <-
                 runHttpRequest(method = Method.GET.method, acceptHeader = acceptTextEventStream, query = mutation)
+              multipart <-
+                runHttpRequest(
+                  Method.GET.method,
+                  Header(HeaderNames.Accept, "multipart/mixed, application/json;q=0.5"),
+                  mutation
+                )
             } yield assertTrue(
               json.code == StatusCode.MethodNotAllowed,
               json.header(HeaderNames.Allow).contains("POST"),
@@ -305,7 +311,13 @@ object TapirAdapterSpec {
               },
               stream.code == StatusCode.MethodNotAllowed,
               stream.header(HeaderNames.Allow).contains("POST"),
-              stream.contentType.contains("text/event-stream")
+              stream.contentType.contains("text/event-stream"),
+              multipart.code == StatusCode.MethodNotAllowed,
+              multipart.body.swap.exists {
+                case UnexpectedStatusCode(body, _) =>
+                  body.contains("Mutations are not allowed for GET requests") && !body.contains("\"data\"")
+                case _                             => false
+              }
             )
           },
           test("very long field values in mutations") {

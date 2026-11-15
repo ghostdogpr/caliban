@@ -237,7 +237,9 @@ final private class QuickRequestHandler[R](
         Response(
           status,
           headers = responseHeaders(contentType(encoding), cacheDirective),
-          body = Body.fromStreamChunked(encodeMultipartMixedResponse(ZStream.succeed(response.toResponseValue)))
+          body = Body.fromStreamChunked(
+            encodeMultipartMixedResponse(ZStream.succeed(response.toResponseValue(httpStatus.keepDataOnErrors)))
+          )
         )
       case _                                             =>
         val codec   = if (httpStatus.keepDataOnErrors) responseWithDataCodec else responseWithoutDataCodec
