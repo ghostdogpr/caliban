@@ -453,14 +453,49 @@ object ClientWriterSpec extends SnapshotTest {
             }""")
       },
       snapshotTest("default arguments for optional and list arguments") {
-        gen("""
+        gen(
+          """
+              scalar Json
+              scalar Date
+
+              enum Origin {
+                EARTH
+                MARS
+              }
+
+              input Filter {
+                userId: String!
+                isExternal: Boolean! = false
+                limit: Int = 10
+                origins: [Origin!]! = MARS
+                json: Json = "{}"
+              }
+
+              input Search @oneOf {
+                name: String
+                byFilter: Filter
+              }
+
               type Query {
                 characters(
                   first: Int!
                   last: Int
                   origins: [String]!
+                  count: Long! = 5
+                  ratio: Float! = 1
+                  weight: BigDecimal = 0.5
+                  name: String! = "a \"b\"\n"
+                  nickname: String = null
+                  origin: Origin! = EARTH
+                  date: Date = "2020-01-01"
+                  filter: Filter! = { userId: "u", origins: [EARTH, MARS] }
+                  filters: [Filter!] = [{ userId: "u", limit: null }, { userId: "v", isExternal: true }]
+                  search: Search = { name: "n" }
+                  json: Json! = "{}"
                 ): String
-              }""")
+              }""",
+          Map("Json" -> "io.circe.Json")
+        )
       },
       snapshotTest("support for Json scalar") {
         gen(

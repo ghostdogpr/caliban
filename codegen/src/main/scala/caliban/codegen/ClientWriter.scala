@@ -4,6 +4,9 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directives, Document, Type }
+import caliban.InputValue
+import caliban.InputValue.{ ListValue, ObjectValue }
+import caliban.Value._
 
 import scala.annotation.tailrec
 import scala.collection.compat._
@@ -648,11 +651,14 @@ object ClientWriter {
          |""".stripMargin
     }
 
+    def inputFields(typedef: InputObjectTypeDefinition): List[InputValueDefinition] =
+      if (excludeDeprecated) typedef.fields.filterNot(_.isDeprecated) else typedef.fields
+
     def writeInputObject(
       typedef: InputObjectTypeDefinition
     ): String = {
       val inputObjectName = safeTypeName(typedef.name)
-      val fields          = if (excludeDeprecated) typedef.fields.filterNot(_.isDeprecated) else typedef.fields
+      val fields          = inputFields(typedef)
       val formattedFields = fields
         .map(f =>
           s""""${f.name}" -> ${writeInputValue(
@@ -714,6 +720,11 @@ object ClientWriter {
         s"$fieldName.fold(__NullValue: __Value)(value => ${writeInputValue(ListType(ofType, nonNull = true), "value", typeName)})"
     }
 
+    def safeEnumValueName(typedef: EnumTypeDefinition): String => String = {
+      val mappingClashedEnumValues = getMappingsClashedNames(typedef.enumValuesDefinition.map(_.enumValue))
+      enumValue => safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
+    }
+
     def writeEnum(
       typedef: EnumTypeDefinition,
       extensibleEnums: Boolean
@@ -721,12 +732,7 @@ object ClientWriter {
 
       val enumName = safeTypeName(typedef.name)
 
-      val mappingClashedEnumValues = getMappingsClashedNames(
-        typedef.enumValuesDefinition.map(_.enumValue)
-      )
-
-      def safeEnumValue(enumValue: String): String =
-        safeName(mappingClashedEnumValues.getOrElse(enumValue, enumValue))
+      val safeEnumValue = safeEnumValueName(typedef)
 
       val enumCases = typedef.enumValuesDefinition
         .map(v =>
@@ -786,11 +792,69 @@ object ClientWriter {
     }
 
     def writeDefaultArgument(arg: InputValueDefinition): String =
-      arg.ofType match {
-        case t if t.nullable => " = None"
-        case ListType(_, _)  => " = Nil"
-        case _               => ""
-      }
+      defaultValueOf(arg).fold("")(v => s" = $v")
+
+    def defaultValueOf(arg: InputValueDefinition): Option[String] =
+      arg.defaultValue.flatMap(writeValue(arg.ofType, _)).orElse(fallbackDefault(arg.ofType))
+
+    def fallbackDefault(t: Type): Option[String] = t match {
+      case t if t.nullable => Some("None")
+      case ListType(_, _)  => Some("Nil")
+      case _               => None
+    }
+
+    def sequence(values: List[Option[String]]): Option[List[String]] =
+      if (values.forall(_.isDefined)) Some(values.flatten) else None
+
+    def writeValue(t: Type, value: InputValue): Option[String] = (t, value) match {
+      case (_, NullValue) if t.nullable         => Some("None")
+      case _ if t.nullable                      => writeValue(t.toNonNullable, value).map(v => s"Some($v)")
+      case (ListType(of, _), ListValue(values)) =>
+        sequence(values.map(writeValue(of, _))).map(_.mkString("List(", ", ", ")"))
+      case (ListType(of, _), _)                 => writeValue(of, value).map(v => s"List($v)")
+      case (NamedType(name, _), _)              =>
+        val typeName = safeTypeName(name)
+        (KnownPackagePrefix.replaceFirstIn(typeName, ""), value) match {
+          case ("Int", IntValue.IntNumber(v))                 => Some(v.toString)
+          case ("Long", v: IntValue)                          => Some(s"${v.toLong}L")
+          case ("BigInt", v: IntValue)                        => Some(s"""BigInt("$v")""")
+          case ("Double", v: IntValue)                        => Some(v.toLong.toDouble.toString)
+          case ("Double", v: FloatValue)                      => Some(v.toDouble.toString)
+          case ("BigDecimal", v: IntValue)                    => Some(s"""BigDecimal("$v")""")
+          case ("BigDecimal", v: FloatValue)                  => Some(s"""BigDecimal("${v.toBigDecimal}")""")
+          case ("String", v: StringValue)                     => Some(v.toString)
+          case ("Boolean", BooleanValue(v))                   => Some(v.toString)
+          case _ if scalarMappingsWithDefaults.contains(name) => None
+          case _                                              =>
+            (typesMap.get(typeName), value) match {
+              case (Some(_: ScalarTypeDefinition), v: StringValue)                                                => Some(v.toString)
+              case (Some(e: EnumTypeDefinition), EnumValue(v)) if e.enumValuesDefinition.exists(_.enumValue == v) =>
+                Some(s"$typeName.${safeEnumValueName(e)(v)}")
+              case (Some(i: InputObjectTypeDefinition), ObjectValue(values)) if Directives.isOneOf(i.directives)  =>
+                values.toList match {
+                  case (k, v) :: Nil =>
+                    i.fields
+                      .find(_.name == k)
+                      .flatMap(f => writeValue(f.ofType.toNonNullable, v))
+                      .map(v => s"$typeName.${k.capitalize}($v)")
+                  case _             => None
+                }
+              case (Some(i: InputObjectTypeDefinition), ObjectValue(values))                                      =>
+                val fields   = inputFields(i)
+                val complete = values.keySet.subsetOf(fields.map(_.name).toSet) && fields.forall(f =>
+                  values.contains(f.name) || fallbackDefault(f.ofType).orElse(defaultValueOf(f)).isDefined
+                )
+                sequence(
+                  fields.flatMap(f =>
+                    values.get(f.name).map(writeValue(f.ofType, _).map(v => s"${safeName(f.name)} = $v"))
+                  )
+                )
+                  .filter(_ => complete)
+                  .map(_.mkString(s"$typeName(", ", ", ")"))
+              case _                                                                                              => None
+            }
+        }
+    }
 
     def writeDeprecated(reason: Option[String]): String = {
       def escapeDoubleQuotes(input: String): String =
