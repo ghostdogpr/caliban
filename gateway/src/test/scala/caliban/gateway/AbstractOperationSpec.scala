@@ -578,25 +578,65 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         )
       },
       test("does not forward empty selection sets to a single source") {
-        val queries = List(
+        val queries     = List(
           "{ item { value ... on Item {} } }"                -> None,
           "{ item { value ...f } } fragment f on Item {}"    -> None,
-          "query Selected { item { value } } query Other {}" -> Some("Selected")
+          "query Selected { item { value } } query Other {}" -> Some("Selected"),
+          "\"described\" query { item { value } }"           -> None
         )
+        val passthrough = "{ item @upper { value child @upper { value @include(if: false) } } }"
         for {
-          source  <- stub("""{"data":{"item":{"value":"v"}}}""")
-          runtime <-
+          source    <- stub(
+                         List.fill(4)(
+                           """{"data":{"item":{"value":"v"}}}"""
+                         ) :+ """{"data":{"item":{"value":"v","child":{}}}}""": _*
+                       )
+          runtime   <-
             Gateway
               .compose(
-                Subgraph.graphql("source", source.endpoint, "type Query { item: Item } type Item { value: String }")
+                Subgraph.graphql(
+                  "source",
+                  source.endpoint,
+                  "directive @upper on FIELD type Query { item: Item } type Item { value: String child: Item }"
+                )
               )
               .interpreter
-          results <- ZIO.foreach(queries) { case (query, name) => runtime.execute(query, name) }
-          sent    <- source.requests.get
+          results   <- ZIO.foreach(queries) { case (query, name) => runtime.execute(query, name) }
+          forwarded <- runtime.execute(passthrough)
+          sent      <- source.requests.get
         } yield assertTrue(
           results.forall(_.errors.isEmpty),
           results.forall(_.data.toString == """{"item":{"value":"v"}}"""),
-          sent.flatMap(_.query) == Vector("query{item{value}}", "query{item{value}}", "query Selected{item{value}}")
+          forwarded.errors.isEmpty,
+          sent.flatMap(_.query) ==
+            Vector(
+              "query{item{value}}",
+              "query{item{value}}",
+              "query Selected{item{value}}",
+              "query{item{value}}",
+              passthrough
+            )
+        )
+      },
+      test("fills an empty interface-object selection without runtime evidence") {
+        val typenames =
+          """"_caliban_gateway_runtime_typename":"NodeWithName","_caliban_gateway_typename":"NodeWithName""""
+        for {
+          owner     <- stub("""{"data":{}}""")
+          interface <- stub(s"""{"data":{"anotherUsers":[{$typenames}]}}""")
+          runtime   <- Gateway
+                         .compose(
+                           Subgraph.federation("owner", owner.endpoint, interfaceOwnerSchema),
+                           Subgraph.federation("interface", interface.endpoint, interfaceObjectSchema)
+                         )
+                         .interpreter
+          result    <- runtime.execute("{ anotherUsers {} }")
+          skipped   <- runtime.execute("{ anotherUsers { ... on User @skip(if: true) { age } } }")
+        } yield assertTrue(
+          result.errors.isEmpty,
+          result.data.toString == """{"anotherUsers":[{}]}""",
+          skipped.errors.isEmpty,
+          skipped.data.toString == """{"anotherUsers":[{}]}"""
         )
       },
       test("retains concrete fragments when single-source execution needs runtime evidence") {

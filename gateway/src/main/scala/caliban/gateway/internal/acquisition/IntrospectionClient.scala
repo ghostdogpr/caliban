@@ -1,6 +1,6 @@
 package caliban.gateway.internal.acquisition
 
-import caliban.{ GraphQLRequest, InputValue }
+import caliban.GraphQLRequest
 import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SubgraphAcquisitionError }
 import caliban.gateway.SchemaAcquisitionError.InvalidResponse
 import caliban.gateway.SubgraphAcquisitionError.IntrospectionErrors
@@ -13,7 +13,6 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.parsers.Parsers
 import caliban.parsing.Parser
 import caliban.parsing.SourceMapper
-import caliban.Value.StringValue
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
 
@@ -133,15 +132,7 @@ private[gateway] object IntrospectionClient {
     for {
       deprecated <- obj("isDeprecated").booleanOrFalse
       reason     <- obj("deprecationReason").optional(_.string)
-    } yield
-      if (!deprecated) Nil
-      else
-        List(
-          Directive(
-            Directives.DeprecatedDirective,
-            reason.fold(Map.empty[String, InputValue])(value => Map("reason" -> StringValue(value)))
-          )
-        )
+    } yield Directives.deprecation(deprecated, reason)
 
   private def directiveLocation(json: Json): Either[InvalidResponse, DirectiveLocation] =
     json.string.flatMap { name =>

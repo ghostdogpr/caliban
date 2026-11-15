@@ -29,6 +29,7 @@ object RelaySupport {
     val nodeType = __Type(
       __TypeKind.INTERFACE,
       name = Some("Node"),
+      interfaces = () => Some(Nil),
       possibleTypes = Some(_resolvers.map(_.toType)),
       fields = _ =>
         Some(

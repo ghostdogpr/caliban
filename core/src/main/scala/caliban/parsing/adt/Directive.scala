@@ -33,6 +33,9 @@ object Directives {
         }
     }.flatten
 
+  private[caliban] def deprecation(isDeprecated: Boolean, reason: Option[String]): List[Directive] =
+    if (isDeprecated) List(Directive(DeprecatedDirective, reason.map("reason" -> Value.StringValue(_)).toMap)) else Nil
+
   def isNewType(directives: List[Directive]): Boolean =
     directives.exists(_.name == NewtypeDirective)
 

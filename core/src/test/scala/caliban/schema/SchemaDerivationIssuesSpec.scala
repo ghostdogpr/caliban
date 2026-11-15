@@ -215,9 +215,11 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       for {
         i   <- schema.interpreter
         res <- i.execute(gqldoc("{ e1 { b } e2 { b } e3 { b } e4 { b d } e5 { b } }"))
+        top <- i.execute(gqldoc("""{ __type(name: "NestedInterface") { interfaces { name } } }"""))
         data = res.data.toString
       } yield assertTrue(
         data == """{"e1":{"b":"b"},"e2":{"b":"b"},"e3":{"b":"b"},"e4":{"b":"b","d":1},"e5":{"b":"b"}}""",
+        top.data.toString == """{"__type":{"interfaces":[]}}""",
         schema.render ==
           """schema {
             |  query: Query

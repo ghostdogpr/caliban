@@ -223,12 +223,14 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             final case class Foo(value: String) derives Schema.SemiAuto {
               @GQLField
               @GQLName("value2")
+              @GQLDirective(Directive("b"))
+              @GQLDirective(Directive("a"))
               def foo: Option[String] = Some(value + 2)
             }
             final case class Bar(foo: Foo) derives Schema.SemiAuto
             val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
 
-            assertTrue(rendered == expectedSchema)
+            assertTrue(rendered == expectedSchema.replace("value2: String", "value2: String @b @a"))
           },
           test("Auto derivation of methods as fields") {
             final case class Foo(value: String) {

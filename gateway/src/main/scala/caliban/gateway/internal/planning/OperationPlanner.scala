@@ -87,11 +87,11 @@ private[gateway] object OperationPlanner {
                                 (),
                                 PlanningFailure.Rejected("Incremental delivery is not supported inside subscriptions.")
                               )
-        best               <- planRoots(subgraphFields).map(withoutEmptySelections)
-        typenameSelections  = collectTypenameSelections(best.roots, best.entities)
+        planned            <- planRoots(subgraphFields)
         passthroughSubgraph =
-          if (defers || document.hasEmptySelectionSet) None
-          else findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
+          if (defers) None else findPassthroughSubgraph(document, planned.roots, planned.entities, localFields)
+        best                = withoutEmptySelections(planned)
+        typenameSelections  = collectTypenameSelections(best.roots, best.entities)
         _                  <- Either.cond(
                                 passthroughSubgraph.nonEmpty ||
                                   !document.hasDirective(execution.operationName)(isCustomDirective),
@@ -242,17 +242,25 @@ private[gateway] object OperationPlanner {
       }
 
     private def withoutEmptySelections(candidate: PlanCandidate): PlanCandidate = {
-      def fill(field: Field): Field = {
-        val innerType = field.fieldType.innerType
-        if (field.fields.nonEmpty) field.copy(fields = field.fields.map(fill))
-        else if (isCompositeType(innerType))
-          field.copy(fields = privateTypename(RuntimeTypenameAliasBase, innerType, Set.empty) :: Nil)
-        else field
-      }
+      def fill(source: Source)(field: Field): Field =
+        if (field.fields.nonEmpty) {
+          val fields = field.fields.mapConserve(fill(source))
+          if (fields eq field.fields) field else field.copy(fields = fields)
+        } else if (isCompositeType(field.fieldType.innerType)) {
+          val base =
+            if (source.isInterfaceObject(sourceTypeName(source, field))) TypenameAliasBase else RuntimeTypenameAliasBase
+          field.copy(fields = privateTypename(base, field.fieldType.innerType, Set.empty) :: Nil)
+        } else field
 
       candidate.copy(
-        roots = candidate.roots.map(fetch => fetch.copy(downstream = fetch.downstream.map(fill))),
-        waves = candidate.waves.map(_.map(fetch => fetch.copy(fields = fetch.fields.map(fill))))
+        roots = candidate.roots.mapConserve { fetch =>
+          val downstream = fetch.downstream.mapConserve(fill(fetch.source))
+          if (downstream eq fetch.downstream) fetch else fetch.copy(downstream = downstream)
+        },
+        waves = candidate.waves.mapConserve(_.mapConserve { fetch =>
+          val fields = fetch.fields.mapConserve(fill(fetch.target.source))
+          if (fields eq fetch.fields) fetch else fetch.copy(fields = fields)
+        })
       )
     }
 
@@ -367,15 +375,16 @@ private[gateway] object OperationPlanner {
      * Allows the original request to be forwarded unchanged when no gateway-side rewriting or merging is needed.
      */
     private def findPassthroughSubgraph(
+      document: Document,
       roots: List[RootFetch],
       entities: List[EntityFetch],
-      typenameSelections: List[TypenameSelection],
       localFields: List[Field]
     ): Option[Source] =
       roots match {
         case fetch :: Nil
-            if graph.sources.size == 1 && entities.isEmpty && typenameSelections.isEmpty && localFields.isEmpty &&
-              !fetch.source.mapping.nonEmpty =>
+            if graph.sources.size == 1 && entities.isEmpty && localFields.isEmpty && !fetch.source.mapping.nonEmpty &&
+              collectTypenameSelections(roots, entities).isEmpty && !document.hasEmptySelectionSet &&
+              !document.hasExecutableDescription =>
           Some(fetch.source)
         case _ => None
       }

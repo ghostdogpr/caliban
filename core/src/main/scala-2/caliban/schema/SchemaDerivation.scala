@@ -219,41 +219,14 @@ trait CommonSchemaDerivation[R] {
           Some(getDirectives(ctx.annotations))
         )
       } else {
-        val excl         = ctx.annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
-        val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-        val commonFields = () =>
-          impl
-            .flatMap(_.allFields)
-            .groupBy(_.name)
-            .collect {
-              case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
-                val deprecated = list.find(_.isDeprecated)
-                Types
-                  .unify(list)
-                  .flatMap(t =>
-                    list.headOption.map(
-                      _.copy(
-                        description = Types.extractCommonDescription(list),
-                        `type` = () => t,
-                        isDeprecated = deprecated.isDefined,
-                        deprecationReason = deprecated.flatMap(_.deprecationReason)
-                      )
-                    )
-                  )
-            }
-            .flatten
-            .toList
-            .sortBy(_.name)
-
-        SchemaUtils.withParentInterfaces(
-          makeInterface(
-            Some(getName(ctx)),
-            getDescription(ctx),
-            commonFields,
-            impl,
-            Some(ctx.typeName.full),
-            Some(getDirectives(ctx.annotations))
-          ),
+        val impl = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
+        SchemaUtils.mkInterface(
+          getName(ctx),
+          getDescription(ctx),
+          impl,
+          ctx.annotations,
+          ctx.typeName.full,
+          getDirectives(ctx.annotations),
           p.schemas()
         )
       }

@@ -30,8 +30,7 @@ trait GraphQL[-R] { self =>
   protected val features: Set[Feature]
   protected val transformer: Transformer[R]
 
-  private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] =
-    SchemaValidator.validateSchema(schemaBuilder, additionalDirectives)
+  private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] = validated.map(_._1)
 
   /**
    * Returns this GraphQL rendered as a string in the GraphQL SDL format.
@@ -77,15 +76,18 @@ trait GraphQL[-R] { self =>
     validated.flatMap { case (_, rootType) => rootType.resolve(coordinate) }
 
   private lazy val validated: Either[ValidationError, (RootSchema[R], RootType)] =
-    validateRootSchema.map { schema =>
-      schema -> RootType(
-        schema.query.opType,
-        schema.mutation.map(_.opType),
-        schema.subscription.map(_.opType),
+    schemaBuilder.query.toRight(SchemaValidator.missingQueryRoot).flatMap { query =>
+      val rootType = RootType(
+        query.opType,
+        schemaBuilder.mutation.map(_.opType),
+        schemaBuilder.subscription.map(_.opType),
         schemaBuilder.additionalTypes,
         additionalDirectives,
         schemaBuilder.schemaDescription
       )
+      SchemaValidator
+        .validateRootType(rootType)
+        .map(_ => (RootSchema(query, schemaBuilder.mutation, schemaBuilder.subscription), rootType))
     }
 
   /**
@@ -214,7 +216,8 @@ trait GraphQL[-R] { self =>
       override protected val schemaBuilder: RootSchemaBuilder[R1]    = self.schemaBuilder |+| that.schemaBuilder
       override protected val wrappers: List[Wrapper[R1]]             = self.wrappers ++ that.wrappers
       override protected val additionalDirectives: List[__Directive] =
-        self.additionalDirectives ++ that.additionalDirectives
+        self.additionalDirectives.filterNot(d => that.additionalDirectives.exists(_.name == d.name)) ++
+          that.additionalDirectives
       override protected val features: Set[Feature]                  = self.features ++ that.features
       override protected val transformer: Transformer[R1]            = self.transformer |+| that.transformer
     }
@@ -280,7 +283,8 @@ trait GraphQL[-R] { self =>
   final def withAdditionalDirectives(directives: List[__Directive]): GraphQL[R] = new GraphQL[R] {
     override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder
     override protected val wrappers: List[Wrapper[R]]              = self.wrappers
-    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives ++ directives
+    override protected val additionalDirectives: List[__Directive] =
+      self.additionalDirectives.filterNot(d => directives.exists(_.name == d.name)) ++ directives
     override protected val features: Set[Feature]                  = self.features
     override protected val transformer: Transformer[R]             = self.transformer
   }

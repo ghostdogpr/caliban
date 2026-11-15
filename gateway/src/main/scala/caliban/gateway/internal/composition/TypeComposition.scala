@@ -285,7 +285,7 @@ private[composition] final class TypeComposition(
       }
 
     shell.copy(
-      fields = args => Some(includeDeprecated(all, args.includeDeprecated)(_.isDeprecated)),
+      fields = args => Some(args.filter(all)(_.isDeprecated)),
       interfaces = () => Some(resolve(interfaces, composed)),
       possibleTypes = if (shell.kind == __TypeKind.INTERFACE) Some(possibleTypes) else shell.possibleTypes
     )
@@ -303,7 +303,7 @@ private[composition] final class TypeComposition(
       .filter(field => common(field.name) && !directives.hidden(InputFieldCoordinate(typeName, field.name)))
       .sortBy(_.name)
       .map(field => directives.attachInputField(typeName, field.copy(`type` = () => rewrite(field._type))))
-    shell.copy(inputFields = args => Some(includeDeprecated(fields, args.includeDeprecated)(_.isDeprecated)))
+    shell.copy(inputFields = args => Some(args.filter(fields)(_.isDeprecated)))
   }
 
   private def mergeEnum(typeName: String, entries: List[SubgraphType], shell: __Type): __Type = {
@@ -314,7 +314,7 @@ private[composition] final class TypeComposition(
       .filter(value => !inputTypeNames(typeName) || visible.forall(_.exists(_.name == value.name)))
       .sortBy(_.name)
       .map(directives.attachEnumValue(typeName, _))
-    shell.copy(enumValues = args => Some(includeDeprecated(values, args.includeDeprecated)(_.isDeprecated)))
+    shell.copy(enumValues = args => Some(args.filter(values)(_.isDeprecated)))
   }
 
 }
@@ -361,9 +361,6 @@ private[composition] object TypeComposition {
 
   private def resolve(references: List[__Type], candidates: Map[String, __Type]): List[__Type] =
     references.flatMap(_.name).distinct.sorted.flatMap(candidates.get)
-
-  def includeDeprecated[A](values: List[A], include: Boolean)(isDeprecated: A => Boolean): List[A] =
-    if (include) values else values.filterNot(isDeprecated)
 
   private def contextualArgumentDiagnostics(
     fieldPath: String,

@@ -213,15 +213,16 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           sent.size == 1
         )
       },
-      test("serializes public resolver rejections as HTTP 200 while internal failures remain HTTP 500") {
+      test("serializes public resolver rejections as request errors while internal failures remain HTTP 500") {
         def serialized(url: URL, mediaType: String) =
           for {
             rejected <- execute(post(url, """{"extensions":{"documentId":"unknown"}}""", mediaType))
             failed   <- execute(post(url, """{"query":"internal"}""", mediaType))
+            strict    = mediaType != "application/json"
           } yield assertTrue(
-            rejected.response.status == Status.Ok,
-            rejected.body ==
-              """{"data":null,"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
+            rejected.response.status == (if (strict) Status.BadRequest else Status.Ok),
+            rejected.body == (if (strict) "{" else """{"data":null,""") +
+              """"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
             failed.response.status == Status.InternalServerError,
             failed.body.contains("Operation resolution failed."),
             !failed.body.contains("resolver-secret"),

@@ -10,7 +10,8 @@ package caliban.quick
  *                             result contains both data and errors.
  * @param jsonClientStatusCodes Reply request errors to clients that only accept `application/json` with the same
  *                              4xx status codes as `application/graphql-response+json` clients, instead of `200`.
- *                              Non-2xx responses then use `Content-Type: application/graphql-response+json`.
+ *                              Their non-2xx responses are then the same as for those clients, including
+ *                              `Content-Type: application/graphql-response+json`.
  */
 case class HttpConfig(
   maxRequestBodyBytes: Int,

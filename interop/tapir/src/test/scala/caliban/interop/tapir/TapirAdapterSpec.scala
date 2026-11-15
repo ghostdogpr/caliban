@@ -12,7 +12,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.client4.ResponseException.{ DeserializationException, UnexpectedStatusCode }
 import sttp.client4.httpclient.zio.HttpClientZioBackend
 import sttp.client4.impl.zio.ZioServerSentEvents
-import sttp.client4.{ BasicBodyPart, ResponseException, WebSocketRequest, WebSocketStreamBackend }
+import sttp.client4.{ basicRequest, BasicBodyPart, ResponseException, WebSocketRequest, WebSocketStreamBackend }
 import sttp.model._
 import sttp.model.sse.ServerSentEvent
 import sttp.tapir.client.sttp4.ws.WebSocketSttpClientInterpreter
@@ -261,22 +261,32 @@ object TapirAdapterSpec {
               }
             )
           },
-          test("returns 400 status code on invalid GET requests") {
-            ZIO
-              .serviceWithZIO[Backend](
-                runGet(GraphQLRequest(None)).send(_)
-              )
-              .map(r => assertTrue(r.code.code == 400))
+          test("returns 400 status code on invalid GET requests and ignores empty optional parameters") {
+            val empty =
+              Map("query" -> "{ characters { name } }", "operationName" -> "", "variables" -> "", "extensions" -> "")
+            for {
+              invalid <- ZIO.serviceWithZIO[Backend](runGet(GraphQLRequest(None)).send(_))
+              valid   <- ZIO.serviceWithZIO[Backend](basicRequest.get(httpUri.addParams(empty)).send(_))
+            } yield assertTrue(invalid.code.code == 400, valid.code.code == 200)
           },
           test("returns 400 status code on invalid POST requests and 406 on unacceptable ones") {
             for {
               invalid      <- ZIO.serviceWithZIO[Backend](run(GraphQLRequest(None)).send(_))
               unacceptable <- runHttpRequest("POST", Header.accept(MediaType.TextHtml))
               malformed    <- runHttpRequest("POST", Header(HeaderNames.Accept, ";"))
+              refusedJson  <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/json;q=0"))
+              emptyParam   <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/graphql-response+json;"))
+              invalidQ     <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/json;q=abc"))
+              numericQ     <- runHttpRequest("POST", Header(HeaderNames.Accept, "application/json;q=-0"))
             } yield assertTrue(
               invalid.code.code == 400,
               unacceptable.code == StatusCode.NotAcceptable,
-              malformed.code == StatusCode.NotAcceptable
+              malformed.code == StatusCode.NotAcceptable,
+              refusedJson.code == StatusCode.NotAcceptable,
+              emptyParam.code == StatusCode.Ok,
+              emptyParam.contentType.contains("application/graphql-response+json"),
+              invalidQ.code == StatusCode.Ok,
+              numericQ.code == StatusCode.Ok
             )
           },
           test("returns 405 with an Allow header for mutations over GET methods") {
@@ -294,7 +304,8 @@ object TapirAdapterSpec {
                 case _                             => false
               },
               stream.code == StatusCode.MethodNotAllowed,
-              stream.header(HeaderNames.Allow).contains("POST")
+              stream.header(HeaderNames.Allow).contains("POST"),
+              stream.contentType.contains("text/event-stream")
             )
           },
           test("very long field values in mutations") {

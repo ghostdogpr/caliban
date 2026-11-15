@@ -46,7 +46,7 @@ object TapirAdapter {
   }
 
   private type CalibanBody[BS]   = Either[ResponseValue, BS]
-  type CalibanResponse[BS]       = (MediaType, StatusCode, Option[String], CalibanBody[BS])
+  type CalibanResponse[BS]       = (MediaType, StatusCode, List[Header], CalibanBody[BS])
   type CalibanEndpoint[R, BS, S] =
     ServerEndpoint.Full[Unit, Unit, (GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
 
@@ -104,10 +104,10 @@ object TapirAdapter {
     response: GraphQLResponse[E]
   )(implicit
     streamConstructor: StreamConstructor[BS]
-  ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) =
+  ): CalibanResponse[BS] =
     buildHttpResponse(
       request,
-      ResponseEncoding.negotiate(request.header(HeaderNames.Accept)).getOrElse(ResponseEncoding.Json),
+      ResponseEncoding.negotiate(request.headers(HeaderNames.Accept)).getOrElse(ResponseEncoding.Json),
       response,
       GraphQLResponseContext.outcome(response)
     )
@@ -117,26 +117,15 @@ object TapirAdapter {
     request: GraphQLRequest,
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-    ResponseEncoding.negotiate(serverRequest.header(HeaderNames.Accept)) match {
+    ResponseEncoding.negotiate(serverRequest.headers(HeaderNames.Accept)) match {
       case None           => ZIO.fail(notAcceptable)
       case Some(encoding) =>
-        IncomingRequestHeaders
-          .locally(headerValues(serverRequest))(
-            GraphQLResponseContext.capture(interpreter.executeRequest(request)) { (response, outcome) =>
-              if (outcome == Outcome.MutationOverGet) Left(methodNotAllowed(response, encoding))
-              else Right(buildHttpResponse[E, BS](serverRequest, encoding, response, outcome))
-            }
+        IncomingRequestHeaders.locally(headerValues(serverRequest))(
+          GraphQLResponseContext.capture(interpreter.executeRequest(request))(
+            buildHttpResponse[E, BS](serverRequest, encoding, _, _)
           )
-          .absolve
+        )
     }
-
-  private def methodNotAllowed[E](response: GraphQLResponse[E], encoding: ResponseEncoding): TapirResponse = {
-    val graphQLJson = encoding == ResponseEncoding.GraphQLJson
-    val mediaType   = if (graphQLJson) GraphqlResponseJson.mediaType else MediaType.ApplicationJson
-    TapirResponse(StatusCode.MethodNotAllowed, responseCodec.encode(response.toResponseValue(!graphQLJson, None)))
-      .withHeader(HeaderNames.Allow, "POST")
-      .withHeader(HeaderNames.ContentType, mediaType.toString)
-  }
 
   private val notAcceptable =
     TapirResponse(StatusCode.NotAcceptable, "None of the media types in the Accept header are supported.")
@@ -146,19 +135,21 @@ object TapirAdapter {
     encoding: ResponseEncoding,
     response: GraphQLResponse[E],
     outcome: Outcome
-  )(implicit streamConstructor: StreamConstructor[BS]): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
+  )(implicit streamConstructor: StreamConstructor[BS]): CalibanResponse[BS] = {
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
     val httpStatus     = HttpUtils.httpStatus(response, outcome, encoding)
     val status         = StatusCode(httpStatus.code)
+    val allow          = if (outcome == Outcome.MutationOverGet) AllowPost else Nil
+    val headers        = cacheDirective.fold(allow)(Header(HeaderNames.CacheControl, _) :: allow)
 
     def sse(events: ZStream[Any, Nothing, ResponseValue]) =
-      (MediaType.TextEventStream, status, None, encodeTextEventStreamResponse(events))
+      (MediaType.TextEventStream, status, allow, encodeTextEventStreamResponse(events))
 
     def single(mediaType: MediaType) =
       (
         mediaType,
         status,
-        cacheDirective,
+        headers,
         encodeSingleResponse(
           response,
           keepDataOnErrors = httpStatus.keepDataOnErrors,
@@ -168,10 +159,10 @@ object TapirAdapter {
 
     HttpUtils.delivery(response, outcome) match {
       case Delivery.Incremental(responses)     =>
-        (deferMultipartMediaType, StatusCode.Ok, None, encodeMultipartMixedResponse(responses))
+        (deferMultipartMediaType, StatusCode.Ok, Nil, encodeMultipartMixedResponse(responses))
       case subscription: Delivery.Subscription =>
-        if (ResponseEncoding.acceptsEventStream(request.header(HeaderNames.Accept))) sse(subscription.recovered)
-        else (MediaType.ApplicationJson, StatusCode.BadRequest, None, Left(HttpUtils.SubscriptionOverJsonError))
+        if (ResponseEncoding.acceptsEventStream(request.headers(HeaderNames.Accept))) sse(subscription.recovered)
+        else (MediaType.ApplicationJson, StatusCode.BadRequest, Nil, Left(HttpUtils.SubscriptionOverJsonError))
       case _                                   =>
         httpStatus.encoding match {
           case ResponseEncoding.GraphQLJson => single(GraphqlResponseJson.mediaType)
@@ -181,12 +172,16 @@ object TapirAdapter {
             (
               deferMultipartMediaType,
               status,
-              cacheDirective,
+              headers,
               encodeMultipartMixedResponse(ZStream.succeed(response.toResponseValue))
             )
         }
     }
   }
+
+  private val CompleteSse = ServerSentEvent(None, Some("complete"))
+
+  private val AllowPost: List[Header] = List(Header(HeaderNames.Allow, "POST"))
 
   private val deferMultipartMediaType: MediaType =
     MediaType.MultipartMixed.copy(otherParameters = HttpUtils.DeferMultipart.DeferHeaderParams)
@@ -221,7 +216,7 @@ object TapirAdapter {
     val response = HttpUtils.ServerSentEvents.fromEvents(
       events,
       v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
-      ServerSentEvent(None, Some("complete")),
+      CompleteSse,
       None
     )
     Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))

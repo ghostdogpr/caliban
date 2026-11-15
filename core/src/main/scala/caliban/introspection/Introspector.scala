@@ -119,8 +119,10 @@ object Introspector extends IntrospectionDerivation {
     val types    = typesMap.values.toList.sortBy(_.name)
     val hasOneOf = types.exists(_._isOneOfInput)
 
+    val additional    = rootType.additionalDirectives
     val allDirectives =
-      directives ++ (if (hasOneOf) List(oneOfDirective) else Nil) ++ rootType.additionalDirectives
+      (directives ++ (if (hasOneOf) List(oneOfDirective) else Nil))
+        .filterNot(builtIn => additional.exists(_.name == builtIn.name)) ++ additional
 
     val resolver = __Introspection(
       __Schema(
@@ -129,7 +131,7 @@ object Introspector extends IntrospectionDerivation {
         rootType.mutationType,
         rootType.subscriptionType,
         types,
-        args => if (args.includeDeprecated) allDirectives else allDirectives.filterNot(_.isDeprecated)
+        _.filter(allDirectives)(_.isDeprecated)
       ),
       args => typesMap.get(args.name)
     )

@@ -133,11 +133,16 @@ object HttpInterpreter {
     for {
       req <- JsonCodecs.requestCodec.decode(s"""{"query":"","variables":${queryParams
                  .get("variables")
+                 .filter(_.nonEmpty)
                  .getOrElse("null")},"extensions":${queryParams
                  .get("extensions")
+                 .filter(_.nonEmpty)
                  .getOrElse("null")}}""")
 
-    } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
+    } yield req.copy(
+      query = queryParams.get("query"),
+      operationName = queryParams.get("operationName").filter(_.nonEmpty)
+    )
 
   private[tapir] def queryToQueryParams(request: GraphQLRequest): QueryParams =
     QueryParams.fromMap(
@@ -180,7 +185,7 @@ object HttpInterpreter {
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
         .out(statusCode)
-        .out(header[Option[String]](HeaderNames.CacheControl))
+        .out(headers)
         .out(outputBody(streams))
         .errorOut(errorBody)
 
@@ -193,7 +198,7 @@ object HttpInterpreter {
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
         .out(statusCode)
-        .out(header[Option[String]](HeaderNames.CacheControl))
+        .out(headers)
         .out(outputBody(streams))
         .errorOut(errorBody)
 

@@ -156,18 +156,6 @@ object FederationV2Spec extends ZIOSpecDefault {
           assertTrue(
             schemaDirectives == List(
               Directive(
-                "composeDirective",
-                Map(
-                  "name" -> StringValue("@myDirective")
-                )
-              ),
-              Directive(
-                "composeDirective",
-                Map(
-                  "name" -> StringValue("@hello")
-                )
-              ),
-              Directive(
                 "link",
                 Map(
                   "url"    -> StringValue("https://specs.apollo.dev/federation/v2.3"),
@@ -203,6 +191,18 @@ object FederationV2Spec extends ZIOSpecDefault {
                       )
                     )
                   )
+                )
+              ),
+              Directive(
+                "composeDirective",
+                Map(
+                  "name" -> StringValue("@myDirective")
+                )
+              ),
+              Directive(
+                "composeDirective",
+                Map(
+                  "name" -> StringValue("@hello")
                 )
               )
             )

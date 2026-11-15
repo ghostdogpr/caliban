@@ -12,6 +12,7 @@ private[caliban] object GraphQLResponseContext {
     case object ParsingFailed    extends Outcome
     case object ValidationFailed extends Outcome
     case object MutationOverGet  extends Outcome
+    case object Rejected         extends Outcome
   }
 
   sealed trait ServerFailure extends Outcome
@@ -24,6 +25,7 @@ private[caliban] object GraphQLResponseContext {
 
   private val ExecutedMark   = Some(Outcome.Executed)
   private val SubscribedMark = Some(Outcome.Subscribed)
+  private val RejectedMark   = Some(Outcome.Rejected)
 
   private val current: FiberRef[Option[Outcome]] =
     Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(None))
@@ -41,6 +43,9 @@ private[caliban] object GraphQLResponseContext {
 
   def markServerError(failure: ServerFailure): UIO[Unit] =
     current.set(Some(failure))
+
+  def markRejected: UIO[Unit] =
+    current.set(RejectedMark)
 
   def markExecuted: UIO[Unit] =
     current.set(ExecutedMark)

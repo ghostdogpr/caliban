@@ -306,25 +306,17 @@ private[gateway] object EntityExecutor {
 
   private final case class CandidatePath(root: FetchId, path: Vector[String], conditions: List[PathCondition])
 
-  private[execution] def collectEntities(
-    value: ResponseValue,
-    fields: List[String],
-    reversedPath: List[PathValue],
-    collected: mutable.ListBuffer[(List[PathValue], ResponseValue)]
-  ): Unit =
-    collectEntities(value, fields, reversedPath, collected, 0, Nil)
-
   /**
    * Collects the non-null values at `fields` below `value`, skipping objects whose runtime type does not satisfy the
    * `conditions` at their depth, the number of names already followed. Objects without the typename are kept.
    */
-  private def collectEntities(
+  private[execution] def collectEntities(
     value: ResponseValue,
     fields: List[String],
     reversedPath: List[PathValue],
     collected: mutable.ListBuffer[(List[PathValue], ResponseValue)],
-    depth: Int,
-    conditions: List[PathCondition]
+    depth: Int = 0,
+    conditions: List[PathCondition] = Nil
   ): Unit =
     value match {
       case obj: ObjectValue if fields ne Nil                =>
