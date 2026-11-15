@@ -116,7 +116,6 @@ private object DerivationUtils {
         Some(info.full),
         Some(getDirectives(annotations))
       ),
-      excl,
       parents
     )
   }

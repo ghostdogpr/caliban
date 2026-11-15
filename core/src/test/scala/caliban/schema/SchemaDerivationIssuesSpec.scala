@@ -214,10 +214,10 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import NestedInterfaceIssue._
       for {
         i   <- schema.interpreter
-        res <- i.execute(gqldoc("{ e1 { b } e2 { b } e3 { b } e4 { b d } e5 { e } }"))
+        res <- i.execute(gqldoc("{ e1 { b } e2 { b } e3 { b } e4 { b d } e5 { b } }"))
         data = res.data.toString
       } yield assertTrue(
-        data == """{"e1":{"b":"b"},"e2":{"b":"b"},"e3":{"b":"b"},"e4":{"b":"b","d":1},"e5":{"e":2}}""",
+        data == """{"e1":{"b":"b"},"e2":{"b":"b"},"e3":{"b":"b"},"e4":{"b":"b","d":1},"e5":{"b":"b"}}""",
         schema.render ==
           """schema {
             |  query: Query
@@ -239,10 +239,6 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |interface Mid2 implements NestedInterface {
             |  b: String!
             |  friend: NestedInterface
-            |}
-            |
-            |interface Mid3 {
-            |  e: Int!
             |}
             |
             |interface Mid4 implements NestedInterface {
@@ -274,11 +270,6 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |  d: Int!
             |}
             |
-            |type FooE implements NestedInterface & Mid3 {
-            |  b: String!
-            |  e: Int!
-            |}
-            |
             |type FooF implements NestedInterface & Mid4 & Low4 {
             |  b: String!
             |  s: String!
@@ -289,11 +280,14 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |  e2: Mid1!
             |  e3: Mid2!
             |  e4: Low!
-            |  e5: Mid3!
-            |  e6: Low4!
+            |  e5: Low4!
             |}
             |""".stripMargin
       )
+    },
+    test("nested interface excluding a field of its parent is rejected") {
+      import ExcludedParentFieldIssue._
+      schema.interpreter.flip.map(e => assertTrue(e.msg == "Interface 'Child' is missing field(s): b"))
     },
     test("i2076") {
       import i2076._
@@ -669,9 +663,6 @@ object NestedInterfaceTypes {
     @GQLInterface
     sealed trait Low extends Mid1
 
-    @GQLInterface("b")
-    sealed trait Mid3 extends NestedInterface
-
     @GQLInterface("s")
     sealed trait Mid4 extends NestedInterface
 
@@ -682,7 +673,6 @@ object NestedInterfaceTypes {
     case class FooB(a: String, b: String, friend: Option[Mid2])            extends Mid1 with Mid2
     case class FooC(c: String, b: String, friend: Option[NestedInterface]) extends Mid2
     case class FooD(b: String, d: Int)                                     extends Low
-    case class FooE(b: String, e: Int)                                     extends Mid3
     case class FooF(b: String, s: String)                                  extends Low4
   }
 }
@@ -696,17 +686,14 @@ object NestedInterfaceIssue {
     e2: NestedInterface.Mid1,
     e3: NestedInterface.Mid2,
     e4: NestedInterface.Low,
-    e5: NestedInterface.Mid3,
-    e6: NestedInterface.Low4
+    e5: NestedInterface.Low4
   )
 
   implicit lazy val fooA: Schema[Any, NestedInterface.FooA] = Schema.gen
   implicit lazy val fooB: Schema[Any, NestedInterface.FooB] = Schema.gen
   implicit lazy val fooC: Schema[Any, NestedInterface.FooC] = Schema.gen
   implicit lazy val fooD: Schema[Any, NestedInterface.FooD] = Schema.gen
-  implicit lazy val fooE: Schema[Any, NestedInterface.FooE] = Schema.gen
   implicit lazy val low: Schema[Any, NestedInterface.Low]   = NestedInterfaceLow.low
-  implicit lazy val mid3: Schema[Any, NestedInterface.Mid3] = Schema.gen
   implicit lazy val fooF: Schema[Any, NestedInterface.FooF] = Schema.gen
   implicit lazy val mid4: Schema[Any, NestedInterface.Mid4] = Schema.gen
   implicit lazy val low4: Schema[Any, NestedInterface.Low4] = Schema.gen
@@ -721,7 +708,6 @@ object NestedInterfaceIssue {
       NestedInterface.FooB("a", "b", None),
       NestedInterface.FooC("c", "b", None),
       NestedInterface.FooD("b", 1),
-      NestedInterface.FooE("b", 2),
       NestedInterface.FooF("b", "s")
     )
     caliban.graphQL(RootResolver(queries))
@@ -732,6 +718,24 @@ object NestedInterfaceLow {
   import NestedInterfaceIssue.{ fooD, mid1 }
 
   implicit lazy val low: Schema[Any, NestedInterfaceTypes.NestedInterface.Low] = Schema.gen
+}
+
+object ExcludedParentFieldIssue {
+  @GQLInterface
+  sealed trait Parent
+
+  @GQLInterface("b")
+  sealed trait Child extends Parent
+
+  case class Impl(a: String, b: String) extends Child
+  case class Query(child: Child)
+
+  implicit lazy val impl: Schema[Any, Impl]     = Schema.gen
+  implicit lazy val parent: Schema[Any, Parent] = Schema.gen
+  implicit lazy val child: Schema[Any, Child]   = Schema.gen
+  implicit lazy val query: Schema[Any, Query]   = Schema.gen
+
+  val schema = graphQL(RootResolver(Query(Impl("a", "b"))))
 }
 
 object i2076 {
