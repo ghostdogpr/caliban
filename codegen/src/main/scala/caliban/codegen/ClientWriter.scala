@@ -788,20 +788,17 @@ object ClientWriter {
       def maybeDeprecated(arg: InputValueDefinition) =
         if (arg.isDeprecated) writeDeprecated(arg.deprecationReason) else ""
 
-      s"${args.map(arg => s"${maybeDeprecated(arg)}${safeName(arg.name)} : ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+      s"${args.map(arg => s"${maybeDeprecated(arg)}${safeName(arg.name)} : ${writeType(arg.ofType)}${defaultValueOf(arg).fold("")(v => s" = $v")}").mkString(", ")}"
     }
-
-    def writeDefaultArgument(arg: InputValueDefinition): String =
-      defaultValueOf(arg).fold("")(v => s" = $v")
 
     def defaultValueOf(arg: InputValueDefinition): Option[String] =
-      arg.defaultValue.flatMap(writeValue(arg.ofType, _)).orElse(fallbackDefault(arg.ofType))
-
-    def fallbackDefault(t: Type): Option[String] = t match {
-      case t if t.nullable => Some("None")
-      case ListType(_, _)  => Some("Nil")
-      case _               => None
-    }
+      arg.defaultValue
+        .flatMap(writeValue(arg.ofType, _))
+        .orElse(arg.ofType match {
+          case t if t.nullable => Some("None")
+          case ListType(_, _)  => Some("Nil")
+          case _               => None
+        })
 
     def sequence(values: List[Option[String]]): Option[List[String]] =
       if (values.forall(_.isDefined)) Some(values.flatten) else None
@@ -839,18 +836,14 @@ object ClientWriter {
                       .map(v => s"$typeName.${k.capitalize}($v)")
                   case _             => None
                 }
-              case (Some(i: InputObjectTypeDefinition), ObjectValue(values))                                      =>
-                val fields   = inputFields(i)
-                val complete = values.keySet.subsetOf(fields.map(_.name).toSet) && fields.forall(f =>
-                  values.contains(f.name) || fallbackDefault(f.ofType).orElse(defaultValueOf(f)).isDefined
-                )
-                sequence(
-                  fields.flatMap(f =>
-                    values.get(f.name).map(writeValue(f.ofType, _).map(v => s"${safeName(f.name)} = $v"))
-                  )
-                )
-                  .filter(_ => complete)
-                  .map(_.mkString(s"$typeName(", ", ", ")"))
+              case (Some(i: InputObjectTypeDefinition), ObjectValue(values))
+                  if values.keySet.subsetOf(inputFields(i).map(_.name).toSet) =>
+                sequence(inputFields(i).map { f =>
+                  values
+                    .get(f.name)
+                    .fold(defaultValueOf(f))(writeValue(f.ofType, _))
+                    .map(v => s"${safeName(f.name)} = $v")
+                }).map(_.mkString(s"$typeName(", ", ", ")"))
               case _                                                                                              => None
             }
         }

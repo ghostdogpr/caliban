@@ -76,9 +76,18 @@ object Client {
       nickname: scala.Option[String] = None,
       origin: Origin = Origin.EARTH,
       date: scala.Option[Date] = Some("2020-01-01"),
-      filter: Filter = Filter(userId = "u", origins = List(Origin.EARTH, Origin.MARS)),
+      filter: Filter = Filter(
+        userId = "u",
+        isExternal = false,
+        limit = Some(10),
+        origins = List(Origin.EARTH, Origin.MARS),
+        json = None
+      ),
       filters: scala.Option[List[Filter]] = Some(
-        List(Filter(userId = "u", limit = None), Filter(userId = "v", isExternal = true))
+        List(
+          Filter(userId = "u", isExternal = false, limit = None, origins = List(Origin.MARS), json = None),
+          Filter(userId = "v", isExternal = true, limit = Some(10), origins = List(Origin.MARS), json = None)
+        )
       ),
       search: scala.Option[Search] = Some(Search.Name("n")),
       json: io.circe.Json
