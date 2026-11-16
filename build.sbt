@@ -340,7 +340,7 @@ lazy val codegenSbt = project
     crossScalaVersions            := Seq(scala212, scala3),
     pluginCrossBuild / sbtVersion := (scalaBinaryVersion.value match {
       case "2.12" => sbtVersion.value
-      case _      => "2.1.0-RC2"
+      case _      => "2.1.0"
     }),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-config"          % zioConfigVersion,
