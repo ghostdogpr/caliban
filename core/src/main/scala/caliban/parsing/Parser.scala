@@ -36,7 +36,7 @@ object Parser {
   def parseSchemaCoordinate(rawValue: String): Either[ParsingError, SchemaCoordinate] =
     parseWith(rawValue)(schemaCoordinate(_))
 
-  private def parseWith[A](rawValue: String)(parser: P[_] => P[A]): Either[ParsingError, A] = {
+  private def parseWith[A](rawValue: String)(parser: P[?] => P[A]): Either[ParsingError, A] = {
     val sm = SourceMapper(rawValue)
     Try(parse(rawValue, parser)).toEither.left
       .map(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))

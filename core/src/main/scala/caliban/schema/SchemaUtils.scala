@@ -35,7 +35,7 @@ private[schema] object SchemaUtils {
     annotations: Seq[Any],
     origin: String,
     directives: List[Directive],
-    parents: => List[Schema[_, _]]
+    parents: => List[Schema[?, ?]]
   ): __Type = {
     val excl         = annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
     val commonFields = () =>
