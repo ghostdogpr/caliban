@@ -7,6 +7,7 @@ import org.openjdk.jmh.annotations._
 import zio.{ Runtime, Task, Unsafe }
 
 import java.util.concurrent.TimeUnit
+import scala.annotation.nowarn
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
+@nowarn("msg=uninitialized")
 class NestedZQueryBenchmark {
 
   private val runtime = Runtime.default

@@ -18,6 +18,8 @@ First, add the following dependency to your `build.sbt` file:
 "com.github.ghostdogpr" %% "caliban" % "3.1.5"
 ```
 
+Caliban supports Scala 2.13 and 3.9 or later. Most modules also support Scala 2.12.
+
 Creating a GraphQL API with Caliban is as simple as creating a case class in Scala.
 Indeed, the whole GraphQL schema will be derived from a case class hierarchy (its fields and the other types it references), and the resolver is just an instance of that case class.
 

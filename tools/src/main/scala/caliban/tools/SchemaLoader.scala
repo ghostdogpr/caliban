@@ -11,7 +11,7 @@ trait SchemaLoader {
 }
 
 object SchemaLoader {
-  case class FromCaliban private[SchemaLoader] (api: GraphQL[_]) extends SchemaLoader {
+  case class FromCaliban private[SchemaLoader] (api: GraphQL[?]) extends SchemaLoader {
     override def load: Task[Document] = ZIO.succeed(api.toDocument)
   }
   case class FromDocument private[SchemaLoader] (doc: Document)  extends SchemaLoader {

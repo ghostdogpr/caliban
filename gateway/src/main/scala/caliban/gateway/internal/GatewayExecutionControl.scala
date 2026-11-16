@@ -10,7 +10,7 @@ private[gateway] final class GatewayExecutionControl private (
   drainTimeout: Duration,
   state: TRef[GatewayExecutionControl.State]
 ) {
-  private val running           = ConcurrentHashMap.newKeySet[Fiber.Runtime[_, _]]()
+  private val running           = ConcurrentHashMap.newKeySet[Fiber.Runtime[?, ?]]()
   @volatile private var stopped = false
 
   final class Lease private[GatewayExecutionControl] (startedAt: Long) {

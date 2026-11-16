@@ -14,12 +14,12 @@ object ArgBuilderSpec extends ZIOSpecDefault {
   def spec = suite("ArgBuilder")(
     suite("orElse")(
       test("handles failures")(
-        assert((ArgBuilder.instant orElse ArgBuilder.instantEpoch).build(IntValue.LongNumber(100)))(
+        assert((ArgBuilder.instant `orElse` ArgBuilder.instantEpoch).build(IntValue.LongNumber(100)))(
           isRight(equalTo(Instant.ofEpochMilli(100)))
         )
       ),
       test("short-circuits")(
-        assert((ArgBuilder.instantEpoch orElse ArgBuilder.instant).build(IntValue.LongNumber(100)))(
+        assert((ArgBuilder.instantEpoch `orElse` ArgBuilder.instant).build(IntValue.LongNumber(100)))(
           isRight(equalTo(Instant.ofEpochMilli(100)))
         )
       )

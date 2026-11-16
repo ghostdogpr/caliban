@@ -10,8 +10,6 @@ import zio.http._
 import zio.stream.{ ZPipeline, ZStream }
 import zio.test.{ assertTrue, suite, test, Live, ZIOSpecDefault }
 
-import scala.language.postfixOps
-
 object QuickAdapterSpec extends ZIOSpecDefault {
   import caliban.quick._
 
@@ -54,8 +52,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                      smallResponse.routes("/api/graphql-small-response") ++
                      rebuilt.routes("/api/graphql-rebuilt")) @@ auth
                  }
-      _       <- Server.serve(routes).forkScoped
-      _       <- Live.live(Clock.sleep(3 seconds))
+      _       <- Server.install(routes)
       service <- ZIO.service[TestService]
     } yield service
   }

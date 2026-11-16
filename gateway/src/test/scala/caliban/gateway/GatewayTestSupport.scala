@@ -170,7 +170,7 @@ private[gateway] object GatewayTestSupport {
   def awaitPoll(interval: Duration = 1.second): UIO[Unit] =
     Clock.instant.flatMap(now => TestClock.sleeps.repeatUntil(_.contains(now.plus(interval)))).unit
 
-  def poll(runtime: ReloadableGatewayInterpreter[_], interval: Duration = 1.second): UIO[Option[String]] =
+  def poll(runtime: ReloadableGatewayInterpreter[?], interval: Duration = 1.second): UIO[Option[String]] =
     TestClock.adjust(interval) *> awaitPoll(interval) *> runtime.lastReloadFailure
 
   def nextAnswer[A](remaining: Ref[List[A]], fallback: A): UIO[A] =

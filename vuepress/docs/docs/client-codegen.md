@@ -13,6 +13,8 @@ To use any of these two plugins, you'll first need to add following dependency t
 addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "3.1.5")
 ```
 
+The plugin supports sbt 1 and sbt 2.1 or later.
+
 ## CalibanPlugin
 
 The first step for building GraphQL queries with `caliban-client` is to generate boilerplate code from a GraphQL schema. For that, you need a file containing your schema (if your backend uses `caliban`, you can get it by calling `GraphQL#render` on your API).

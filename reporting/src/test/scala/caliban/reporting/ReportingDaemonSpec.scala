@@ -23,11 +23,11 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
     )
   )
 
-  case class Invocation(ref: SchemaReportingRef[_], withSchema: Boolean)
+  case class Invocation(ref: SchemaReportingRef[?], withSchema: Boolean)
 
   class FakeSchemaReporter private (
     _invocations: Ref[List[Invocation]],
-    respond: Ref[(SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]]
+    respond: Ref[(SchemaReportingRef[?], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]]
   ) extends SchemaReporter {
     override def report[A](
       ref: SchemaReportingRef[A],
@@ -40,7 +40,7 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
     def invocations: UIO[List[Invocation]] = _invocations.get
 
     def whenReport(
-      f: (SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]
+      f: (SchemaReportingRef[?], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]
     ): UIO[Unit] =
       respond.set(f)
   }
@@ -48,15 +48,15 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
   object FakeSchemaReporter {
 
     def whenReport(
-      f: (SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]
+      f: (SchemaReportingRef[?], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse]
     ): URIO[FakeSchemaReporter, Unit] =
       ZIO.serviceWithZIO(_.whenReport(f))
 
-    val defaultResponse: (SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse] =
+    val defaultResponse: (SchemaReportingRef[?], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse] =
       (_, _, _) => ZIO.succeed(ReportingResponse(false, 0.seconds))
 
     def live(
-      respond: (SchemaReportingRef[_], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse] =
+      respond: (SchemaReportingRef[?], Boolean, List[Invocation]) => IO[ReportingError, ReportingResponse] =
         defaultResponse
     ): ZLayer[Any, Nothing, FakeSchemaReporter with SchemaReporter] = ZLayer.fromZIOEnvironment {
       for {

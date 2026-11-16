@@ -31,7 +31,7 @@ private[gateway] object Deadline {
       }
     }
 
-  def expire(fiber: Fiber.Runtime[_, _]): Unit =
+  def expire(fiber: Fiber.Runtime[?, ?]): Unit =
     Unsafe.unsafe(implicit unsafe => fiber.unsafe.interrupt(Cause.interrupt(Expiry)))
 
   def expired(cause: Cause[Any]): Boolean = cause.interruptors.contains(Expiry)

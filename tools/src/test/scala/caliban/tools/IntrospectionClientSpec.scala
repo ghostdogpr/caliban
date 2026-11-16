@@ -9,7 +9,7 @@ import caliban.schema.Types
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.test._
-import zio.{ durationInt, Clock }
+import zio.http.Server
 
 object IntrospectionClientSpec extends ZIOSpecDefault {
 
@@ -34,10 +34,9 @@ object IntrospectionClientSpec extends ZIOSpecDefault {
 
   def spec = suite("IntrospectionClientSpec")(
     test("is isomorphic") {
-      val port = 8091
       for {
-        _                 <- api.runServer(port = port, apiPath = "/api/graphql").fork
-        _                 <- Clock.ClockLive.sleep(2.seconds)
+        routes            <- api.routes("/api/graphql")
+        port              <- Server.install(routes)
         introspectedSchema =
           SchemaLoader.fromIntrospectionWith(s"http://localhost:$port/api/graphql", None)(
             _.supportDeprecatedArgs(true).supportDeprecatedDirectives(true)
@@ -45,7 +44,7 @@ object IntrospectionClientSpec extends ZIOSpecDefault {
         codeSchema         = SchemaLoader.fromCaliban(api)
         res               <- SchemaComparison.compare(introspectedSchema, codeSchema)
       } yield assertTrue(res.isEmpty)
-    }
+    }.provide(Server.defaultWithPort(0))
   )
 
 }

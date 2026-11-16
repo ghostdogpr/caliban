@@ -69,7 +69,7 @@ object Formatter {
 private[codegen] final class ScalafmtBridgeClassLoader(parent: ClassLoader)
     extends ClassLoader(ClassLoader.getPlatformClassLoader) {
 
-  override protected def findClass(name: String): Class[_] =
+  override protected def findClass(name: String): Class[?] =
     if (name.startsWith("org.scalafmt.interfaces")) parent.loadClass(name)
     else super.findClass(name)
 }

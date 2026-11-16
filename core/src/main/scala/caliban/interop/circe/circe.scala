@@ -27,7 +27,7 @@ object json {
       case StringValue(value)                 => Json.fromString(value)
       case BooleanValue(value)                => Json.fromBoolean(value)
       case EnumValue(value)                   => Json.fromString(value)
-      case InputValue.ListValue(values)       => Json.arr(values.map(inputValueEncoder.apply): _*)
+      case InputValue.ListValue(values)       => Json.fromValues(values.map(inputValueEncoder.apply))
       case InputValue.ObjectValue(fields)     =>
         Json.fromFields(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) })
       case InputValue.VariableValue(name)     => Json.fromString(name)

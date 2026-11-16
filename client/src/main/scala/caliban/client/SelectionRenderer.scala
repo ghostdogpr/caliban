@@ -213,16 +213,16 @@ private[client] object SelectionRenderer {
       }
     }
 
-  private lazy val argumentsRenderer: SelectionRenderer[List[Argument[_]]] =
-    new SelectionRenderer[List[Argument[_]]] {
+  private lazy val argumentsRenderer: SelectionRenderer[List[Argument[?]]] =
+    new SelectionRenderer[List[Argument[?]]] {
       override def unsafeRender(
-        a: List[Argument[_]],
+        a: List[Argument[?]],
         state0: State,
         writer: StringBuilder,
         options: Options
       ): State = {
         @tailrec
-        def loop(args: List[Argument[_]], state: State, first: Boolean): State =
+        def loop(args: List[Argument[?]], state: State, first: Boolean): State =
           args match {
             case Nil       =>
               if (first) writer.append(')')
