@@ -264,7 +264,7 @@ Run `application` from your `ZIOAppDefault.run`. Configure Prometheus to scrape 
 For OpenTelemetry tracing, add the optional module to `build.sbt`:
 
 ```scala
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-gateway-tracing" % "3.1.5"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-gateway-tracing" % "@VERSION@"
 ```
 
 Attach its hooks to the gateway:

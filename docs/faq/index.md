@@ -2,7 +2,7 @@
 
 ### I don't know where to start 😥
 
-No worries! Head to the [Resources](https://ghostdogpr.github.io/caliban/resources/) page to find a few introductory videos and blog posts, in particular this [Beginner's Guide to GraphQL in Scala](https://blog.pierre-ricadat.com/a-beginners-guide-to-graphql-in-scala). Once you're ready for more details, check the [Documentation](https://ghostdogpr.github.io/caliban/docs/). If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
+No worries! Head to the [Resources](../resources/index.md) page to find a few introductory videos and blog posts, in particular this [Beginner's Guide to GraphQL in Scala](https://blog.pierre-ricadat.com/a-beginners-guide-to-graphql-in-scala). Once you're ready for more details, check the [Documentation](../docs/index.md). If you prefer looking at some code first, check [this list of examples](../docs/examples.md).
 
 If you're still lost, just come to the [Discord channel](https://discord.gg/EYpumuv)!
  
@@ -13,7 +13,7 @@ It is also recommended to use semi-auto derivation instead of auto derivation, a
 
 ### I want to use Caliban, but I use Cats Effect / Monix instead of ZIO.
 
-That's not a problem! Caliban has interop modules that "hide" the ZIO details and expose Cats Effect or Monix types instead. Check the [interop docs](https://ghostdogpr.github.io/caliban/docs/interop.html#cats-effect) for more details.
+That's not a problem! Caliban has interop modules that "hide" the ZIO details and expose Cats Effect or Monix types instead. Check the [interop docs](../docs/interop.md#cats-effect) for more details.
 
 ### My query fails with an "Effect failure" error. How can I get more details?
 

@@ -1,0 +1,32 @@
+:root {
+    --vp-home-hero-name-color: #CB4239;
+
+    --vp-c-brand-1: #C2268D;
+    --vp-c-brand-2: #A61F7A;
+    --vp-c-brand-3: #C2268D;
+    --vp-c-brand-soft: rgba(194, 38, 141, 0.14);
+}
+
+.dark {
+    --vp-c-brand-1: #F06BC4;
+    --vp-c-brand-2: #E54DB3;
+    --vp-c-brand-3: #C2268D;
+    --vp-c-brand-soft: rgba(240, 107, 196, 0.16);
+}
+
+.stack-badge {
+    display: inline-block;
+    margin-bottom: 16px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--vp-c-default-soft);
+    color: var(--vp-c-text-2);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
+    transition: color 0.25s;
+}
+
+.stack-badge:hover {
+    color: var(--vp-c-brand-1);
+}

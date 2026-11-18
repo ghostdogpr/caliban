@@ -10,7 +10,7 @@ both need to configure in your project to be able to generate you Caliban client
 
 To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "3.1.5")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "@VERSION@")
 ```
 
 The plugin supports sbt 1 and sbt 2.1 or later.
@@ -60,7 +60,7 @@ If you want to cherry-pick certain files yourself, you can override that as well
 Compile / caliban / sources := List(file("caliban") / "Service.graphql")
 ```
 
-For every entry in `calibanSettings` for the same file, a separate client (or [schema](schema.md#code-generation), depending on the entry's `genType` value) will be generated.
+For every entry in `calibanSettings` for the same file, a separate client (or [schema](server-codegen.md), depending on the entry's `genType` value) will be generated.
 
 ### From a server URL
 

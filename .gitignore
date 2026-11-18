@@ -14,16 +14,17 @@ project/metals.sbt
 *.class
 *.log
 
-vuepress/node_modules/*
 *.lock
-vuepress/package-lock.json
 
 package-lock.json
+!docs/package-lock.json
 node_modules/
 .DS_Store
 project/project/metals.sbt
 .cursor/mcp.json
 project/project/project/metals.sbt
-vuepress/docs/.vuepress/dist
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/node_modules
 mise.toml
 .zed/settings.json

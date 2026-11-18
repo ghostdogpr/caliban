@@ -15,7 +15,7 @@ The design principles of Caliban are the following:
 First, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban" % "3.1.5"
+"com.github.ghostdogpr" %% "caliban" % "@VERSION@"
 ```
 
 Caliban supports Scala 2.13 and 3.9 or later. Most modules also support Scala 2.12.
@@ -79,7 +79,7 @@ The interpreter is not tied any web framework, so you are free to expose this fu
 The easiest (and most performant!) way to expose your API over HTTP is to use the optional `caliban-quick` module based on [zio-http](https://github.com/zio/zio-http).
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-quick"  % "3.1.5"
+"com.github.ghostdogpr" %% "caliban-quick"  % "@VERSION@"
 ```
 
 You can then serve your GraphQL API over HTTP using a single command:
@@ -100,22 +100,22 @@ And that's it - now you have a fully functional GraphQL server running on port 8
 If you have any specific server requirements or need to interop with other libraries, Caliban offers a wide range of modules to help you do that.
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-http4s"     % "3.1.5" // routes for http4s
-"com.github.ghostdogpr" %% "caliban-akka-http"  % "3.1.5" // routes for akka-http
-"com.github.ghostdogpr" %% "caliban-pekko-http" % "3.1.5" // routes for pekko-http
-"com.github.ghostdogpr" %% "caliban-play"       % "3.1.5" // routes for play
+"com.github.ghostdogpr" %% "caliban-http4s"     % "@VERSION@" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "@VERSION@" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-pekko-http" % "@VERSION@" // routes for pekko-http
+"com.github.ghostdogpr" %% "caliban-play"       % "@VERSION@" // routes for play
 
-"com.github.ghostdogpr" %% "caliban-cats"       % "3.1.5" // interop with cats-effect
-"com.github.ghostdogpr" %% "caliban-monix"      % "3.1.5" // interop with monix
-"com.github.ghostdogpr" %% "caliban-tapir"      % "3.1.5" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-cats"       % "@VERSION@" // interop with cats-effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "@VERSION@" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "@VERSION@" // interop with tapir
 
-"com.github.ghostdogpr" %% "caliban-federation" % "3.1.5" // apollo federation
-"com.github.ghostdogpr" %% "caliban-reporting"  % "3.1.5" // apollo schema reporting
-"com.github.ghostdogpr" %% "caliban-tracing"    % "3.1.5" // open-telemetry
-"com.github.ghostdogpr" %% "caliban-stitching"  % "3.1.5" // stitching
+"com.github.ghostdogpr" %% "caliban-federation" % "@VERSION@" // apollo federation
+"com.github.ghostdogpr" %% "caliban-reporting"  % "@VERSION@" // apollo schema reporting
+"com.github.ghostdogpr" %% "caliban-tracing"    % "@VERSION@" // open-telemetry
+"com.github.ghostdogpr" %% "caliban-stitching"  % "@VERSION@" // stitching
 
-"com.github.ghostdogpr" %% "caliban-gateway"         % "3.1.5" // gateway over multiple GraphQL services
-"com.github.ghostdogpr" %% "caliban-gateway-tracing" % "3.1.5" // open-telemetry for the gateway
+"com.github.ghostdogpr" %% "caliban-gateway"         % "@VERSION@" // gateway over multiple GraphQL services
+"com.github.ghostdogpr" %% "caliban-gateway-tracing" % "@VERSION@" // open-telemetry for the gateway
 ```
 
 ## Where to go next?
@@ -123,6 +123,6 @@ If you have any specific server requirements or need to interop with other libra
 The rest of the documentation covers in details how to create [schemas](schema.md), [customize](middleware.md) and [optimize](optimization.md) query processing, [expose](adapters.md) APIs, and much more.
 
 If you'd like to see a more detailed version of this tutorial, check out this [Beginner's Guide to GraphQL in Scala](https://blog.pierre-ricadat.com/a-beginners-guide-to-graphql-in-scala).
-If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
+If you prefer looking at some code first, check [this list of examples](examples.md).
 
 If you have any questions, just come to the [Discord channel](https://discord.gg/EYpumuv)!

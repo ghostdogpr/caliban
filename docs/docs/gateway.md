@@ -12,8 +12,8 @@ Add the gateway and an HTTP adapter to `build.sbt`:
 
 ```scala
 libraryDependencies ++= Seq(
-  "com.github.ghostdogpr" %% "caliban-gateway" % "3.1.5",
-  "com.github.ghostdogpr" %% "caliban-quick"   % "3.1.5"
+  "com.github.ghostdogpr" %% "caliban-gateway" % "@VERSION@",
+  "com.github.ghostdogpr" %% "caliban-quick"   % "@VERSION@"
 )
 ```
 

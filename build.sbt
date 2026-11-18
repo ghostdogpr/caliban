@@ -788,6 +788,10 @@ lazy val docs = project
     crossScalaVersions := Seq(scala212, scala213),
     name               := "caliban-docs",
     mdocIn             := (ThisBuild / baseDirectory).value / "docs",
+    // only the Markdown pages need checking, not the VitePress setup or its build output
+    mdocExtraArguments := Seq("--exclude", ".vitepress", "--exclude", "node_modules", "--exclude", "public"),
+    // the docs workflow replaces @VERSION@ with the released version, so mdoc only needs a value for it
+    mdocVariables      := Map("VERSION" -> version.value),
     run / fork         := true,
     scalacOptions -= "-Xfatal-warnings",
     scalacOptions += "-Wunused:imports",

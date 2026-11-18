@@ -11,7 +11,7 @@ To combine Federation subgraphs into one API, see [Caliban Gateway](gateway/subg
 To use, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-federation" % "3.1.5"
+"com.github.ghostdogpr" %% "caliban-federation" % "@VERSION@"
 ```
 
 ## Federating

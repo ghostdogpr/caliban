@@ -5,7 +5,7 @@ It is depending on [Laminext](https://laminext.dev), a library that provides nic
 
 To use it, import the `caliban-client-laminext` module:
 ```scala
-"com.github.ghostdogpr" %%% "caliban-client-laminext" % "3.1.5"
+"com.github.ghostdogpr" %%% "caliban-client-laminext" % "@VERSION@"
 ```
 
 Add the following import to your code:
@@ -51,4 +51,4 @@ To use it:
 - run `ExampleApp` of the http4s server example (it supports CORS)
 - run `clientLaminextJS/Test/fastLinkJS` to compile the Scala.js code
 - run `yarn install` and `yarn exec vite` in the `caliban-client-laminext` folder
-- the example page will be running on [http://localhost:3000](http://localhost:3000)
+- the example page will be running on `http://localhost:3000`
