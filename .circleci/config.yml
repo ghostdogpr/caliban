@@ -172,26 +172,6 @@ jobs:
           echo $PGP_SECRET | base64 --decode | gpg --import --no-tty --batch --yes
       - run: sbt +clean ci-release
 
-  microsite:
-    docker:
-      - image: cimg/node:16.13
-    steps:
-      - checkout
-      - run: |
-          if [ "$(git diff --numstat HEAD^ -- vuepress)" ]; then
-            cd vuepress
-            npm install
-            npm run docs:build
-            cd ..
-            rm -rf docs
-            cp -r vuepress/docs/.vuepress/dist docs
-            git add docs
-            git config user.name "Pierre Ricadat"
-            git config user.email "ghostdogpr@gmail.com"
-            git commit -m "[ci skip] update docs"
-            git push
-          fi
-
 workflows:
   build:
     jobs:
@@ -282,8 +262,3 @@ workflows:
                 - series/3.x
             tags:
               only: /^v\d+\.\d+\.\d+(-[\w.-]+)?(\+[\w.-]+)?$/
-      - microsite:
-          filters:
-            branches:
-              only:
-                - series/3.x

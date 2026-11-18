@@ -103,7 +103,7 @@ export default defineConfig({
       }
     ],
 
-    // The VuePress sidebar listed h2 and h3 headings, so the outline shows both levels.
+    // Many pages split their sections into h3 headings, so the outline lists them too.
     outline: [2, 3],
 
     socialLinks: [
