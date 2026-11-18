@@ -1,0 +1,284 @@
+# Stitching
+
+::: tip
+For new applications, use [Caliban Gateway](gateway.md) to combine GraphQL services into one API. It supports ordinary GraphQL services, Federation subgraphs, and local Caliban APIs. Your services do not need to use Federation.
+:::
+
+Stitching lets you use parts of another GraphQL API inside your own API, or proxy an entire remote schema. The examples below use `caliban-stitching`.
+
+You should also be careful when using stitching since it's very easy to pull in large parts of an external schema's types and structure into your API. This can make it error prone since the likelihood that you'll get type clashes between your API and the API you're stitching in quickly increases.
+
+## Dependencies
+
+In order to use stitching, add `caliban-stitching` to your dependencies:
+
+```scala
+"com.github.ghostdogpr" %% "caliban-stitching" % "@VERSION@"
+```
+
+## Stitching in Action
+
+Let's start out by defining our API. We'll have `AppUser` profiles, that has a linked `featuredRepository`. For the `featuredRepository`, we want to leverage [GitHub's GraphQL API](https://docs.github.com/en/graphql).
+
+```scala mdoc:silent
+import caliban._
+import caliban.schema._
+import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
+import zio._
+
+object StitchingExample extends GenericSchema[Any] {
+  case class AppUser(id: String, name: String, featuredRepository: Repository)
+  case class Repository(owner: String, name: String)
+
+  case class GetUserQuery(name: String, repository: String)
+
+  case class Queries(
+    GetUser: GetUserQuery => UIO[AppUser]
+  )
+
+  val api: GraphQL[Any] = graphQL(
+    RootResolver(
+      Queries(
+        GetUser = query =>
+          Random.nextUUID.map(uuid =>
+            AppUser(
+              id = uuid.toString,
+              name = query.name,
+              featuredRepository = Repository(query.name, query.repository)
+            )
+          )
+      )
+    )
+  )
+}
+```
+
+Now let's integrate with the GitHub API!
+
+In order to do this we're going to do a couple of things:
+
+1. Load the introspection schema from GitHub's API
+1. Parse the introspected schema into a `caliban.introspection.adt.__Schema`
+1. Use the parsed schema to generate an `implicit Schema[R, A]` for the entities we're stitching. This effectively replaces our own schema with one from GitHub.
+1. Teach our implicit schema how to map our local resolver to a query that can be resolved remotely by calling GitHub's API.
+
+
+```scala
+  val GITHUB_API = "https://api.github.com/graphql"
+
+  val api = for {
+    sttpClient           <- ZIO.environment[SttpClient]
+    // 1
+    schemaLoader          = SchemaLoader.fromIntrospection(GITHUB_API, None)
+    schema               <- schemaLoader.load
+    // 2
+    remoteSchema         <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(schema))
+    remoteSchemaResolvers = RemoteSchemaResolver.fromSchema(remoteSchema)
+  } yield {
+    // 3
+    implicit val githubProfileSchema: Schema[Any, Repository] =
+      remoteSchemaResolvers
+        .remoteResolver("Repository")(
+          // 4
+          // Here we need to translate our local `Repository` case class into
+          // a top-level query which can be issued towards GitHub's API.
+          // We do this by accepting a `caliban.execution.Field`, representing
+          // all the selected fields for a repository and map that to the
+          // top-level `repository` query in the GitHub API.
+          // This means the final query will end up looking something like this:
+          // query {
+          //   repository(owner: r.args.owner, name: r.args.name) {
+          // .   <incoming query>
+          //   }
+          // }
+          RemoteResolver.fromFunction((r: ResolveRequest[Repository]) =>
+            r.field.copy(
+              name = "repository",
+              arguments = Map(
+                "owner" -> Value.StringValue(r.args.owner),
+                "name"  -> Value.StringValue(r.args.name)
+              )
+            )
+          ) >>> RemoteResolver.fromUrl(GITHUB_API)
+        )
+        .provide(sttpClient)
+  }
+```
+
+However, when running this we will experience failing requests due to `401 Unauthorized`. This is because all queries to GitHub's API requires authorization to be provided. In order to fix this, we need to add authorization to both the introspection query as well as our remote resolver. We also need a config module that can provide us with a GitHub token based on the value of `GITHUB_TOKEN` in our environment.
+
+```scala
+case class Configuration(githubToken: String)
+
+object Configuration {
+  def fromEnvironment =
+    (for {
+      githubToken <- read("GITHUB_TOKEN")
+    } yield Configuration(githubToken)).toLayer
+
+  private def read(key: String): Task[String] = Task.effect(
+    sys.env(key)
+  )
+}
+```
+
+We can now update the introspection query to use our token:
+
+```scala
+  val api = for {
+    config     <- ZIO.environment[Has[Configuration]]
+    schemaLoader = SchemaLoader.fromIntrospection(
+                     GITHUB_API,
+                     Some(
+                       List(
+                         Options.Header(
+                           "Authorization",
+                           s"Bearer ${config.get.githubToken}"
+                         )
+                       )
+                     )
+                   )
+    // ...
+  }  yield ???
+```
+
+as well as update our resolver to authorize our request.
+
+In order to do this, we can use `RemoteResolver[R, E, A, B]` which lets us compose resolution steps via `>>>`.
+
+In order to make this code easier, we can extract the mechanics around sending the actual request:
+
+```scala
+val apiRequest =
+    RemoteResolver.toQuery >>> RemoteResolver.request(GITHUB_API) >>> RemoteResolver.fromFunctionM((r: HttpRequest) =>
+    for {
+        config <- ZIO.service[Configuration]
+    } yield r.header("Authorization", s"Bearer ${config.githubToken}")
+    ) >>> RemoteResolver.execute >>> RemoteResolver.unwrap
+```
+
+And now we can use our new `apiRequest` when resolving our `Schema[ZEnv, Repository]`:
+
+```scala
+implicit val githubProfileSchema: Schema[Any, Repository] =
+  remoteSchemaResolvers
+  .remoteResolver("Repository")(
+      RemoteResolver.fromFunction((r: ResolveRequest[Repository]) =>
+      r.field.copy(
+          name = "repository",
+          arguments = Map(
+            "owner" -> Value.StringValue(r.args.owner),
+            "name"  -> Value.StringValue(r.args.name)
+          )
+        )
+      ) >>> apiRequest
+  )
+  .provide(sttpClient ++ config)
+```
+
+All that's left to do is to hook up to an HTTP server and configure a GitHub API token. And now you have an API that can handle queries such as these:
+
+
+```graphql
+query {
+  GetUser(name:"ghostdogpr", repository:"caliban") {
+    id
+    name
+    featuredRepository {
+      pullRequests(states: OPEN, first: 10) {
+        edges {
+          node {
+            title
+            author {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Cache invalidation
+
+Caliban supports Apollo's [dynamic cache tagging and invalidation specification](https://www.apollographql.com/docs/graphos/routing/performance/caching/response-caching/invalidation), you can proactively invalidate cached entries with `CacheInvalidator`.
+
+`CacheInvalidator` sends a `POST` request to a configured invalidation endpoint with:
+
+- an `Authorization` header set to your shared secret
+- a JSON array body describing one or more invalidation operations
+
+## Installation
+
+- Available using: `"com.github.ghostdogpr" %% "caliban-stitching" % "@VERSION@"`
+
+### Configuration
+
+`CacheInvalidator.Config` contains:
+
+- `sharedSecret`: secret used as the `Authorization` header value
+- `invalidationUri`: URI of the invalidation endpoint
+
+You can load it from ZIO config using:
+
+```scala
+CacheInvalidator.Config.config
+```
+
+This reads:
+
+- `shared-secret`
+- `invalidation-uri`
+
+### Invalidation methods
+
+`CacheInvalidator.InvalidationMethod` supports three invalidation targets:
+
+```scala
+import caliban.federation.subgraph.CacheInvalidator.InvalidationMethod
+
+val bySubgraph = InvalidationMethod.Subgraph("accounts")
+val byType     = InvalidationMethod.Type("products", "Product")
+val byTag      = InvalidationMethod.CacheTag(List("accounts", "products"), "homepage")
+```
+
+### Simple usage
+
+```scala
+import caliban.federation.subgraph.CacheInvalidator
+import caliban.federation.subgraph.CacheInvalidator.InvalidationMethod
+import sttp.client4.Backend
+import zio.Config.Secret
+import zio._
+
+import java.net.URI
+
+val config = CacheInvalidator.Config(
+  sharedSecret = Secret("secret"),
+  invalidationUri = URI.create("https://localhost:8080/invalidate")
+)
+
+val invalidateProgram =
+  for {
+    invalidator <- ZIO.service[CacheInvalidator]
+    _ <- invalidator.invalidate(InvalidationMethod.Subgraph("accounts"))
+    _ <- invalidator.invalidateAll(
+      List(
+        InvalidationMethod.Type("products", "Product"),
+        InvalidationMethod.CacheTag(List("accounts", "products"), "homepage")
+      )
+    )
+  } yield ()
+
+// Provide your sttp Backend[Task] together with CacheInvalidator.Config
+val layer: ZLayer[Backend[Task], Nothing, CacheInvalidator] =
+  ZLayer.succeed(config) >>> CacheInvalidator.live
+```
+
+See the [examples directory](https://github.com/ghostdogpr/caliban/tree/series/3.x/examples/src/main/scala/example/stitching) for a full example.
+
+## Things not yet supported
+- Type renaming.
+- Type conflict resolution strategies.
