@@ -787,7 +787,7 @@ lazy val docs = project
     ideSkipProject     := (scalaVersion.value == scala3),
     crossScalaVersions := Seq(scala212, scala213),
     name               := "caliban-docs",
-    mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
+    mdocIn             := (ThisBuild / baseDirectory).value / "docs",
     run / fork         := true,
     scalacOptions -= "-Xfatal-warnings",
     scalacOptions += "-Wunused:imports",
