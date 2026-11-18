@@ -1,0 +1,27 @@
+name: Docs
+
+on:
+  release:
+    types: [published]
+
+  # Build the site on pull requests that touch the docs, without deploying it.
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Pull request builds use their own group so they never cancel a pending deployment.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('docs-pr-{0}', github.ref) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docs:
+    uses: ghostdogpr/.github/.github/workflows/docs.yml@v1
