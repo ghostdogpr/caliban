@@ -10,9 +10,12 @@ on:
       - adapters/quick/**
       - .github/workflows/compatibility.yaml
 
+permissions:
+  contents: read
+
 jobs:
   compatibility:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout current branch
         uses: actions/checkout@v4
@@ -22,8 +25,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: 17
-          distribution: 'adopt'
-          cache: 'sbt'
+          distribution: 'temurin'
       - uses: sbt/setup-sbt@v1
       - name: Cache scala dependencies
         uses: coursier/cache-action@v6
