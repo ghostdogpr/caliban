@@ -14,7 +14,7 @@ val akkaHttpVersion           = "10.2.10"
 val catsEffect3Version        = "3.7.1"
 val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.17"
-val fs2Version                = "3.14.0"
+val fs2Version                = "3.16.0"
 val http4sVersion             = "0.23.39"
 val javaTimeVersion           = "2.11.0"
 val jsoniterVersion           = "2.43.0"
@@ -33,7 +33,7 @@ val zioInteropCats3Version    = "23.1.0.15"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.1.2"
 val zqueryVersion             = "0.7.9"
-val zioJsonVersion            = "1.1.2"
+val zioJsonVersion            = "1.1.3"
 val zioHttpVersion            = "3.11.6"
 val zioOpenTelemetryVersion   = "3.1.21"
 val zioMetricsVersion         = "2.6.0"
@@ -259,7 +259,7 @@ lazy val codegen = project
   .settings(
     libraryDependencies ++= Seq(
       "org.scalameta"   % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier" % "interface"           % "1.0.30",
+      "io.get-coursier" % "interface"           % "1.0.31",
       "dev.zio"        %% "zio-test"            % zioVersion % Test,
       "dev.zio"        %% "zio-test-sbt"        % zioVersion % Test
     ),
