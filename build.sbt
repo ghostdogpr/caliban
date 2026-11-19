@@ -259,7 +259,7 @@ lazy val codegen = project
   .settings(
     libraryDependencies ++= Seq(
       "org.scalameta"   % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier" % "interface"           % "1.0.30",
+      "io.get-coursier" % "interface"           % "1.0.31",
       "dev.zio"        %% "zio-test"            % zioVersion % Test,
       "dev.zio"        %% "zio-test-sbt"        % zioVersion % Test
     ),
