@@ -244,13 +244,18 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             final case class Foo(value: String) derives Schema.SemiAuto {
               @GQLField def value2: Task[String] = ZIO.succeed(value + 2)
             }
-            final case class Bar(foo: Foo) derives Schema.SemiAuto
-            val gql = graphQL(RootResolver(Bar(Foo("foo"))))
+            sealed trait Choice derives Schema.SemiAuto
+            @GQLFieldsFromMethods
+            case object A extends Choice derives Schema.SemiAuto {
+              private def helper: Int = 42
+            }
+            final case class Bar(foo: Foo, choice: Choice) derives Schema.SemiAuto
+            val gql = graphQL(RootResolver(Bar(Foo("foo"), A)))
 
             gql.interpreter.flatMap { i =>
-              i.execute("{foo {value value2}}").map { v =>
+              i.execute("{foo {value value2} choice}").map { v =>
                 val s = v.data.toString
-                assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
+                assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"},"choice":"A"}""")
               }
             }
           },
@@ -298,8 +303,9 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             @GQLFieldsFromMethods
             case class Foo(value: String) derives Schema.SemiAuto {
               def fooValue: Option[String]   = None
-              def barValue: Int              = 42
+              def barValue: Int              = answer
               @GQLExcluded def bazValue: Int = 42
+              private def answer: Int        = 42
             }
             val rendered = graphQL(RootResolver(Foo("foo"))).render
 
