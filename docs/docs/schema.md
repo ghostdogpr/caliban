@@ -312,7 +312,6 @@ Derivation of fields via the `@GQLField` / `@GQLFieldsFromMethods` annotation ca
 - The method cannot take arguments. If you need to derive a field that requires arguments, you can return a function instead.
 - The method must be public (i.e. not `private` or `protected`).
 - It currently only works with methods (i.e., `def`). If you need to cache the output of the method, you can create a private lazy val and return it from the method.
-- It is not compatible with ahead-of-time compilation (e.g., generating a GraalVM native-image executable).
 :::
 
 ## Arguments

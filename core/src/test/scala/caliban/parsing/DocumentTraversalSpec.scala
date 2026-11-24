@@ -1,20 +1,12 @@
 package caliban.parsing
 
-import caliban.TestUtils
 import caliban.introspection.Introspector
 import caliban.parsing.adt.Selection
-import org.apache.commons.lang3.SerializationUtils
 import zio._
 import zio.test._
 
-object DocumentSpec extends ZIOSpecDefault {
-  def spec = suite("DocumentSpec")(
-    test("is serializable") {
-      for {
-        doc1 <- Parser.parseQuery(TestUtils.introspectionQuery)
-        doc2  = SerializationUtils.roundtrip(doc1)
-      } yield assertTrue(doc1 == doc2)
-    },
+object DocumentTraversalSpec extends ZIOSpecDefault {
+  def spec = suite("DocumentSpec - traversal")(
     test("visits shared fragments once") {
       val depth          = 40
       val fragments      = (0 until depth).map { index =>

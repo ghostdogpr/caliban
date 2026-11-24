@@ -8,7 +8,6 @@ import magnolia1.Macro as MagnoliaMacro
 import scala.annotation.nowarn
 import scala.compiletime.*
 import scala.deriving.Mirror
-import scala.reflect.ClassTag
 import scala.util.NotGiven
 
 object PrintDerived {
@@ -129,7 +128,7 @@ trait CommonSchemaDerivation {
               MagnoliaMacro.anns[A],
               MagnoliaMacro.paramAnns[A].toMap,
               config.enableSemanticNonNull
-            )(using summonInline[ClassTag[A]])
+            )
         }
 
     }
